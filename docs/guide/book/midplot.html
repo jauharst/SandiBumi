@@ -392,54 +392,112 @@ RHOMAA = (RHOB − φa·RHO_FL)/(1 − φa)
 UMAA = (U − φa·U_FL)/(1 − φa)</pre>
 <h2>References</h2>
 <ul><li>Schlumberger Log Interpretation Charts, Lith-6 (Umaa-Rhomaa MID plot) and Por-11 (the apparent-porosity read)</li></ul>
-<!-- Authored walkthrough for the midplot guidebook chapter. Numbers and refusal texts
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the midplot guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the CHART-vs-XPLOT porosity basis measured. -->
 
-<h2>Step by step: the MID plot's two axes</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>The module computes the two coordinates of the Schlumberger MID plot (apparent
-matrix density RHOMAA and apparent matrix volumetric photoelectric factor UMAA) by
-removing the fluid from the density and from the photoelectric absorption at an
-apparent porosity read the way you would read it by hand off the density-neutron
-chart. Crossplot UMAA (X) against RHOMAA (Y), switch on the Lith-6 chart overlay,
-and the mineral triangle does the lithology reading.</p>
+<p>Apparent matrix identification: the module computes RHOMAA, the apparent
+matrix density, and UMAA, the apparent matrix volumetric photoelectric
+factor, which are the two axes of the classic matrix identification (MID)
+crossplot. Plot UMAA against RHOMAA, switch on the Lith-6 chart overlay,
+and each sample lands near the mineral its matrix actually is: quartz,
+calcite, dolomite, or a mix. Reach for it when lithology is the question
+the porosity chapters keep begging: before choosing a matrix density, run
+this and let the rock vote.</p>
 
-<h3>The picks, and the two refusals that asked for them</h3>
+<h2>The physics</h2>
 
-<p>The defaults carry the chart read (CHART, TNPH, FRESH) and the cited
-sandstone/limestone matrix lines. Three values had to be supplied, and two of them
-were demanded by name when the first run refused:</p>
+<p>The photoelectric factor is converted to a volumetric one, U = PEF · ρe
+with ρe = (RHOB + 0.1883)/1.0704, and then the fluid is removed from both
+measurements:</p>
+
+<pre class="equations">RHOMAA = (RHOB − φ·RHO_FL) / (1 − φ)
+UMAA   = (U − φ·U_FL) / (1 − φ)</pre>
+
+<p>Everything hinges on φ, the apparent porosity, which is the one
+judgement call in the method. The default CHART basis reads it off the
+density-neutron crossplot the way you would by hand on the chartbook: it
+finds the porosity at which the density and the neutron imply the same
+matrix, interpolating across the sandstone, limestone and dolomite curve
+families. The alternative XPLOT basis is the analytic average some
+commercial suites take, kept for comparison: it drags every point toward
+the assumed matrix density instead of solving for it.</p>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>U_FL 0.398 b/cm³</b>, fresh water: Pe 0.358 × ρe 1.111, the arithmetic the
-    module's own source records.</li>
-  <li><b>RHO_MA_DOL 2.85</b>. The refusal <i>"RHO_MA_DOL must be set — Dolomite
-    matrix line, CHART lookup"</i> names why: the chart interpolation spans all three
-    mineral curves even when the rock is expected clastic. The value is the dolomite
-    grain density from SandiMin's own endpoint library.</li>
-  <li><b>PHIA_MAX 0.5</b>. The second refusal asked for the rejection ceiling; the
-    module's recorded rationale sets it: near φ&nbsp;=&nbsp;1 the (1−φ) denominator
-    explodes, and a matrix property read from a &gt;50%-porosity sample is not a rock
-    property.</li>
+  <li><b>U_FL 0.398 b/cm3</b>: fresh-water fluid, the product of water's
+    Pe 0.358 and its electron density 1.111, as the module records.</li>
+  <li><b>Matrix lines 2.65 / 2.71 / 2.85 with RHO_MA_A 2.71</b>: the chart
+    curve families for the porosity read, on the recorded values.</li>
+  <li><b>TOOL TNPH, SALINITY FRESH</b>: the same chart-family choice the
+    Neutron Matrix Conversion chapter makes; the lookup must know which
+    neutron it is reading.</li>
+  <li><b>PHIA_MAX 0.5</b>: samples whose apparent porosity exceeds half are
+    rejected rather than plotted; a point that porous is bad hole or gas,
+    not lithology.</li>
 </ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Confirm the neutron is apparent limestone (convert first if not; the
+    CHART read assumes it).</li>
+  <li>Open <b>Petrophysics ▸ Lithology ▸ Apparent Matrix (MID plot)</b>,
+    keep CHART, and cite the fluid values in the custody line.</li>
+  <li>Run, then open a crossplot of UMAA (X) against RHOMAA (Y) and switch
+    on the Lith-6 MID plot overlay.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-midplot-pane.png"
-       alt="The MID plot pane with the chart read and the three supplied values" />
-  <figcaption>CHART read on TNPH/FRESH; the three supplied values each carry their
-    recorded source.</figcaption>
+       alt="The Apparent Matrix pane with the chart basis selected" />
+  <figcaption>The porosity basis is the method's one judgement call, and it
+    is a declared option, not a hidden convention.</figcaption>
 </figure>
 
-<h3>Run and read, including a synthetic-data caveat</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. One honesty note about what the crossplot then
-shows: in the clean wet sand the pair reads a median RHOMAA 2.79 / UMAA 6.2, well
-off the quartz point. That is not the module misbehaving: these example wells are
-generated from zone endpoint values, and their (RHOB, NPHI, PEF) triples do not ride
-the vendor chart the way a logged rock does, so the apparent-matrix arithmetic lands
-where the synthetic numbers send it. On logged data the clusters land on the mineral
-triangle; on this dataset the chapter's job is the mechanics, and the overlay
-chapter of the crossplot documentation covers the reading.</p>
+<p><b>3 clean</b>. Medians: RHOMAA <b>2.9541 g/cc</b>, UMAA <b>9.6456
+b/cm3</b>, with the apparent porosity the chart read actually used at
+<b>0.2642</b>. A median RHOMAA well above quartz is this shaly section
+speaking: clay minerals carry heavier matrix densities and higher U than
+quartz, so the section's mid-point sits toward the clay corner of the MID
+plot, and the sands resolve toward quartz only when you crossplot the
+points rather than the median.</p>
+
+<pre class="equations">SELECT round(median(value), 4) FROM computed_curves
+WHERE curve_name = 'RHOMAA' AND NOT isnan(value)</pre>
+
+<p>The basis switch, measured: XPLOT on the same picks moves the medians to
+RHOMAA <b>2.9073</b>, UMAA <b>9.4343</b>, φ <b>0.2457</b>. Every point
+drags toward the assumed RHO_MA_A, about 0.05 g/cc and 0.2 b/cm3 here,
+which on the MID plot is a real fraction of the quartz-to-calcite
+separation. Two suites showing different mineral mixes for the same well
+can differ by nothing more than this switch. Restored to CHART, every
+number returns exactly.</p>
+
+<figure>
+  <img src="../img/guide-midplot-result.png"
+       alt="The Apparent Matrix run reporting three clean wells" />
+  <figcaption>Three clean wells; the outputs exist to be crossplotted under
+    the Lith-6 overlay, not read as curves.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Barite mud makes PEF, and therefore UMAA, unreadable. Mask barite
+    intervals before trusting the plot; RHOMAA alone still works.</li>
+  <li>Gas pushes points low and left on the MID plot, exactly as on the
+    printed chart; do not read a gas zone as a lithology change.</li>
+  <li>Rocks denser than every chart line (anhydrite, pyrite) clamp at the
+    heavy end of the search and stay heavy rather than disappearing; a
+    cluster pinned at the edge is a mineral outside the chart's range, not
+    an error.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Apparent matrix density RHOMAA and apparent matrix volumetric photoelectric factor UMAA — the two axes of the Schlumberger Lith-6 MID plot (crossplot X = UMAA, Y = RHOMAA, then switch on the 'Lith-6 Umaa-Rhomaa MID plot' chart overlay). U = PEF * rho_e with rho_e = (RHOB + 0.1883)/1.0704; the fluid is then removed from both: RHOMAA = (RHOB - phi*RHO_FL)/(1 - phi), UMAA = (U - phi*U_FL)/(1 - phi). PHI here is the APPARENT porosity, the one judgement call in the method. OPT_PHIA = CHART (default) reads it off the density-neutron crossplot the way you would by hand on Por-11: it solves for the porosity at which the density and the neutron imply the SAME matrix, interpolating across the chartbook's sandstone, limestone and dolomite curves (pick the curve family with TOOL/SALINITY, exactly as in Neutron Matrix Conversion). Build a rock's two tool readings, feed them back, and this returns that rock: porosity to 1e-3 and RHOMAA onto its own matrix line, for sandstone, limestone and dolomite alike. Rocks denser than every matrix line (anhydrite, pyrite) clamp to the end of the search and stay heavy rather than dropping out, and gas pushes points low-left just as it does on the printed chart. XPLOT is the analytic average commercial suites take — kept for comparison, not for accuracy: it drags points toward the assumed RHO_MA_A, leaving dolomite about 0.06 g/cc light and 0.34 b/cm3 left of its chart point. NEUTRON uses the neutron alone. LOG takes a porosity curve you already trust. NPHI must be APPARENT LIMESTONE for CHART and NEUTRON — run Neutron Matrix Conversion first if the log is recorded in sandstone or dolomite units. Density-only apparent porosity is deliberately NOT offered: it is algebraically degenerate (it returns RHO_MA_A for every sample). Barite mud makes PEF, and therefore UMAA, unreadable — mask those intervals.</p>

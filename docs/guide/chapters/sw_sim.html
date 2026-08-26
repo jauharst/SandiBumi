@@ -1,39 +1,94 @@
-<!-- Authored walkthrough for the sw_sim guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the sw_sim guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the two typed equations measured against each other. -->
 
-<h2>Step by step: Simandoux, typed</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Every vendor ships a different arithmetic under the name "Simandoux". This pane
-refuses to take part in that: each persisted id names exactly one published equation,
-and the run records which one it used. This walkthrough runs
-<b>simandoux_bardon_pied</b> (the Bardon &amp; Pied form, the default) with the
-modified-SLB form (its VSH^C exponent and (1−VSH) divisor) one dropdown away.</p>
+<p>The Simandoux family: the other classic shaly-sand saturation, with the
+shale conductivity added as a simple parallel term rather than Indonesia's
+interfering square-root form. It matters for one reason above its physics:
+<b>the name is ambiguous across the industry</b>. What one vendor calls
+"Simandoux" is another vendor's "modified Simandoux", and the two
+equations give different answers on the same rock. This application
+therefore ships them as typed identities, each carrying its own citation,
+so a methodology table can say exactly which equation ran.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p>Identical to the <a href="sw_indo.html">Indonesia run</a> on purpose (same a, m,
-n, same RW 0.058, same RT_SH 2.5, same SWE_IRR 0.16, same PHIE_DEN and VSH inputs),
-so that any difference between the two output curves is the <i>equation</i>, never the
-picks. C stays at its cited default of 1 (it only participates in the modified form).</p>
+<pre class="equations">simandoux_bardon_pied:  1/RT = PHIE^M·SWE^N/(A·Rw) + VSH·SWE/RT_SH
+simandoux_modified_slb: 1/RT = PHIE^M·SWE^N/(A·Rw·(1−VSH)) + VSH^C·SWE/RT_SH</pre>
+
+<p>The first is the Bardon and Pied (1969) form of Simandoux (1963); the
+second divides the sand term by (1 − VSH) and raises VSH to a chosen
+exponent C. Legacy vendor tokens are accepted only as input aliases; what
+persists in provenance is the typed id, because the same adjective names
+the other equation in other software.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>Same picks as the Indonesia chapter</b>: a 1, m 2, n 2; Rw 0.058
+    (the effective-system wet-sand Rwa); RT_SH 2.5 from this dataset's
+    shale population; SWE_IRR 0.16. Holding the picks constant is
+    deliberate, so every difference below is the equations, not the
+    inputs.</li>
+  <li><b>C 1</b>: the cited default for the modified form's VSH exponent,
+    active only in that variant.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run VSH and porosity as before.</li>
+  <li>Open the typed Simandoux pane from <b>Petrophysics ▸ Saturation</b>,
+    confirm which typed id the study means, and press Run.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-swsim-pane.png"
-       alt="The typed Simandoux pane with the Bardon-Pied form selected" />
-  <figcaption>Same picks as Indonesia, so the curves compare equation against
-    equation.</figcaption>
+       alt="The typed Simandoux pane with the equation identity selected" />
+  <figcaption>The equation picker holds typed ids with citations, not an
+    adjective.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>0 clean · 3 degraded</b>, around 100 range-clamped samples per
-well, the same family as Indonesia's report. The pane solves the equation numerically
-for SWE (there is no closed form once the clay term and the exponent N share the
-unknown), which is invisible in the output and worth knowing only when a sample
-refuses: a refusal names the input that made the solve impossible rather than
-returning a half-converged number.</p>
+<p><b>0 clean · 3 degraded</b> (94 to 97 samples per well clamped at the
+0.16 floor, as the other resistivity methods). Median SWE_SIM
+<b>0.7008</b>; gas sand <b>0.0881</b>, wet sand <b>0.8078</b>. Paired
+against Indonesia on identical picks the Bardon-Pied form reads
+<b>+0.0228</b> (median, sample-paired): two saturation units wetter,
+because its plain parallel term hands the shale slightly less of the
+measured conductivity than Indonesia's cross term does.</p>
 
-<p>The three-way comparison completes here: in the clean gas sand
-<code>SWE_SIM</code>'s median is 0.084. Archie, Indonesia and Simandoux agree to the
-third decimal, because with VSH near zero both shaly-sand equations collapse to the
-clean-sand law they extend. The whole difference between the three methods lives in
-the shaly intervals, and a track carrying all three SWE curves shows it directly.</p>
+<pre class="equations">SELECT round(median(a.value - b.value), 4)
+FROM computed_curves a JOIN computed_curves b
+  ON a.well_id = b.well_id AND a.depth = b.depth AND b.curve_name = 'SWE_INDO'
+WHERE a.curve_name = 'SWE_SIM' AND NOT isnan(a.value) AND NOT isnan(b.value)</pre>
+
+<p>And the identity dial: switching to simandoux_modified_slb on the same
+picks drops the median from 0.7008 to <b>0.6276</b>. Seven saturation
+units between two equations that are both called Simandoux somewhere:
+that is the whole argument for typed ids, measured. Restored to the
+Bardon-Pied form, every number returns exactly.</p>
+
+<figure>
+  <img src="../img/guide-swsim-result.png"
+       alt="The typed Simandoux run reporting three degraded wells" />
+  <figcaption>Three degraded wells, the same clamped-and-counted verdict
+    as the rest of the saturation book.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>When reproducing a legacy study, identify the legacy software's
+    equation before picking the typed id; the adjective in its manual is
+    not enough, the equation form is.</li>
+  <li>The wet-sand check reads 0.81 here, the same order as Indonesia's
+    0.76; both say the shale term is slightly over-reaching in the
+    cleanest rock with these picks, and both would be refined by the same
+    Rw and RT_SH review.</li>
+  <li>C is active only in the modified form; changing it while the
+    Bardon-Pied id is selected changes nothing, by design.</li>
+</ul>

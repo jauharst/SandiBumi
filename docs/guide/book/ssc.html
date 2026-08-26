@@ -395,62 +395,145 @@ SWIRR_T = BW/PHIT,  SWIRR_EFF = 1 − PHIT·(1 − SWIRR_T)/PHIE</pre>
 <h2>References</h2>
 <ul><li>Kuttan et al., Log Interpretation in the Malay Basin, 21st SPWLA Annual Logging Symposium</li></ul>
 <p class="note">The modification and the two tight-rock conditioning rules are SandiBumi's own additions to the published model.</p>
-<!-- Authored walkthrough for the ssc guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-25). -->
+<!-- Authored walkthrough for the ssc guidebook chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: sand-population split measured, the input precondition and the
+     PHIT_CL sensitivity on camera. -->
 
-<h2>Step by step: the Sand-Silt-Clay split</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>SSC is one of this application's flagship methods: the Kuttan Malay Basin model
-with SandiBumi's own modification, splitting the rock into sand,
-silt and clay on the neutron-density crossplot and carrying the split all the way to
-bound water and irreducible saturation. It lives on the <b>Advance</b> tab, not in the
-Petrophysics dropdowns.</p>
+<p>The Sand-Silt-Clay model: a density-neutron crossplot method built for
+young, poorly consolidated clastic sections where the rock is honestly a
+three-way mix, following the Kuttan Malay Basin approach. Instead of one
+shale volume and one porosity, every sample is resolved into dry sand, dry
+silt and dry clay fractions, and the porosity is split into free fluid,
+clay-bound water and capillary-bound water held in silt and shale. Reach for
+it where a low-resistivity section keeps computing wet in sands that
+produce: the bound-water split it delivers is exactly what the RtC and IMTS
+saturation methods in this book consume.</p>
 
-<h3>Prepare the inputs</h3>
+<h2>The physics</h2>
 
-<ul>
-  <li><b>NPHI in sandstone units</b>: the six-point framework is written with the
-    matrix at NPHI 0, so pin the NPHI input to <code>NPHI_SS</code> (from Neutron
-    Matrix Conversion).</li>
-  <li><b>GR</b>: the input prefers <code>GRN</code>, the normalized gamma ray,
-    because the method was built to run on field-normalized GR. This project carries
-    no GRN, so the input is pinned to the raw <code>GR</code> and the endpoints below
-    are picks from that raw curve. On a multi-field project, normalize first and let
-    the default resolution find GRN.</li>
-</ul>
-
-<h3>Enter the framework</h3>
-
-<p>Every framework point ships without a default: the six-point triangle is a basin
-statement, not software's to guess. This run entered the reference Loglan values from
-the method's own note, plus the data picks, all recorded in the reference field:</p>
+<p>The crossplot is framed by six points: fluid, clean matrix, wet clay, dry
+clay, wet silt, and a dry-clay fraction anchoring the silt point. Each
+(NPHI, RHOB) sample is first gas-conditioned (the GAS_C weight decides how
+far the answer sits between the density and neutron legs), then projected
+from the fluid point onto the dry rock line running from matrix to dry
+clay. Where the projection lands gives the sand-silt-clay fractions; the
+fraction-weighted matrix density turns the density log into total porosity;
+the clay fractions turn into bound-water volumes:</p>
 
 <ul>
-  <li><b>Wet clay (2.3, 0.6) · dry clay 2.71 · wet silt NPHI 0.3 · DCLF_SI 0.1</b>:
-    the reference Loglan's values.</li>
-  <li><b>GR_MA 44 / GR_SH 112</b>: the first-hour picks from this dataset's raw GR.</li>
-  <li><b>NPHI_MA 0</b>: the sandstone matrix point, consistent with NPHI_SS.</li>
-  <li><b>PHIT_CL 0.24</b>: the wet-clay porosity implied by the entered clay points:
-    (RHOB_DCL − RHOB_WCL)/(RHOB_DCL − RHOB_FL) = (2.71 − 2.3)/(2.71 − 1). Stated as
-    arithmetic in the reference field so the number's origin travels with the run.</li>
-  <li><b>SWIRR_MIN 0</b>: the reference value; the SWIRR conditioning rule stays off
-    unless a zone sets it.</li>
+  <li><b>PHIE = PHIT − VWCL·PHIT_CL</b>: only clay-bound water is removed
+    from effective porosity.</li>
+  <li><b>PHIFF = PHIT − CBW − CWSH</b>: free-fluid porosity also loses the
+    capillary water held in silt and shale.</li>
+  <li><b>SWIRR_T = BW/PHIT</b>: the bound-water fraction of total porosity,
+    the irreducible saturation the gas-sand calibration in the saturation
+    book draws on.</li>
 </ul>
+
+<p>Conditioning rules then clamp the split on tight and ultra-shaly rock:
+below PHIT_TIGHT (0.05 shipped) every non-clay-bound pore is declared
+capillary-held, so PHIFF goes to zero and SWIRR_T to one. That is a
+statement about producibility, not a failure.</p>
+
+<h2>The refusal on the way in</h2>
+
+<p>The GR input defaults to GRN, the normalized gamma ray, because on a
+multi-well study the endpoints below assume one calibrated GR scale. This
+dataset carries no GRN, and the run refuses per well before the module
+executes:</p>
+
+<pre class="equations">3 well(s) failed — precondition 'GR' failed before ssc ran: none of the
+required input role [GR] has a finite sample. Select a populated curve
+before running the module.</pre>
+
+<p>The fix is stated in the message: point the GR input at the populated
+curve (here the raw GR, since the three SANDI wells share one vintage). On
+a real field, run GR normalization first and keep the default.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>Framework points RHOB_WCL 2.3 / NPHI_WCL 0.6 / RHOB_DCL 2.71 /
+    NPHI_WSI 0.3 / DCLF_SI 0.1, with SWIRR_MIN 0</b>: the reference values
+    the method note records for this crossplot family. They frame the
+    triangle; a study refines the wet-clay point against its own shale
+    trend.</li>
+  <li><b>GR_MA 44 / GR_SH 112</b>: the recorded endpoints of this dataset,
+    the same pair the VSH chapters use, powering the GR-equivalent volume
+    rescale.</li>
+  <li><b>NPHI_MA 0 with the NPHI input on NPHI_SS</b>: the model is entered
+    in sandstone units, so the neutron is the converted curve from the Prep
+    book and the matrix reads zero on it.</li>
+  <li><b>PHIT_CL 0.24</b>: not free-standing, it is
+    (RHOB_DCL − RHOB_WCL)/(RHOB_DCL − RHOB_FL) computed from the clay points
+    just entered, so the clay's porosity and its two densities stay one
+    consistent statement.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run Neutron Matrix Conversion (Prep book) so a sandstone-units neutron
+    exists, and normalize GR on a multi-vintage field.</li>
+  <li>Open <b>Advance ▸ SSC</b>, point GR at the populated gamma ray and
+    NPHI at NPHI_SS, and enter the framework points with their sources in
+    the custody line.</li>
+  <li>Press <b>Run SSC</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-ssc-pane.png"
-       alt="The SSC pane with the six-point framework and gas coefficient entered" />
-  <figcaption>The framework entered; GAS_C 1.6 and PHIT_TIGHT 0.05 are the shipped,
-    cited defaults of SandiBumi's own conditioning rules.</figcaption>
+       alt="The SSC pane with the crossplot framework points entered" />
+  <figcaption>Six framework points and two GR endpoints define the whole
+    model; PHIT_CL is derived from the clay points, not picked
+    separately.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. The outputs are the whole story of the method: the
-sand/silt/clay volumes (and their GR-rescaled twins), PHIT and PHIE, the clay-bound
-and capillary-bound water split (CBW, CWSH), and the irreducible saturations. CWSH is
-what the RtC saturation method consumes as its CAPBW input. This module is the front
-half of the LRLC workflow.</p>
+<p><b>3 clean</b>. The whole-section medians read shaly, and honestly so:
+median PHIT_SSC <b>0.1528</b>, PHIE_SSC <b>0.062</b>, and the free-fluid
+median is <b>0</b> with SWIRR_T's median at <b>1</b>, because 591 of the
+1164 answered samples fall to the tight and ultra-shaly conditioning rules
+(PHIFF 0, SWIRR_T 1). Splitting by rock tells the real story: restricted to
+the sands (GR &lt; 60), median VSAND is <b>0.2656</b>, PHIE_SSC
+<b>0.1894</b>, free fluid <b>0.1137</b> and SWIRR_T <b>0.4466</b>:</p>
+
+<pre class="equations">SELECT round(median(c.value), 4) FROM computed_curves c
+JOIN standard_curves sc ON c.well_id = sc.well_id AND c.depth = sc.depth
+WHERE c.curve_name = 'PHIFF_SSC' AND sc.gr &lt; 60 AND NOT isnan(c.value)</pre>
+
+<p>The dial that moves the split: PHIT_CL raised from 0.24 to 0.30 (a more
+porous wet clay) drops the whole-section PHIE_SSC median from 0.062 to
+<b>0.0307</b> and lifts clay-bound water from 0.0876 to <b>0.1153</b>. Half
+the effective porosity of the shaly section rides on that one clay
+statement, which is why it is derived from the entered clay points rather
+than picked by feel. Restored to 0.24, every number returns exactly.</p>
+
+<figure>
+  <img src="../img/guide-ssc-result.png"
+       alt="The SSC run reporting three clean wells" />
+  <figcaption>Three clean wells; the median SWIRR_T of 1 is the conditioning
+    rules declaring the shaly half of the section bound, not an error.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Judge the model in the sands, not in the section median. A shaly
+    interval is supposed to read SWIRR_T near 1; the question is whether the
+    sand fractions and free fluid look right where the rock is sand.</li>
+  <li>CWSH, the capillary-bound water, is the declared CAPBW input of the
+    RtC saturation method. The conditioning rules that clamp it on tight
+    streaks therefore move Sw downstream; when a tight streak matters,
+    PHIT_TIGHT is a per-zone parameter, not a constant.</li>
+  <li>The wet-clay point is the sensitive endpoint, exactly as the shale
+    point is in the VSH crossplot chapter. Read it from this dataset's own
+    shale trend on the density-neutron crossplot before trusting the split.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Sand-Silt-Clay model on the N-D crossplot (Kuttan Malay Basin, SandiBumi edit). Data points are projected from the fluid point onto the dry rock line (matrix→dry clay); sand/silt/clay fractions come from the projection position, matrix density from the fraction mix, PHIT from density. Bound water is split into clay-bound (CBW) and capillary-bound in silt/shale (CWSH): PHIE = PHIT − VWCL·PHIT_CL, PHIFF = PHIT − CBW − CWSH, SWIRR_T = BW/PHIT. GR-equivalent volumes rescale the SSC volumes to honour VSHGR. Study-specific crossplot endpoints ship absent and must be supplied from the active interpretation.</p>

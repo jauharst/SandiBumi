@@ -1,72 +1,159 @@
-<!-- Authored walkthrough for the sw_rtc guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the sw_rtc guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the refusal, the live Calibrate RtC fit, the accepted run,
+     and the zone-override precedence measured per well. -->
 
-<h2>Step by step: RtC, and what its calibration honestly said about this dataset</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>RtC is SandiBumi's own method for low-resistivity low-contrast pay: it estimates
-the conductivity that clay chemistry and capillary-bound water add, removes it from
-the measured conductivity, and applies Archie to the remainder. Its coefficients never
-ship (a calibration from one field is silently wrong in another), so the workflow
-always starts in <b>Advance ▸ Calibrate RtC…</b>, and this chapter walks the whole
-chain including the two refusals it met, because they are the method working.</p>
+<p>The RtC method: the first of the two low-resistivity saturation methods
+in this book. Low-resistivity, low-contrast pay computes wet on clean-sand
+equations because clay chemistry and capillary-held microporous water
+conduct current the equations attribute to free water. RtC measures that
+excess conductivity in rock declared water-bearing, regresses it against
+capillary-bound water and the clay charge, and subtracts it from every
+sample's measured conductivity before Archie runs:</p>
 
-<h3>Calibrate first: declare a water zone</h3>
+<h2>The physics</h2>
 
-<p>The calibration regresses the excess conductivity over rock you <i>declare</i> to
-be water-bearing. Declared here: <b>1535–1550 m on SANDI-01</b>, the water sand below
-the resistivity collapse, with the fit scoped to that one well (Ctrl-click it in the
-Wells pane), because the same depth window crosses into the gas sand on the shifted
-neighbouring wells.</p>
+<pre class="equations">Cex = (A_CAP·CAPBW + B_QV·Qv + C0) · PHIT · RSF
+Sw  = [ Rw·(1/Rt − Cex) / PHIT^M ]^(1/N)</pre>
+
+<p>CAPBW is the capillary-bound water volume, which is why this method
+pairs naturally with the SSC chapter (its CWSH output is the declared
+input). Qv comes from a QV log when one exists, else from CEC, grain
+density and porosity. The correction is capped so the corrected
+resistivity stays finite, and a negative predicted excess clamps to zero
+rather than adding conductivity. Crucially, <b>no calibration coefficients
+ship as defaults</b>: a foreign calibration yields a smooth, plausible Sw
+that is simply wrong, with nothing on the surface to say so.</p>
+
+<h2>The refusal comes first</h2>
+
+<p>With everything entered except the coefficients, the pane refuses:</p>
+
+<pre class="equations">A_CAP must be set — Capillary water coefficient</pre>
+
+<p>The fix is <b>Advance ▸ Calibrate RtC…</b>, and its pane states the
+danger of skipping it better than any manual: fitted over
+hydrocarbon-bearing rock, the missing conductivity is the hydrocarbon,
+and handing it to the clay and capillary terms makes the calibration
+under-correct and erase pay in exactly the intervals the method exists to
+find.</p>
+
+<h2>The calibration, live</h2>
+
+<p>The fit was run on the reference well's declared water interval,
+1535.7 to 1549.7 m, the wet sand below the fluid contact (its purity
+checked first: zero gas-flagged samples inside). Inputs paired exactly
+with the run to come: PHIT_SSC, CAPBW from SSC's CWSH, Rw 0.127 (the
+median wet-sand apparent Rw on total porosity, re-derived live at 0.126),
+m 2, RSF 2.25 held fixed, and the shipped CEC 0, since this dataset
+carries no lab CEC and no QV log. The pane reports:</p>
+
+<pre class="equations">A_CAP 3.5152   B_QV 0.000000   C0 −0.278013   RSF (held fixed) 2.25
+R² 0.525   RMS residual 0.01865   Samples / wells 52 / 1</pre>
+
+<p>and narrates its own honesty: 40 samples had no excess to explain (Rt
+above the clean-water baseline), the clay-chemistry term could not be
+fitted without Qv variation and is reported as zero with the capillary
+term absorbing any constant clay conductivity, and the coefficients are
+valid for RSF 2.25 only, because RSF multiplies the whole bracket and the
+four are not jointly identifiable. Pressing <b>Apply</b> writes all four
+as one batch of parameter overrides on the fitted well: the held-fixed
+constant travels with the coefficients, so they can never be paired with
+a different RSF by accident.</p>
+
+<figure>
+  <img src="../img/guide-swrtc-calibrate.png"
+       alt="The Calibrate RtC pane showing the fitted coefficients and residual plot" />
+  <figcaption>The fit, its quality, and its caveats in one pane; Apply
+    stores coefficients and held-fixed constants as one
+    transaction.</figcaption>
+</figure>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>RT / PHIT / CAPBW inputs</b>: RES_DEEP, PHIT_SSC and CWSH. The capillary
-    water is SSC's own output, which is the pairing the method was designed around.</li>
-  <li><b>Rw 0.127 ohm·m</b>: the median RT·PHIT_SSC² over the 99 declared water-zone
-    samples. The first attempt used the effective-porosity Rwa (0.058) and the fit
-    refused with <i>"only 0 usable water-zone samples"</i>: at that Rw, clean Archie
-    on total porosity predicts more conductivity than was measured, so no sample
-    carried any excess to fit. The lesson stands: <b>the Rw feeding an
-    excess-conductivity fit must be derived on the same porosity the fit uses.</b></li>
-  <li><b>CEC 16.3 meq/100g</b>: the delivery's own XRD says the clay is 48.8% illite
-    (n=2 samples), weighted over the literature constants the IMTS module records
-    (illite 25, kaolinite 8). <b>RHOG 2.65</b>: the quartz grain density from
-    SandiMin's endpoint library. RSF stays at its held-fixed 2.25.</li>
+  <li><b>A_CAP 3.5152 / B_QV 0 / C0 −0.2780</b>: the fit just accepted,
+    entered in the pane so the two unfitted wells run on the same
+    calibration the reference well carries as zone overrides.</li>
+  <li><b>RSF 2.25</b>: the method's scaling convention, held fixed in the
+    fit and therefore held fixed in the run.</li>
+  <li><b>RW 0.127, M 2, N 2</b>: the fit's own water-zone Rw on total
+    porosity and the reference exponents; fit and run must share
+    them.</li>
+  <li><b>CEC 0, RHOG 2.65</b>: the shipped no-lab-CEC state. Entering a
+    guessed CEC here would rescale Qv away from what the fit saw; the
+    first attempt at this chapter did exactly that, and the correction
+    silently never engaged.</li>
 </ul>
 
 <figure>
-  <img src="../img/guide-calrtc-fit.png"
-       alt="The Calibrate RtC pane with the fit result and exclusion accounting" />
-  <figcaption>The fit: A_CAP −0.224, B_QV 0.841, C0 −1.446, R² 0.990 on 54 samples,
-    and 45 samples excluded as carrying no excess to explain.</figcaption>
+  <img src="../img/guide-swrtc-pane.png"
+       alt="The RtC pane with the accepted calibration entered" />
+  <figcaption>The run pane carrying the accepted fit; every constant here is
+    shared with the calibration that produced the coefficients.</figcaption>
 </figure>
 
-<h3>Read the fit like a skeptic</h3>
+<h2>Step by step</h2>
 
-<p>The pane reports 54 usable samples and 45 excluded because Rt sat <i>above</i> the
-clean-water baseline. That split is this dataset confessing: these synthetic sands are
-clean, the excess conductivity is measurement noise, and the fit is fitting the
-positive half of that noise. On real LRLC rock the usable count dominates and the
-coefficients mean something; here they do not, and the next step proved it.</p>
-
-<h3>The run, and the refusal that ended it</h3>
-
-<p>Apply wrote the coefficients (and the held-fixed RSF with them) into SANDI-01's
-zone parameters in one step. But the fitted intercept C0&nbsp;=&nbsp;−1.446 sits
-outside the module's declared range for the parameter, and the run refused it, from
-the typed argument <i>and</i> from the zone override:
-<i>"parameter value(s) outside the module's declared range: C0 = −1.4458 in zone '*'
-(valid −1 to 1)"</i>. On this dataset sw_rtc therefore <b>does not run</b>, and that
-is the honest outcome: a clean sand gave the calibration nothing real to fit, the
-fit degenerated, and the module's own range gate caught the degenerate intercept
-before it could compute a plausible-looking saturation.</p>
+<ol>
+  <li>Run SSC (PHIT_SSC, CWSH and CBW are the inputs).</li>
+  <li>Declare a water interval you can defend, and fit with
+    <b>Advance ▸ Calibrate RtC…</b>; read the residual plot and the R²
+    before pressing Apply.</li>
+  <li>Open <b>Advance ▸ RtC</b>, enter the same coefficients and shared
+    constants, and press Run on the full scope.</li>
+</ol>
 
 <figure>
-  <img src="../img/guide-swrtc-pane.png"
-       alt="The RtC pane filled with the calibration's own coefficients" />
-  <figcaption>The pane filled with the fit's own numbers, which the range gate then
-    refused. Refusals are the guardrails, not obstacles.</figcaption>
+  <img src="../img/guide-swrtc-refused.png"
+       alt="The RtC pane refusing to run without calibration coefficients" />
+  <figcaption>No coefficients, no run: the method would rather stop than
+    run someone else's field.</figcaption>
 </figure>
 
-<p>What to take away: run RtC where the problem exists, on rock whose resistivity
-reads low against its saturation. Where Archie already explains the water zone, the
-calibration will tell you so, twice.</p>
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>. The water-zone check that graded the Archie chapter now
+passes: wet-sand median SWT_RTC <b>0.9916</b>, because the Rw was fitted
+on the same porosity system the equation runs on. The correction engages
+where the rock says it should: <b>262 of 1185 samples</b> carry a positive
+excess (85, 91 and 86 per well), median 0.0088 mho/m, concentrated in the
+capillary-water-rich intervals the fit was built from; the gas sand reads
+<b>0.1564</b>.</p>
+
+<pre class="equations">SELECT COUNT(*) FILTER (WHERE value &gt; 0)
+FROM computed_curves WHERE curve_name = 'CEX_RTC' AND NOT isnan(value)</pre>
+
+<p>The precedence demonstration: with RSF changed to 1 in the pane, the
+reference well does not move at all (its engaged median stays 0.00749,
+because the accepted calibration is stored as zone-scoped overrides that
+outrank the pane), while the two unfitted wells scale by exactly 1/2.25
+(0.0100 to 0.00444, 0.00922 to 0.0041). That is the one-transaction rule
+made visible: an accepted calibration cannot be half-changed from a pane.
+Restored, every number returns exactly.</p>
+
+<figure>
+  <img src="../img/guide-swrtc-result.png"
+       alt="The RtC run reporting three clean wells" />
+  <figcaption>Three clean wells on the accepted calibration; the wet sand
+    reads 0.99.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Fit and run must share everything: porosity curve, CAPBW source,
+    Rw, m, RSF, and the Qv basis. This chapter's first attempt paired the
+    accepted coefficients with a guessed CEC and the correction never
+    engaged; nothing failed, the numbers were simply uncorrected.</li>
+  <li>Read the fit before trusting the correction. R² 0.525 on 52 samples
+    with the clay term unfittable is a capillary-only calibration, and
+    the chapter says so; a QV log or measured CEC would let the clay
+    path carry its share.</li>
+  <li>On this dataset the fitted excess is small (about 2% of measured
+    conductivity where it engages). A real low-resistivity section is
+    where the correction becomes the difference between pay and
+    wet, and the same discipline applies at that scale.</li>
+</ul>

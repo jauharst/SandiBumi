@@ -393,57 +393,121 @@ archie_effective: SWE = (A·Rw / (PHIE^M · RT))^(1/N)
 SWT = SWE·(1 − Swb) + Swb</pre>
 <h2>References</h2>
 <ul><li>Archie, G.E. (1942), Transactions AIME 146, 54-62</li></ul>
-<!-- Authored walkthrough for the sw_arch guidebook chapter. Screenshots and numbers
-     captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the sw_arch guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the two Archie identities measured against each other and
+     graded in the wet sand. -->
 
-<h2>Step by step: Archie, with the porosity identity declared</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>This pane is Archie's equation twice over, and the choice between the two is the
-first decision: <b>archie_total</b> solves on total porosity and backs the effective
-saturation out through the bound-water fraction; <b>archie_effective</b> solves on
-effective porosity directly. On shaly rock the two differ materially, which is why the
-identity is a named choice and never inferred. This run uses <b>archie_total</b>, the
-default.</p>
+<p>Archie's equation, the clean-sand baseline every other saturation method
+in this book is measured against (Archie 1942). It assumes the rock's only
+conductor is the brine in its pores; wherever that holds, nothing beats it,
+and wherever it fails, the failure direction is known: clay adds
+conductivity the model attributes to water, so Archie reads shaly pay too
+wet. Run it first on every study, not because it will be the final answer
+in shaly rock, but because the shaly-sand methods are corrections to it and
+their size is only meaningful against this baseline.</p>
 
-<h3>Every parameter ships absent: here is where each pick came from</h3>
+<h2>The physics</h2>
 
-<p>Nothing in this pane carries a default: a, m, n, Rw and the irreducible floor are
-basin statements. The picks, exactly as recorded in the run's reference field:</p>
+<p>One equation, two identities, and the application deliberately names
+them separately because they are not interchangeable:</p>
+
+<pre class="equations">archie_total:     SWT = (A·Rw / (PHIT^M · RT))^(1/N)
+                  SWE backed out via Swb = 1 − PHIE/PHIT
+archie_effective: SWE = (A·Rw / (PHIE^M · RT))^(1/N)
+                  SWT lifted through the inverse</pre>
+
+<p>Both are Archie; they differ in which porosity carries the exponent, and
+in shaly rock that difference is enormous, as measured below. The porosity
+system is part of the equation's identity and must be declared, never
+inferred, and the Rw entered must have been derived in the same system.</p>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>A 1 · M 2 · N 2</b>: the reference-case convention of this project's
-    saturation dossier, entered as a declared convention rather than a measured
-    exponent set. With core electrical measurements you would fit m and n instead.</li>
-  <li><b>RW 0.058 ohm·m</b>: the median apparent water resistivity
-    Rwa&nbsp;=&nbsp;RT·PHIE² over 277 wet-sand samples (GR&nbsp;&lt;&nbsp;60,
-    RT&nbsp;&lt;&nbsp;10) across all three wells; the per-well medians span
-    0.057–0.059, which is the consistency check.</li>
-  <li><b>SWT_IRR 0.16</b>: the median of SSC's own SWIRR_T over 271 gas-sand
-    samples, the irreducible floor read from this dataset's own bound-water
-    arithmetic.</li>
+  <li><b>a 1, m 2, n 2</b>: the reference-case convention, declared as
+    such. A real study fits m and n from core electrical measurements; the
+    guidebook's job here is the machinery, not a rock-specific
+    calibration.</li>
+  <li><b>RW 0.058 ohm.m</b>: the median apparent water resistivity,
+    Rwa = RES_DEEP·PHIE_DEN², over the 277 wet-sand samples (GR &lt; 60,
+    RT &lt; 10). Note the derivation: it used effective porosity, a fact
+    the wet-sand check below turns into the chapter's lesson.</li>
+  <li><b>SWT_IRR 0.16</b>: the median SSC total irreducible saturation over
+    the 271 gas-sand samples, the floor the limited outputs clamp to.</li>
 </ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Run a porosity chapter first; the limited PHIT and PHIE resolve as
+    inputs.</li>
+  <li>Derive Rw from a known water zone with the Inspector (or a measured
+    sample or salinity, both offered), and note which porosity system the
+    derivation used.</li>
+  <li>Open the Archie pane from <b>Petrophysics ▸ Saturation</b>, declare
+    the equation identity, and press Run.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-swarch-pane.png"
-       alt="The SW — Archie pane with the porosity identity, exponents and Rw entered" />
-  <figcaption>archie_total on PHIT_DEN/PHIE_DEN; every value's origin is in the
-    reference field.</figcaption>
+       alt="The Archie pane with the equation identity declared" />
+  <figcaption>The porosity system is a named choice at the top of the pane,
+    not a convention the reader must guess.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>0 clean · 3 degraded</b>. The degradation report is the
-method talking. The dominant clamp, <code>[0.16, 1]</code> at 372 samples per well, is
-Archie computing <i>more than 100% water</i> through the shale and the wet sand (at
-RT&nbsp;2.5 ohm·m and low porosity the arithmetic exceeds 1) and being held at the
-bounds. In the gas sand the unlimited <code>SWT_ARCH</code> reads a median 0.084,
-under 10% water at 120 ohm·m. The limited <code>SWT</code>/<code>SWE</code> pair
-carries the floor and ceiling; the unlimited twins show what was clipped.</p>
+<p><b>0 clean · 3 degraded</b>, and as everywhere in this application,
+degraded means clamped-and-counted: 183 samples on the reported well
+computed below the 0.16 irreducible floor and were limited (gas sand
+computing below irreducible is the pick doing its job). Medians on the
+total-porosity identity: SWT <b>0.3811</b>, with the backed-out SWE at
+<b>0.0626</b>.</p>
 
-<p>One habit to keep: the two Archie identities disagree by whole saturation units on
-shaly rock, so a report that says "Archie" without naming which one is not
-reproducible. The output <code>SW_METHOD</code> curve records the identity per run for
-exactly that reason.</p>
+<p>Now the check that grades the run: rock known to be water-bearing must
+read Sw = 1. In the wet sand this run reads <b>0.4549</b>:</p>
+
+<pre class="equations">SELECT round(median(c.value), 4) FROM computed_curves c
+JOIN standard_curves sc ON c.well_id = sc.well_id AND c.depth = sc.depth
+WHERE c.curve_name = 'SWT_ARCH' AND sc.gr &lt; 60 AND sc.res_deep &lt; 10
+  AND NOT isnan(c.value)</pre>
+
+<p>Half the water is missing, and the cause is the pairing: the Rw was
+derived through PHIE², then run on the total identity where PHIT² divides
+it. Switching the identity to archie_effective on the same picks, the wet
+sand reads <b>0.8636</b> on the direct SWE (0.9287 on the lifted SWT), and
+the whole-section medians jump to SWT <b>0.8412</b> / SWE <b>0.7395</b>,
+against 0.3811 / 0.0626 on the total form. Same equation, same picks,
+tens of saturation units apart: the identity is a declaration with
+consequences, and the wet sand is the instrument that catches a mismatched
+Rw before a client does. The gas sand, meanwhile, reads <b>0.09</b> under
+either identity, because at low porosity and high RT both forms starve
+together. Restored to the total form, every number returns exactly.</p>
+
+<figure>
+  <img src="../img/guide-swarch-result.png"
+       alt="The Archie run reporting three degraded wells" />
+  <figcaption>Degraded decoded again: samples below the declared
+    irreducible floor are clamped into range and counted per well.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Always close the loop in a water zone: whatever Rw and identity were
+    chosen, the wet sand must read 1. Here it reads 0.45, which is the
+    known-water check refusing to let the Rw derivation and the equation
+    identity disagree quietly.</li>
+  <li>Archie in shale is not wrong, it is answering a different question:
+    it reports all conductivity as water. Read its shaly-interval output
+    only as the baseline the RtC and IMTS chapters correct.</li>
+  <li>m and n at 2/2 are conventions, not measurements. A carbonate or a
+    strongly cemented sand deserves core-fitted exponents, and the pane's
+    source line should say where they came from.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Archie (1942) as two separately named methods (SB-SAT-002). archie_total: SWT = (A*Rw/(PHIT^M*RT))^(1/N) on total porosity, SWE by the back-out max((SWT-Swb)/(1-Swb), 0) with Swb = 1-PHIE/PHIT. archie_effective: SWE = (A*Rw/(PHIE^M*RT))^(1/N) directly on effective porosity, SWT lifted through the inverse SwT = Sw*(1-Swb)+Swb. On the dossier reference case the two differ by 25.0 saturation units - both are Archie, so the identity must be declared, never inferred.</p>

@@ -1,61 +1,158 @@
-<!-- Authored walkthrough for the sw_imts guidebook chapter. Screenshots and refusal
-     texts captured live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the sw_imts guidebook chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the S-factor refusal on camera, the unscaled identity run,
+     and the silent leverage of S measured. -->
 
-<h2>Step by step: IMTS, and the two things it refuses to guess</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>IMTS is Waxman-Smits-family conductivity with the clay charge built from mineral
-volumes: kaolinite and illite volumes carry literature CEC constants, the resulting
-Qv is scaled to laboratory CEC by the S factor, referenced to the active water through
-Swirr, and the conductivity equation is iterated until the total saturation is stable.
-The mineral-textural scaling is SandiBumi's own extension of the published model.</p>
+<p>The IMTS saturation model: a Waxman-Smits-family conductivity equation
+whose clay charge is built from the mineral volumes themselves, scaled to
+laboratory CEC, and referenced to the water that is actually free to
+conduct. It is the second of the two low-resistivity methods in this book
+(RtC is the other), for shaly sands that keep computing wet on clean-sand
+equations while producing hydrocarbon. Its distinctive move: the clay
+charge Qv is divided by (1 − Swirr), because when hydrocarbon displaces
+free water the same ions concentrate in less water and conduct more per
+unit volume.</p>
 
-<h3>What could be filled from a source, was</h3>
+<h2>The physics</h2>
+
+<p>The theoretical clay charge is built from each clay's volume, grain
+density and literature CEC constant (kaolinite 8, illite 25 meq/100g of dry
+rock), expressed per unit dry-rock mass. The scaling factor S multiplies
+that whole term to reconcile it with what a laboratory actually measures on
+this rock. The effective charge is then Qv_eff = Qv_bulk/(1 − Swirr), and
+the model iterates the Waxman-Smits form</p>
+
+<pre class="equations">Ct = SwT^n* / F* · (Cw + B·Qv_eff / SwT),   F* = a / PHIT^m*</pre>
+
+<p>with the counterion mobility B from the published temperature and Rw
+form, until SwT is stable. SWE comes from the clay-bound water split. Two
+contracts matter: <b>missing clay evidence is not zero clay</b> (a sample
+where both clay curves are missing is refused rather than answered as clean
+rock, while a measured zero legitimately reduces to Archie), and <b>S never
+defaults</b>, because it is a property of the rock and of the specific clay
+curves it was fitted against.</p>
+
+<h2>The refusal comes first</h2>
+
+<p>Everything filled except the scaling factor, the run refuses:</p>
+
+<pre class="equations">S_FACTOR_GW must be set — CEC scaling factor S (lab/XRD), grain-weight basis</pre>
+
+<p>The fix lives in <b>Advance ▸ Calibrate S…</b>, which fits S from lab CEC
+measurements against the clay content of the very curves the run will use.
+On this dataset that pane says the honest thing: no point data exists to
+fit against, so nothing can be picked. Its warning is worth reading twice:
+S is a ratio against whatever the clay curves say, so calibrating it
+against one estimate of clay and running it against another makes S wrong
+by exactly the difference between them, invisibly, because both are
+plausible clay volumes.</p>
+
+<figure>
+  <img src="../img/guide-swimts-calibrate.png"
+       alt="The Calibrate S pane reporting that no lab CEC point data exists" />
+  <figcaption>The calibration pane with nothing to calibrate against: the
+    state this dataset is honestly in.</figcaption>
+</figure>
+
+<h2>The picks and why</h2>
 
 <ul>
-  <li><b>RW 0.127 ohm·m</b>: the water-zone Rwa on PHIT_SSC, from the
-    <a href="sw_rtc.html">RtC calibration chapter</a>.</li>
-  <li><b>A 1 · M* 2 · N* 2</b>: the dossier's reference-case convention, declared as
-    such.</li>
-  <li><b>CEC_KAOL 8 · CEC_ILL 25 meq/100g</b>: the literature constants the module's
-    own documentation records (of dry rock, grain-weight basis).</li>
-  <li><b>RHOG 2.65</b>: the quartz grain density from SandiMin's endpoint
-    library.</li>
-  <li><b>Inputs</b>: PHIT_SSC, CBW and SWIRR_T resolve straight from the SSC run;
-    the kaolinite slot resolves VDCL. This chain is the point: SSC's bound-water split
-    is what IMTS references its clay charge against.</li>
+  <li><b>S_FACTOR_GW 1</b>: the unscaled identity, meaning the literature
+    CEC constants are taken at face value. This dataset carries no lab CEC
+    delivery, so nothing can be fitted; the pick is declared as what it is,
+    a demonstration value, and the sensitivity below shows what riding on
+    it costs.</li>
+  <li><b>RW 0.127</b>: the water-zone Rw on total porosity, the same value
+    the RtC chapter derives from the wet sand (re-derived live at 0.126
+    over the 277 wet-sand samples).</li>
+  <li><b>TEMP_C 99.3</b>: the median of the FTEMP curve the Prep book's
+    geothermal frame wrote.</li>
+  <li><b>a 1, m* 2, n* 2</b>: the reference-case convention the other
+    saturation chapters use, declared rather than fitted here.</li>
+  <li><b>CEC 8 / 25, grain densities 2.62 / 2.78</b>: the literature
+    constants for kaolinite and illite. The kaolinite input resolves from
+    SSC's dry-clay volume; no illite curve exists, and by the
+    one-mineral-missing rule that reads as zero illite, not as refusal.</li>
 </ul>
 
 <figure>
   <img src="../img/guide-swimts-pane.png"
-       alt="The IMTS pane with the citable constants entered and S left absent" />
-  <figcaption>Everything with a source is filled; the two parameters without one are
-    left empty on purpose.</figcaption>
+       alt="The IMTS pane with the unscaled identity S entered" />
+  <figcaption>The full parameter set, with S declared as the unscaled
+    identity and every constant carrying its source.</figcaption>
 </figure>
 
-<h3>The refusal ladder, and why it is right</h3>
+<h2>Step by step</h2>
 
-<p>Run it like this and the pane refuses, in order:</p>
+<ol>
+  <li>Run SSC first: it supplies the total porosity, the clay volume, the
+    SWIRR the charge is referenced to, and the CBW split that SWE needs.</li>
+  <li>Where lab CEC exists, fit S with <b>Advance ▸ Calibrate S…</b> against
+    these same clay curves; where it does not, declare what S is standing
+    on.</li>
+  <li>Open <b>Advance ▸ IMTS</b>, fill the picks with their sources in the
+    custody line, and press Run.</li>
+</ol>
+
+<figure>
+  <img src="../img/guide-swimts-refused.png"
+       alt="The IMTS pane refusing to run without the S factor" />
+  <figcaption>No calibration, no run: S multiplies the whole clay charge,
+    so a defaulted S would move Sw with nothing on the surface to say
+    so.</figcaption>
+</figure>
+
+<h2>Reading the result</h2>
+
+<p><b>3 clean</b>, 1164 samples answered, none withheld (the kaolinite
+curve answers everywhere SSC did). Read it by rock, not by the section
+median: in the wet sand the model reads <b>0.9035</b>, grading itself
+against rock known to be water-bearing; in the gas sand it reads
+<b>0.1385</b>, the pay signal; the whole-section median of <b>0.1397</b>
+mostly reflects the shaly half.</p>
+
+<pre class="equations">SELECT round(median(c.value), 4) FROM computed_curves c
+JOIN standard_curves sc ON c.well_id = sc.well_id AND c.depth = sc.depth
+WHERE c.curve_name = 'SWT_IMTS' AND sc.gr &lt; 60 AND sc.res_deep &lt; 10
+  AND NOT isnan(c.value)</pre>
+
+<p>Then read QVEFF, the model's own QC output. Its shale median here is
+<b>12.40 meq/cm3</b>, an order of magnitude beyond a plausible clay charge,
+because Qv_eff divides by (1 − Swirr) and the SWIRR input (SSC's SWIRR_T)
+saturates at exactly 1 on 591 of 1164 samples of this shaly section. The
+division is the method's physics doing its job in rock the method is not
+for: in shale there is no free water for the charge to concentrate into,
+and QVEFF says so before the saturation misleads anyone.</p>
+
+<p>The S dial, measured: S dropped from 1 to 0.5 halves QVEFF exactly
+(7.7804 to <b>3.8902</b>, the linearity on display) and lifts the
+whole-section median SwT from 0.1397 to <b>0.2407</b>. Ten saturation
+units from a factor with no outward sign: the run is 3 clean either way,
+the curves are equally smooth, and only the calibration trail says which
+is right. That is why S ships absent. Restored to 1, every number returns
+exactly.</p>
+
+<figure>
+  <img src="../img/guide-swimts-result.png"
+       alt="The IMTS run reporting three clean wells" />
+  <figcaption>Three clean wells; the wet sand near 0.90 is the model
+    grading itself.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
 
 <ul>
-  <li><i>"TEMP_C must be set — Formation temperature"</i>. The Juhász B coefficient
-    is a function of temperature, and this delivery records no BHT anywhere: no LAS
-    header entry, no test data. There is nothing to fill it from, so the run stops.
-    On a real dataset this comes from the header or from the formation-temperature
-    module's fitted trend.</li>
-  <li>Declare a temperature and the next rung fires: <i>"S_FACTOR_GW must be set —
-    CEC scaling factor S (lab/XRD), grain-weight basis"</i>. S is the ratio of
-    measured laboratory CEC to the XRD-theoretical CEC, so it is a property of the
-    rock <b>and of the clay curves it was fitted against</b>. This delivery carries
-    no lab CEC measurements, so S cannot be fitted. The module will not invent
-    it, because S multiplies the whole clay-charge term and moves the saturation with
-    no outward sign of being wrong.</li>
+  <li>Judge the model in the sands it exists for. The wet-sand median near
+    0.90 validates; shale saturations under a QVEFF in the tens are the
+    charge division degenerating and belong outside the pay
+    conversation.</li>
+  <li>Never pair a fitted S with different clay curves than it was fitted
+    against; the calibration pane warns why, and the error is invisible in
+    the output.</li>
+  <li>The unlimited SWE_IMTS goes far out of range in shale (its median
+    there is −11.42, from backing clay-bound water out of a vanishing
+    effective porosity); the limited SWE is the working curve, the
+    unlimited one is the QC trail.</li>
 </ul>
-
-<p>The path forward on a real study: import the lab CEC table, then
-<b>Advance ▸ Calibrate S…</b> regresses S from those measurements against the very
-clay curves this run will use. With S fitted and a temperature declared, the run
-proceeds and writes SWT_IMTS, SWE_IMTS and the effective Qv curve for QC.</p>
-
-<p>A method whose missing inputs produce refusals that name the fix is doing its job:
-the alternative, a plausible saturation computed from an invented S, is the single
-most expensive failure mode in this work.</p>

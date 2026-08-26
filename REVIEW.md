@@ -1,5 +1,49 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — Second pass, increment 5: Lithology and Saturation, ten chapters with the RtC calibration fitted on camera
+
+- [ ] **The ten chapters** (ssc, sspw, midplot, sw_arch, sw_indo, sw_sim, sw_rtc, sw_imts,
+      sw_height, and the multimin retired-pointer) follow the addendum skeleton with 22 new
+      light-theme screenshots — pane + result each, plus the two Advance-method refusals and
+      both Calibrate panes on camera. Open docs/guide/book/sw_rtc.html and read the shelf.
+- [ ] **The RtC chapter is the calibration story done end to end, live**: the refusal with no
+      coefficients ("A_CAP must be set"), then Calibrate RtC… fitted on SANDI-01's declared
+      water interval 1535.7–1549.7 m (checked gas-free first) with the run's own inputs —
+      A_CAP 3.5152 / B_QV 0 / C0 −0.2780, R² 0.525 on 52 samples, RSF 2.25 held fixed, the
+      pane explaining why B_QV could not be fitted without Qv variation — Apply, then the run:
+      3 clean, wet sand reads 0.9916, the correction engages on 262 of 1185 samples. The RSF
+      dial then demonstrates the one-transaction rule: RSF 1 in the pane leaves the fitted
+      well's correction untouched (zone override wins) while the two unfitted wells scale by
+      exactly 1/2.25.
+- [ ] **One real finding along the way, spun off as its own task**: Calibrate RtC can fit and
+      Apply a B_QV outside the module pane's [−1, 1] manifest bound (it fitted 1.4529 when a
+      guessed CEC 8 fed the Qv term), and the pane then refuses the calibration's own value —
+      the fit pane and the manifest range need reconciling.
+- [ ] **The IMTS chapter carries its two protections on camera**: the S-factor refusal
+      ("S_FACTOR_GW must be set"), and the Calibrate S pane honestly reporting there is no
+      lab CEC point data in this project to fit against. Canonical runs at the unscaled
+      identity S 1 (declared as a demonstration value); the S 0.5 variant halves QVEFF
+      exactly (7.7804→3.8902) and lifts median SwT 0.1397→0.2407 — ten saturation units with
+      no outward sign, which is why S never defaults. The QVEFF QC lesson is measured: shale
+      QVEFF median 12.40 because SSC's SWIRR_T saturates at 1 on 591 of 1164 samples and
+      Qv_eff divides by (1−Swirr).
+- [ ] **The wet sand grades every method** (277 samples GR<60, RT<10): archie_total with the
+      effective-derived Rw 0.058 reads 0.4549 there (the mispairing caught), the effective
+      identity on the same picks reads 0.8636, Indonesia 0.7635, typed Simandoux 0.8078, the
+      calibrated RtC 0.9916, IMTS 0.9035. The Archie chapter turns that into the water-zone
+      check lesson; every dial variant (equation identities, SIMPLE exponent, modified_slb,
+      PHIT_CL, VOL_CBW_SH, XPLOT porosity basis, FWL ±25 m) measured live and restored
+      exactly.
+- [ ] **SSC's whole-section medians are decoded by rock**: 591 of 1164 samples fall to the
+      tight/ultra-shaly conditioning (PHIFF 0, SWIRR_T 1) so the section median SWIRR_T of 1
+      is the rules speaking, while the sands read VSAND 0.2656 / PHIE 0.1894 / PHIFF 0.1137 /
+      SWIRR_T 0.4466. Its GR-input precondition refusal (no GRN in this dataset) is quoted
+      verbatim. SSPW's VOL_CBW_SH variant demonstrates the split convention in two numbers:
+      PHIE falls 0.1169→0.0856 while SWIRR stands exactly still at 0.4678.
+- [ ] **The multimin pointer chapter now quotes the retirement message captured live** through
+      the same runner a saved chain reaches (outcome failed, no rows written, "Re-run this
+      step with SandiMin").
+
 ## 2026-08-26 — Second pass, increment 4: VSH and Porosity, seven chapters with two refusals on camera
 
 - [ ] **The seven chapters** (vsh_gr, vsh_dn, phi_den, phi_dn, phi_dnbk, phi_son, phimax) follow
