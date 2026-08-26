@@ -63,7 +63,7 @@ Qv coefficient
 Regression intercept
 
 - **No shipped default.** You supply this value, and a run entering it explicitly must also cite the source that covers it.
-- **Accepted range:** -1 to 1
+- **Accepted range:** -10 to 10
 
 ### RSF
 

@@ -6849,6 +6849,43 @@ mod inspector_tests {
         assert!(set_curve_neutron_basis(&conn, &absent, "SANDSTONE", "user").is_err());
     }
 
+    /// The basis declaration is a CLOSED vocabulary, stored canonically. A typo accepted
+    /// here becomes permanent metadata no module check can ever satisfy (the workflow
+    /// boundary compares the stored string against tokens like "LIMESTONE"), so an unknown
+    /// token is refused naming the vocabulary, and a recognized short form lands as the
+    /// canonical spelling every consumer pins. Both sides: the synonym stores, the typo
+    /// writes nothing.
+    #[test]
+    fn a_basis_declaration_is_a_closed_vocabulary_stored_canonically() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-NBV", None, None, None).unwrap();
+        let well = id.to_string();
+        let nphi = upsert_curve_meta(
+            &conn, &well, "RAW", "NPHI", Some("v/v"), Some("NPHI"), Some("LAS import"), None,
+        )
+        .unwrap();
+        let stored = |conn: &Connection| -> Option<String> {
+            conn.query_row(
+                "SELECT neutron_basis FROM curve_meta WHERE curve_id = ?1",
+                params![nphi],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        // A short-form synonym is accepted and stored as the canonical full token.
+        set_curve_neutron_basis(&conn, &nphi, "ls", "user").unwrap();
+        assert_eq!(stored(&conn).as_deref(), Some("LIMESTONE"));
+        // An unknown token is refused by name, names the vocabulary, and writes nothing.
+        let err = set_curve_neutron_basis(&conn, &nphi, "CHALK", "user")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("CHALK"), "the refused token is named: {err}");
+        assert!(err.contains("SANDSTONE/SS"), "the vocabulary is named: {err}");
+        assert_eq!(stored(&conn).as_deref(), Some("LIMESTONE"), "a refusal writes nothing");
+    }
+
     /// SB-DBM-011 / exact SB-DBM-T11 (DEC-020, DEC-022, DEC-023): the audit is STRUCTURED
     /// rows with the controlled vocabulary, uninterrupted repeats of the same type collapse
     /// into ONE entry (an interruption breaks the chain - both sides pinned), the timestamp
@@ -10724,9 +10761,26 @@ pub fn set_curve_neutron_basis(
                 .into(),
         ));
     }
+    // The vocabulary is CLOSED and the stored spelling canonical. Every consumer compares
+    // the stored string (required_neutron_basis pins "LIMESTONE"; the workflow boundary and
+    // nphimat both match tokens), so a spelling outside the list would be stored as a basis
+    // no module check can ever satisfy: a typo becoming permanent metadata.
+    let canonical = match basis.to_uppercase().as_str() {
+        "LS" | "LIMESTONE" => "LIMESTONE",
+        "SS" | "SANDSTONE" => "SANDSTONE",
+        "DOL" | "DOLOMITE" => "DOLOMITE",
+        other => {
+            return Err(DbError::Invalid(format!(
+                "'{other}' is not a neutron matrix basis this declaration can store: the \
+                 recognized tokens are LIMESTONE/LS, SANDSTONE/SS and DOLOMITE/DOL, and a \
+                 spelling outside them would be a basis no module check could ever match; \
+                 correct the token and declare again"
+            )));
+        }
+    };
     let n = conn.execute(
         "UPDATE curve_meta SET neutron_basis = ?2, neutron_basis_source = ?3 WHERE curve_id = ?1",
-        params![curve_id, basis, source],
+        params![curve_id, canonical, source],
     )?;
     if n == 0 {
         return Err(DbError::Invalid(format!(
