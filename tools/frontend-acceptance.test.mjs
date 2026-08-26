@@ -3176,3 +3176,73 @@ test("a_porosity_axis_uses_the_shipped_display_row_instead_of_quietly_autoscalin
     `each family+unit may hold one default row: ${defaults.join(", ")}`,
   );
 });
+
+test("a_refused_plot_restore_is_refused_once_and_rebuilds_on_the_next_selection_while_a_standing_expectation_still_refuses_a_changed_binding", async () => {
+  const { createPlotRestoreGate } = await load("/src/ui/plotCommon.ts");
+  const saved = {
+    schema_version: 1,
+    plot_type: "crossplot",
+    well_ids: ["W1"],
+    options: { x: "NPHI", y: "RHOB" },
+    bindings: [
+      {
+        intent: { channel: "x", semantic_request: "NPHI", required: true },
+        resolved: [
+          {
+            well_id: "W1",
+            curve_id: "c1",
+            mnemonic: "NPHI",
+            quantity: "fraction",
+            source_unit: "v/v",
+            display_unit: "v/v",
+            conversion: "none",
+            sample_count: 10,
+            resolution_reason: "mnemonic",
+            source_revision: "r1",
+          },
+        ],
+      },
+    ],
+    axis_ranges: [{ axis: "x", min: 0, max: 0.45 }],
+  };
+  const changed = structuredClone(saved);
+  changed.bindings[0].resolved[0].source_revision = "r2";
+
+  // One side: while the expectation stands, the strictness stands. A changed concrete
+  // binding is refused, an unresolved required channel propagates, and a throw leaves
+  // the expectation in place (a stale-generation dispose is not a refusal).
+  const strict = createPlotRestoreGate(saved);
+  assert.equal(strict.pending, true);
+  assert.throws(() => strict.validate(() => changed), /refused/);
+  assert.throws(
+    () => strict.validate(() => {
+      throw new Error("required channel 'NPHI' is unresolved for represented well(s): W1");
+    }),
+    /unresolved/,
+  );
+  assert.equal(strict.pending, true);
+  // A matching reopen passes and consumes the expectation.
+  strict.validate(() => structuredClone(saved));
+  assert.equal(strict.pending, false);
+
+  // Other side: a refusal is shown once and never latched. refuse() drops the
+  // expectation, so the recovery rebuild re-resolves like a template (a differing
+  // actual no longer throws), keeps the saved selections, and rebuilds on ANY
+  // selection broadcast - same well and background pane included.
+  const gate = createPlotRestoreGate(saved);
+  gate.beginAttempt();
+  gate.refuse();
+  assert.equal(gate.failed, true);
+  assert.equal(gate.pending, false);
+  gate.validate(() => changed);
+  assert.deepEqual(gate.initialOptions, { x: "NPHI", y: "RHOB" });
+  assert.equal(gate.shouldRebuild({ built: true, sameWell: true, follows: false }), true);
+
+  // And recovery must not widen the working-pane discipline for a HEALTHY pane.
+  gate.beginAttempt();
+  assert.equal(gate.failed, false);
+  assert.equal(gate.shouldRebuild({ built: false, sameWell: false, follows: false }), true);
+  assert.equal(gate.shouldRebuild({ built: true, sameWell: true, follows: true }), false);
+  assert.equal(gate.shouldRebuild({ built: true, sameWell: false, follows: false }), false);
+  assert.equal(gate.shouldRebuild({ built: true, sameWell: false, follows: true }), true);
+});

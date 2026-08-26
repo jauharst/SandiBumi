@@ -245,6 +245,64 @@ export function assertPlotStateRestored(
   }
 }
 
+export interface PlotRestoreGate {
+  /** Saved curve/zone selections, seeded into every rebuild. They outlive a refusal on
+   * purpose: only the concrete-binding comparison is given up, never the user's picks. */
+  readonly initialOptions: Record<string, string> | undefined;
+  /** True while the strict saved-vs-actual comparison still stands. */
+  readonly pending: boolean;
+  /** True after a failed build attempt, until the next one begins. */
+  readonly failed: boolean;
+  beginAttempt(): void;
+  /** Runs the strict comparison while the expectation stands. `actual()` itself throws
+   * while a required binding is unresolved; either throw is a refusal, and a throw
+   * leaves the expectation standing — only {@link refuse} or success consumes it. */
+  validate(actual: () => PersistedPlotState): void;
+  /** Records a failed build attempt and drops the expectation: refused once, not latched. */
+  refuse(): void;
+  /** Whether a well-selection broadcast rebuilds the pane. `follows` = the global well
+   * lock is on OR this is the working pane; a healthy background pane stays put. */
+  shouldRebuild(input: { built: boolean; sameWell: boolean; follows: boolean }): boolean;
+}
+
+/** Per-pane policy for reopening a saved plot (session open, app-start autosave restore).
+ * While the expectation stands the pane may only reopen onto the same concrete curve
+ * answers ({@link assertPlotStateRestored}). A refusal is shown ONCE and then drops the
+ * expectation — a pane latched on a dead error has no recovery path — so the next
+ * well-selection broadcast rebuilds it fresh, re-resolving its semantic requests the way
+ * a template does, still seeded with the saved selections. */
+export function createPlotRestoreGate(expected: PersistedPlotState | undefined): PlotRestoreGate {
+  let expectation = expected;
+  let failed = false;
+  return {
+    initialOptions: expected?.options as Record<string, string> | undefined,
+    get pending() {
+      return expectation !== undefined;
+    },
+    get failed() {
+      return failed;
+    },
+    beginAttempt() {
+      failed = false;
+    },
+    validate(actual) {
+      if (!expectation) return;
+      assertPlotStateRestored(expectation, actual());
+      expectation = undefined;
+    },
+    refuse() {
+      failed = true;
+      expectation = undefined;
+    },
+    shouldRebuild({ built, sameWell, follows }) {
+      if (failed) return true;
+      if (!built) return true;
+      if (sameWell) return false;
+      return follows;
+    },
+  };
+}
+
 function persistedOptions<T>(raw: unknown): Partial<T> {
   if (
     raw &&
