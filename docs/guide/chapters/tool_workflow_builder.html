@@ -1,0 +1,96 @@
+<!-- Authored walkthrough for the Workflow Builder tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The Workflow Builder runs an ordered list of modules across many wells in
+one click: pick the steps, set their parameters once, name who is running it
+and on what basis, and press Run chain. Reach for it the moment the same
+sequence is about to be repeated on a second well: a chain run is the same
+physics as clicking the modules one by one, with the parameters written
+down and the repetition delegated.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-workflow.png"
+       alt="The Workflow Builder with a three-step chain, custody fields and a completed run" />
+  <figcaption>A saved three-step chain (VSH from Gamma Ray &rarr; Porosity
+    from Density &rarr; SW Indonesia), run on all three wells into the INTERP
+    set: "Done: 3 steps, 33 curves across 3 wells".</figcaption>
+</figure>
+
+<ul>
+  <li><b>Steps</b> are added from the module list and reordered with the
+    arrows; each step row counts its own parameter overrides (the example
+    chain carries 2, 1 and 6). Steps run in order; wells run in parallel
+    within each step.</li>
+  <li><b>The &#9881; editor per step</b> opens the same parameter fields the
+    module's own dialog has, storing only what you change from the manifest
+    defaults. Zone parameters still win per zone at run time.</li>
+  <li><b>RUN ON</b> is the standard well-scope pill; <b>Input log set</b> and
+    <b>Output log set</b> choose what the chain reads and the named set it
+    versions its outputs into.</li>
+  <li><b>Custody is part of the run</b>: actor kind, session operator, and a
+    free-text run source travel with every output curve. Leaving the
+    operator empty refuses with "Enter the session operator identity before
+    computing."</li>
+  <li><b>Save as</b> names the chain (GUIDE10 here); a saved workflow is
+    loaded back later or handed to Monte Carlo as the model to perturb.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics &#9656; Batch &#9656; Workflow&hellip;</b>, add
+    the steps in the order the physics needs them (shale volume before
+    porosity, porosity before saturation).</li>
+  <li>Open each step's &#9881; editor and settle its parameters. An open
+    parameter ships no default; type the value and read its catalogue (see
+    below).</li>
+  <li>Fill the custody fields, pick the output set name, press
+    <b>Run chain</b>, and read the counted verdict: 3 steps &times; 11
+    output curves &times; 3 wells is the "33 curves" the example
+    reports.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<figure>
+  <img src="../img/guide-workflow-params.png"
+       alt="A step's parameter editor with the tortuosity factor catalogue expanded" />
+  <figcaption>The saturation step's editor with the catalogue open on the
+    tortuosity factor <i>a</i>: one product states no factory value, two
+    ship 1, each row carrying its evidence tier.</figcaption>
+</figure>
+
+<p>Every open parameter carries a "Shipped values elsewhere" catalogue: what
+other products ship for the same quantity, with the evidence tier for each
+claim. The pane's own closing line states the contract:</p>
+
+<pre class="equations">Values with their sources, not methods: what each product ships, not how it
+computes. Whichever you pick is recorded with the run, together with which of
+these it agrees with.</pre>
+
+<p>The rows are informational, not defaults: you type the number, and the
+run records both the value and which catalogue entries it agrees with. A
+parameter left unset does not run as zero: the chain refuses that well by
+name before the step computes, e.g.</p>
+
+<pre class="equations">precondition 'A' failed before sw_indo ran: value NaN at sample 0 is not
+finite. Fix the supplied value or its zone override.</pre>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Order is physics.</b> A saturation step reads the porosity the
+    chain just wrote; put it earlier and it reads whatever the input set
+    held before the run.</li>
+  <li><b>Write the run source as a record, not a note to self.</b> The
+    example's run source names each value and where it came from; that text
+    is what a reviewer reads next year when the numbers are questioned.</li>
+  <li><b>A partial result says so.</b> A well that failed a precondition is
+    reported per step and per well in the Processing panel's details; the
+    wells that passed still complete, so read the warning count, not just
+    the done line.</li>
+</ul>

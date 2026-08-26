@@ -1,0 +1,103 @@
+<!-- Authored walkthrough for the Monte Carlo tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Monte Carlo answers "how sure are we" about the volumes a chain produces:
+it re-runs a workflow many times with the uncertain parameters drawn from
+distributions you declare, so that net, N:G, porosity, saturation and
+hydrocarbon pore volume come back as percentile bands instead of single
+numbers. Reach
+for it when a deliverable needs P10/P50/P90 rather than one best estimate,
+or when you want to know which parameter your answer actually depends
+on.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-montecarlo.png"
+       alt="The Monte Carlo pane configured with two uncertain parameters over a saved chain" />
+  <figcaption>The GUIDE10 chain with two uncertain parameters: matrix gamma
+    ray as normal 44 &plusmn; 10 gAPI and matrix density as normal
+    2.65 &plusmn; 0.03 g/cc, 200 iterations at seed 42, Latin Hypercube
+    sampling.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Chain</b> picks the model: the built-in default sequence or any
+    saved workflow. The steps are shown so what is being perturbed is never
+    a guess.</li>
+  <li><b>Uncertain parameters</b> are added one by one; each row picks the
+    parameter, a distribution (normal, uniform, triangular), and its
+    numbers, prefilled from the chain's own settled value so the base case
+    is the run you already accepted. A distribution glyph draws the shape,
+    and the same "Shipped values elsewhere" catalogue sits under each
+    row.</li>
+  <li><b>Settings</b>: iterations, seed, HPV bins, the percentile pair to
+    report, the pay cutoffs, and the sampling scheme (Latin Hypercube, or
+    legacy random). A seeded run is exactly reproducible: the example's
+    numbers repeat to the last digit on a second run with seed 42.</li>
+  <li>Everything runs in memory; nothing is written to the project unless
+    the persist option is enabled.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics &#9656; Batch &#9656; Monte Carlo&hellip;</b>,
+    pick the saved chain, and add the parameters you genuinely doubt with
+    honest spreads.</li>
+  <li>Set iterations and a seed, keep the cutoffs consistent with the pay
+    summary you will quote beside these numbers, and press
+    <b>Run Monte Carlo</b>. The example completes 200 realizations across
+    3 wells in 382&nbsp;ms.</li>
+  <li>Click a result row to plot its HPV distribution, and read the tornado
+    below it.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<figure>
+  <img src="../img/guide-montecarlo-results.png"
+       alt="Monte Carlo results: HPV histogram, tornado chart and per-well percentile table" />
+  <figcaption>The HPV histogram with P10/P90 markers, the tornado (matrix
+    density swings HPV from 2.81 to 3.28 around a base of 3.06,
+    rank correlation +0.79; matrix gamma ray +0.55), and the per-well
+    table: net pay 14.5&nbsp;m (14.3&ndash;14.5), HPV P50 3.00
+    (2.73&ndash;3.24).</figcaption>
+</figure>
+
+<p>Two readings matter more than the percentiles themselves. First, the
+tornado ranks the inputs: here HPV uncertainty is carried almost entirely by
+matrix density, so tightening the gamma-ray endpoints would buy nothing.
+Second, net pay barely moves (14.3&ndash;14.5&nbsp;m) while HPV spreads
+&plusmn;8%: the sand is clean enough that the cutoff decision is insensitive,
+and the volumetric uncertainty is a porosity story, which is exactly the
+kind of sentence this pane exists to let you write.</p>
+
+<p>Impossible physics is reported, never hidden. Each example well flags:</p>
+
+<pre class="equations">100.0% of realizations hit impossible petrophysics (Sw>1 in 200/200
+(2724 samples)) — reported, not excluded; consider narrowing the input ranges</pre>
+
+<p>A draw of matrix density low enough makes computed porosity too small for
+the measured conductivity somewhere in the wet interval, and saturation
+exceeds one at those samples. The realizations still count (silently
+dropping them would bias every percentile toward the comfortable draws),
+and the warning tells you the input range is wider than the rock
+supports.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>A seed is part of the study.</b> Quote it with the results; an
+    unseeded run cannot be reproduced, so its percentiles cannot be
+    checked.</li>
+  <li><b>Distributions are claims, not knobs.</b> A &plusmn;10 gAPI matrix
+    endpoint says something specific about how well the clean line is
+    known; widen it only because the data says so, not to make the band
+    look prudent.</li>
+  <li><b>Read the warnings before the percentiles.</b> A high
+    impossible-physics fraction means the band partly measures the
+    distribution's tails, not the reservoir.</li>
+</ul>

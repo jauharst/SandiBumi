@@ -1,0 +1,84 @@
+<!-- Authored walkthrough for the Results QC tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Results QC is the cross-examination of a finished saturation
+interpretation: it recomputes water saturation by several independent
+methods from the same inputs, runs a battery of coherence checks, and
+reports each one as a pass, a flag, or "not yet runnable" with the reason.
+Reach for it after the chain has run and before the numbers ship;
+its job is to find the disagreement you would otherwise find in a peer
+review.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-resultsqc.png"
+       alt="The Results QC pane with the check list, Sw-method envelope and Buckles plot" />
+  <figcaption>Five checks over the whole well: the Sw-method spread passes,
+    Buckles flags a 59% coefficient of variation, two checks await their
+    prerequisite runs, and the cutoff check confirms the porosity cutoff is
+    on a plateau. The envelope plot shows where the five methods
+    disagree.</figcaption>
+</figure>
+
+<ul>
+  <li><b>The parameter fields</b> (Rw with its temperature pair, m, n, Rsh,
+    a, plus the cutoffs) each carry the "Shipped values elsewhere"
+    catalogue; enter the study's settled values so the recomputation tests
+    the interpretation, not a different one.</li>
+  <li><b>Five Sw methods</b> are recomputed and drawn as a min&ndash;max
+    envelope by depth: a clean-sand Archie form, two Simandoux variants, the
+    Indonesia equation and the Juh&aacute;sz normalised Waxman-Smits
+    proxy.</li>
+  <li><b>The checks are honest about their prerequisites</b>: reconstruction
+    incoherence needs a mineral-solver recon run and MC uncertainty needs a
+    persisted Monte Carlo, and each says so instead of passing
+    vacuously.</li>
+  <li><b>&#11123; CSV</b> exports the check table for the review
+    record.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics &#9656; Results QC&hellip;</b>; the pane
+    computes a first pass immediately.</li>
+  <li>Set the study's parameter values and cutoffs, press
+    <b>Recompute</b>, and read the check list top to bottom.</li>
+  <li>For any flag, switch the detail zone and read the two plots:
+    the envelope says where the methods diverge, the Buckles plot says
+    whether the flagged variability is transition zone or noise.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>On the example wells the method spread passes: mean disagreement 0.024
+saturation units, worst 0.387 at 1550&nbsp;m, 2% of samples divergent. The
+worst point is the reading to chase: 1550&nbsp;m is the base of the
+hydrocarbon sand, where the shaly-sand methods separate from clean-sand
+Archie exactly as their physics says they should.</p>
+
+<p>The Buckles check flags: the product of saturation and porosity varies
+59% across the well. On one homogeneous zone at irreducible saturation that
+would be damning; over a whole well spanning a gas sand and a wet interval
+it mostly restates the geology, which is why the check reports its evidence
+(BVW 0.099, n=191) rather than a verdict. The two grey checks are the
+honest state "not yet runnable", and the cutoff line compresses the
+sensitivity sweep into one sentence: 14.5&nbsp;m of net at the porosity
+cutoff, unchanged by a &plusmn;0.02 porosity wiggle.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Feed it the settled parameters.</b> The recomputation is only a
+    check if it uses the study's own Rw, m and n; defaults here would test
+    a strawman.</li>
+  <li><b>Run the checks per zone before acting on a whole-well flag.</b>
+    A Buckles CV over mixed zones is expected; the same CV inside one
+    clean zone is a finding.</li>
+  <li><b>Method spread is a warning, not an error bar.</b> Methods can
+    agree and all be wrong (same bad Rw); the spread only catches the
+    disagreements.</li>
+</ul>
