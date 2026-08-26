@@ -14,6 +14,7 @@ import {
   listSurveys,
   listWells,
   promoteGenericCurve,
+  renameDeliverySet,
   setActiveAuxSet,
   setActiveCoreSet,
   setActiveImageSet,
@@ -29,9 +30,11 @@ import {
   type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion, filterByActiveGroup, setStatus } from "../state";
+import { recordProcess } from "../processLog";
 import { activateWellGroup, openWellGroupManager, syncWellGroups } from "./wellGroups";
 import { showContextMenu, type ContextMenuEntry } from "./contextMenu";
 import { openCurveMetaDialog } from "./curveMetaDialog";
+import { ensureSessionOperator } from "./runCustody";
 
 /** Project object tree: Wells, and (later) their curves/zones.
  *  A group bar at the top scopes the list to the active well group (for large fields the
@@ -291,6 +294,18 @@ export class ObjectTree {
           label: "Open in Curve Catalog",
           onClick: () => this.onOpenCurveCatalog?.(setName),
         },
+        "sep",
+        {
+          // RAW keeps absolute priority in curve resolution (rule 10a) — the backend refuses
+          // to rename it in either direction, so the menu says why instead of offering a
+          // click that can only fail (same convention as the pinned curve's entry below).
+          label:
+            setName === "RAW"
+              ? "RAW cannot be renamed — it keeps absolute priority"
+              : "Rename this set…",
+          disabled: setName === "RAW",
+          onClick: () => void this.renameCurveSet(well, setName),
+        },
       ]);
       rows.push(row);
 
@@ -372,6 +387,41 @@ export class ObjectTree {
       anchor = r;
     }
     placeholder.remove();
+  }
+
+  /** Renames a curve set from the tree — the one delivery kind Data Sets… doesn't manage,
+   *  because curve sets are browsed here. Custody first (a rename is audited, so the
+   *  operator is demanded before anything moves), then the backend moves every row that
+   *  carries the name — curve_meta, the import-set registry and array logs — in one
+   *  transaction, or refuses by name (RAW, a taken name). */
+  private async renameCurveSet(well: WellSummary, oldName: string): Promise<void> {
+    const entered = window.prompt(`Rename curve set ${oldName} to:`, oldName);
+    const newName = entered?.trim();
+    if (!newName || newName === oldName) return;
+    const operator = await ensureSessionOperator("Rename delivery set");
+    if (!operator) return;
+    try {
+      const receipt = await renameDeliverySet(
+        "curve",
+        well.well_id,
+        null,
+        oldName,
+        newName,
+        operator.identity,
+        operator.kind,
+        "Wells",
+      );
+      setStatus(`Renamed curve set ${oldName} → ${newName} (${receipt.rows_moved} row(s)) — audited.`);
+      recordProcess("Edit", `Renamed curve set ${oldName} → ${newName}`, well.well_name);
+      // Keep the expansion under its new name, so a rename doesn't collapse what was open.
+      if (this.expandedSets.delete(`${well.well_id} ${oldName}`)) {
+        this.expandedSets.add(`${well.well_id} ${newName}`);
+      }
+      this.onDataChanged?.();
+      void this.refresh();
+    } catch (err) {
+      setStatus(String(err));
+    }
   }
 
   /** Core sets, surveys and point-data sets for one well, as tree rows.
