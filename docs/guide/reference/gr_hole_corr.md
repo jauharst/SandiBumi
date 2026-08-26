@@ -22,7 +22,7 @@ Whole-well defaults; per-zone values from the Zones pane take precedence inside 
 
 Correction per inch of enlargement
 
-- **Default:** 0.0075 — source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md
+- **Default:** 0.0075 — source: Adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md
 - **Accepted range:** 0 to 0.05 1/in
 
 ### BS_DEF *(in)*

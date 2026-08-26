@@ -113,14 +113,14 @@ Minimum total irreducible Sw
 
 Total porosity below which all non-clay-bound porosity is capillary-held
 
-- **Default:** 0.05 — source: Jauhar's own SSC conditioning rule, not the Loglan's (2026-08-20: 'i add those 2 rules to avoid minus and non-reliable cwsh value, cwsh will always be exist even so small'; KEPT and parameterised 2026-08-22, DEC-093). 0.05 is the value the port has run since it was written; it is a parameter now so a tight carbonate stringer and a shaly sand need not share it
+- **Default:** 0.05 — source: SandiBumi's own SSC conditioning rule, not the Loglan's: added to keep CWSH positive and reliable, since CWSH always exists even where small; KEPT and parameterised under DEC-093 (2026-08-22). 0.05 is the value the port has run since it was written; it is a parameter now so a tight carbonate stringer and a shaly sand need not share it
 - **Accepted range:** 0 to 0.5 v/v
 
 ### GAS_C
 
 Gas-conditioning weight (0 = density only, 1 = even, 2 = neutron only)
 
-- **Default:** 1.6 — source: sspw.lls (2025-02-28) gas branch writes the even split, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1 - and that is what SSC ran until DEC-088 OVERRODE it: Jauhar rules 1.6 here too, extending DEC-086's field observation that the even split still reads optimistic. The source is unchanged; the shipped default departs from it deliberately
+- **Default:** 1.6 — source: sspw.lls (2025-02-28) gas branch writes the even split, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1 - and that is what SSC ran until DEC-088 OVERRODE it, ruling 1.6 here too and extending DEC-086's field observation that the even split still reads optimistic. The source is unchanged; the shipped default departs from it deliberately
 - **Accepted range:** 0 to 2
 
 ## Options

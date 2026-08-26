@@ -6,37 +6,37 @@
 <p>RtC is SandiBumi's own method for low-resistivity low-contrast pay: it estimates
 the conductivity that clay chemistry and capillary-bound water add, removes it from
 the measured conductivity, and applies Archie to the remainder. Its coefficients never
-ship — a calibration from one field is silently wrong in another — so the workflow
+ship (a calibration from one field is silently wrong in another), so the workflow
 always starts in <b>Advance ▸ Calibrate RtC…</b>, and this chapter walks the whole
 chain including the two refusals it met, because they are the method working.</p>
 
 <h3>Calibrate first: declare a water zone</h3>
 
 <p>The calibration regresses the excess conductivity over rock you <i>declare</i> to
-be water-bearing. Declared here: <b>1535–1550 m on SANDI-01</b> — the water sand below
-the resistivity collapse — with the fit scoped to that one well (Ctrl-click it in the
+be water-bearing. Declared here: <b>1535–1550 m on SANDI-01</b>, the water sand below
+the resistivity collapse, with the fit scoped to that one well (Ctrl-click it in the
 Wells pane), because the same depth window crosses into the gas sand on the shifted
 neighbouring wells.</p>
 
 <ul>
-  <li><b>RT / PHIT / CAPBW inputs</b> — RES_DEEP, PHIT_SSC and CWSH: the capillary
+  <li><b>RT / PHIT / CAPBW inputs</b>: RES_DEEP, PHIT_SSC and CWSH. The capillary
     water is SSC's own output, which is the pairing the method was designed around.</li>
-  <li><b>Rw 0.127 ohm·m</b> — the median RT·PHIT_SSC² over the 99 declared water-zone
+  <li><b>Rw 0.127 ohm·m</b>: the median RT·PHIT_SSC² over the 99 declared water-zone
     samples. The first attempt used the effective-porosity Rwa (0.058) and the fit
     refused with <i>"only 0 usable water-zone samples"</i>: at that Rw, clean Archie
     on total porosity predicts more conductivity than was measured, so no sample
     carried any excess to fit. The lesson stands: <b>the Rw feeding an
     excess-conductivity fit must be derived on the same porosity the fit uses.</b></li>
-  <li><b>CEC 16.3 meq/100g</b> — the delivery's own XRD says the clay is 48.8% illite
+  <li><b>CEC 16.3 meq/100g</b>: the delivery's own XRD says the clay is 48.8% illite
     (n=2 samples), weighted over the literature constants the IMTS module records
-    (illite 25, kaolinite 8). <b>RHOG 2.65</b> — the quartz grain density from
+    (illite 25, kaolinite 8). <b>RHOG 2.65</b>: the quartz grain density from
     SandiMin's endpoint library. RSF stays at its held-fixed 2.25.</li>
 </ul>
 
 <figure>
   <img src="../img/guide-calrtc-fit.png"
        alt="The Calibrate RtC pane with the fit result and exclusion accounting" />
-  <figcaption>The fit: A_CAP −0.224, B_QV 0.841, C0 −1.446, R² 0.990 on 54 samples —
+  <figcaption>The fit: A_CAP −0.224, B_QV 0.841, C0 −1.446, R² 0.990 on 54 samples,
     and 45 samples excluded as carrying no excess to explain.</figcaption>
 </figure>
 
@@ -52,7 +52,7 @@ coefficients mean something; here they do not, and the next step proved it.</p>
 
 <p>Apply wrote the coefficients (and the held-fixed RSF with them) into SANDI-01's
 zone parameters in one step. But the fitted intercept C0&nbsp;=&nbsp;−1.446 sits
-outside the module's declared range for the parameter, and the run refused it — from
+outside the module's declared range for the parameter, and the run refused it, from
 the typed argument <i>and</i> from the zone override:
 <i>"parameter value(s) outside the module's declared range: C0 = −1.4458 in zone '*'
 (valid −1 to 1)"</i>. On this dataset sw_rtc therefore <b>does not run</b>, and that
@@ -63,10 +63,10 @@ before it could compute a plausible-looking saturation.</p>
 <figure>
   <img src="../img/guide-swrtc-pane.png"
        alt="The RtC pane filled with the calibration's own coefficients" />
-  <figcaption>The pane filled with the fit's own numbers — which the range gate then
+  <figcaption>The pane filled with the fit's own numbers, which the range gate then
     refused. Refusals are the guardrails, not obstacles.</figcaption>
 </figure>
 
-<p>What to take away: run RtC where the problem exists — rock whose resistivity reads
-low against its saturation. Where Archie already explains the water zone, the
+<p>What to take away: run RtC where the problem exists, on rock whose resistivity
+reads low against its saturation. Where Archie already explains the water zone, the
 calibration will tell you so, twice.</p>

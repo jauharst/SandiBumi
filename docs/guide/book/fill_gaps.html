@@ -54,7 +54,7 @@
 <div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Condition</div>
 <h1>Fill Gaps</h1>
 <p class="modmeta">Module id <code>fill_gaps</code> · category <b>Condition</b></p>
-<p>Fills holes no wider than a declared maximum and marks every sample it invented in a companion flag curve, so a filled value can always be told from a logged one. A gap open at one end is never filled - that would extrapolate past where the tool stopped.</p>
+<p>Fills holes no wider than a declared maximum and marks every sample it invented in a companion flag curve, so a filled value can always be told from a logged one. A gap open at one end is never filled: that would extrapolate past where the tool stopped.</p>
 <pre class="equations">LINEAR: a straight line between the live samples either side (gap ≤ MAX_GAP, bounded both ends)
 HOLD: the last live value carried down
 &lt;OUT&gt;_FILL = 1 on every invented sample</pre>
@@ -63,7 +63,7 @@ HOLD: the last live value carried down
 
 <h2>Step by step: filling gaps, and confessing to every one</h2>
 
-<p>Fill Gaps interpolates across holes no wider than MAX_GAP — LINEAR between
+<p>Fill Gaps interpolates across holes no wider than MAX_GAP: LINEAR between
 the bounding live samples, or HOLD carrying the last value down (the honest
 choice for a blocky curve, where a ramp would draw a transition the rock does
 not have). The defining feature is the flag: <b>every invented sample is marked
@@ -72,9 +72,9 @@ measurement, and without the flag nothing downstream could tell them apart.</p>
 
 <h3>The picks</h3>
 
-<p><b>LINEAR, MAX_GAP 2&nbsp;m, on GR_CLP</b> — the gaps the clip
+<p><b>LINEAR, MAX_GAP 2&nbsp;m, on GR_CLP</b>, the gaps the clip
 demonstration just made. This generated delivery carries no native gaps of its
-own (every standard curve is complete — checked before choosing this input),
+own (every standard curve is complete, checked before choosing this input),
 so the clip step exists precisely to give this one something real to do.
 MAX_GAP has no default: how far interpolation is defensible depends on why the
 data is missing, and no single value is right twice.</p>
@@ -89,7 +89,7 @@ data is missing, and no single value is right twice.</p>
 <h3>Run and read</h3>
 
 <p>On these wells: <b>3 clean</b>. Of the 184 blanked samples, <b>181 were
-refilled and flagged; 3 stayed MISSING</b> — a hole wider than the 2&nbsp;m cap,
+refilled and flagged; 3 stayed MISSING</b>: a hole wider than the 2&nbsp;m cap,
 or open at one end. That remainder is the two refusal rules working: a gap
 wider than declared is not bridged, and <b>a gap open at one end is never
 filled</b>, because filling it would extrapolate past where the tool stopped.
@@ -99,7 +99,7 @@ samples back out of any run that must see only measurements.</p>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Fills holes in a curve that are no wider than MAX_GAP, and marks every sample it invented in &lt;OUT&gt;_FILL.
 
-A filled sample is not a measurement. That is the whole reason for the flag curve (Jauhar, 2026-08-05): without it a filled value is indistinguishable from a logged one in a crossplot, a histogram, a net count or a report, and the person reading the number is not the person who chose the limit. Mask on &lt;OUT&gt;_FILL to take them back out of any run.
+A filled sample is not a measurement. That is the whole reason for the flag curve: without it a filled value is indistinguishable from a logged one in a crossplot, a histogram, a net count or a report, and the person reading the number is not the person who chose the limit. Mask on &lt;OUT&gt;_FILL to take them back out of any run.
 
 **A gap open at one end is never filled.** A hole at the top or the bottom of the curve has live data on one side only, so filling it is extrapolation — inventing rock past where the tool stopped. Only a gap bounded above AND below is a candidate.
 

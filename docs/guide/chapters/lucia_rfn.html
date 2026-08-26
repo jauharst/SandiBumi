@@ -7,7 +7,7 @@
 transform is inverted analytically for the rock-fabric number, which is then binned
 into the three Lucia classes (grainstone to mud-dominated). Two things the pane's
 documentation asks you to respect: the porosity should be <b>interparticle</b>
-porosity — subtract separate-vug porosity where you have it — and on a
+porosity (subtract separate-vug porosity where you have it), and on a
 clastic-dominated field this module is for the carbonate stringers, not the
 sands.</p>
 
@@ -22,15 +22,15 @@ never the right choice).</p>
 <figure>
   <img src="../img/guide-lucia-pane.png"
        alt="The Lucia rock-fabric pane with inputs selected" />
-  <figcaption>No parameters to pick — the decisions here are the inputs.</figcaption>
+  <figcaption>No parameters to pick: the decisions here are the inputs.</figcaption>
 </figure>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>3 clean</b> — and only <b>49% of samples classified</b>, which
+<p>On these wells: <b>3 clean</b>, and only <b>49% of samples classified</b>, which
 is the module being honest rather than incomplete: RT_LUCIA is written only where
 the computed RFN lands inside the 0.5–4 band the classes are defined over, and a
 clastic section computed through a carbonate transform spends half its samples
-outside it. On a real carbonate — or a stringer within this section — the
+outside it. On a real carbonate, or a stringer within this section, the
 classified fraction is the first QC number to read: a low fraction means the
 transform and the rock disagree about what family the samples belong to.</p>

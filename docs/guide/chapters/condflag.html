@@ -5,18 +5,18 @@
 
 <p>Data Conditioning Flags marks the samples whose density-neutron readings
 should not feed porosity or mineral solving: coal, tight rock, gas crossover,
-and — the subtle one — the shoulder samples either side of a flagged bed, where
+and (the subtle one) the shoulder samples either side of a flagged bed, where
 the tools still average across the boundary. COND_FLAG combines them into the
 run mask the porosity work consumes.</p>
 
 <h3>The picks</h3>
 
-<p>Shipped starting thresholds throughout — the pane itself marks several
+<p>Shipped starting thresholds throughout. The pane itself marks several
 "not settled", which is the honest label for numbers that want a per-field
 review. MIN_THICK and SHOULDER are metre-scale conventions and these wells are
 metric, so they stand. <b>OPT_XCOND stays NO</b>: the gas zones here will be
 <i>corrected</i> by the gas-correction step, not discarded, so the crossover
-flag must not join the exclusion mask. Run the Bad-Hole QC module first — its
+flag must not join the exclusion mask. Run the Bad-Hole QC module first; its
 flag feeds this one.</p>
 
 <figure>
@@ -30,7 +30,7 @@ flag feeds this one.</p>
 
 <p>On these wells: <b>3 clean</b>. The census: <b>XOVER_FLAG 265</b> samples of
 gas crossover (the gas sand, as the saturation shelf found it), <b>SHOULDER_FLAG
-36</b>, no coal and no tight rock — a clastic gas-bearing section saying exactly
+36</b>, no coal and no tight rock, a clastic gas-bearing section saying exactly
 what it should. <b>COND_FLAG totals 648</b>, dominated by the bad-hole term.
-One rule to keep: leave the Mask empty on the condflag run itself — masking this
+One rule to keep: leave the Mask empty on the condflag run itself. Masking this
 run with BADHOLE would blank COND_FLAG exactly where it must read 1.</p>

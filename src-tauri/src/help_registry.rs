@@ -40,7 +40,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
         "vsh_gr" => Some(ModuleHelp {
             summary: "Shale volume from the gamma-ray log. A gamma-ray index is taken \
                       between a clean-sand endpoint (GR_MA) and a shale endpoint (GR_SH), \
-                      then optionally passed through a published non-linear transform - \
+                      then optionally passed through a published non-linear transform: \
                       Stieber, Larionov or Clavier. VSH is the result limited to 0-1; \
                       VSH_GR keeps the unlimited value beside it.",
             equations: &[
@@ -52,8 +52,8 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "Clavier: VSH = 1.7 − √(3.38 − (IGR + 0.7)²)",
             ],
             references: &[
-                "Larionov (1969) - the Mesozoic-and-older and Tertiary transforms",
-                "Stieber (1970/71) - the three ratio forms",
+                "Larionov (1969): the Mesozoic-and-older and Tertiary transforms",
+                "Stieber (1970/71): the three ratio forms",
                 "Clavier et al. (1971)",
             ],
             note: "Author and year as this project's method ledger records them; the full \
@@ -101,7 +101,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
         "phi_dn" => Some(ModuleHelp {
             summary: "Quick-look density-neutron porosity: shale-reduces RHOB and NPHI, \
                       converts each to porosity, and combines them as the simple average or \
-                      the gas RMS. A comparison shortcut only - deliberately not a crossplot \
+                      the gas RMS. A comparison shortcut only, deliberately not a crossplot \
                       porosity method; for the analytic crossplot use Porosity from \
                       Bateman-Konen.",
             equations: &[
@@ -154,7 +154,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             ],
             references: &[
                 "Raymer, Hunt & Gardner, SPWLA 21st Annual Logging Symposium, 1980, paper P",
-                "Wyllie (1956/1958) - the time-average transform",
+                "Wyllie (1956/1958): the time-average transform",
             ],
             note: "The Raymer-Hunt-Gardner constants are verified against a copy of the \
                    paper held in the project library; the Wyllie citation is the \
@@ -173,7 +173,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "athy: φmax = PHIMAX0·exp(−ATHY_K·(TVDSS − TVDSS_REF)/1000)",
                 "<PHI>_CAP = min(PHI, φmax)",
             ],
-            references: &["Athy (1930) - the exponential compaction trend"],
+            references: &["Athy (1930): the exponential compaction trend"],
             note: "Author and year as this project's records hold them; the full primary \
                    citation is pending verification.",
         }),
@@ -212,7 +212,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "Gas conditioning corrects the density leg only (same c parameter as SSC)",
             ],
             references: &[],
-            note: "SandiBumi's own bound-water workflow - no published primary reference. \
+            note: "SandiBumi's own bound-water workflow; no published primary reference. \
                    Reconstructed from the method specification; validation against the \
                    reference-suite exports is an open review item.",
         }),
@@ -279,7 +279,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                       low-contrast pay: the conductivity added by clay chemistry and by \
                       capillary-bound (micropore) water is estimated per sample, removed \
                       from the measured conductivity, and Archie is applied to what \
-                      remains. The calibration coefficients never ship as defaults - \
+                      remains. The calibration coefficients never ship as defaults; \
                       they are fitted to declared water zones with Calibrate RtC.",
             equations: &[
                 "Cex = (A_CAP·CAPBW + B_QV·Qv + C0)·PHIT·RSF",
@@ -287,7 +287,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "Qv = QV log when present, else CEC·RHOG·(1−PHIT)/(100·PHIT)",
             ],
             references: &[],
-            note: "SandiBumi's own method - no published primary reference. A \
+            note: "SandiBumi's own method; no published primary reference. A \
                    calibration is a property of the dataset it was fitted on and never \
                    transfers between fields.",
         }),
@@ -338,8 +338,8 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "SKELT: SWH = 1 − SH_A·exp(−(SH_B/(h + SH_D))^SH_C)  (h in metres)",
             ],
             references: &[
-                "Leverett, M.C. (1941), Transactions AIME 142 - the J-function",
-                "Skelt, C. & Harrison, B. (1995), SPWLA - the height-saturation law",
+                "Leverett, M.C. (1941), Transactions AIME 142: the J-function",
+                "Skelt, C. & Harrison, B. (1995), SPWLA: the height-saturation law",
             ],
             note: "",
         }),
@@ -350,7 +350,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                       and irreducible water saturation, offered as four named constant \
                       sets. Wyllie & Rose replaced Carman-Kozeny's specific-surface term \
                       with irreducible saturation and warned the result carries \
-                      order-of-magnitude significance only - a warning every constant \
+                      order-of-magnitude significance only, a warning every constant \
                       set below inherits.",
             equations: &[
                 "PERM = (C · PHIE^D / SWE_IRR^E)²  (mD)",
@@ -359,7 +359,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             ],
             references: &[
                 "Wyllie, M.R.J. & Rose, W.D. (1950), Transactions AIME 189, 105-118",
-                "Balan, Mohaghegh & Ameri (1995), SPE 30978 - the lineage review",
+                "Balan, Mohaghegh & Ameri (1995), SPE 30978: the lineage review",
             ],
             note: "Two of the four constant sets carry a name their author never \
                    attached to them: TIMUR here is the Schlumberger Chart K-3 curve, \
@@ -372,7 +372,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
         "perm_coates" => Some(ModuleHelp {
             summary: "The Coates free-fluid permeability: porosity squared times the \
                       free-to-bound water ratio, squared again. This is the Coates & \
-                      Denoo producibility form - deliberately not Coates & Dumanoir \
+                      Denoo producibility form, deliberately not Coates & Dumanoir \
                       (1974), a different and much heavier model this module does not \
                       implement.",
             equations: &[
@@ -383,7 +383,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                  Schlumberger Technical Review 29(2)",
             ],
             note: "The constant C is scale-dependent and published values are not \
-                   interchangeable between the fractional, percent and NMR forms - \
+                   interchangeable between the fractional, percent and NMR forms; \
                    check which convention a quoted C belongs to before entering it.",
         }),
         // A utility transform: the coefficients ARE the user's own core calibration,
@@ -392,18 +392,18 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             summary: "The core-calibrated por-perm transform: a straight line in \
                       log-permeability against porosity, with both coefficients fitted \
                       by you against your own core data. The module ships no \
-                      coefficients - a por-perm law is a property of the rock family it \
+                      coefficients: a por-perm law is a property of the rock family it \
                       was regressed on.",
             equations: &["log10(PERM) = PT_A·PHIE + PT_B"],
             references: &[],
-            note: "PT_A and PT_B are the user's own RCAL regression - fit them against \
+            note: "PT_A and PT_B are the user's own RCAL regression; fit them against \
                    the core porosity-permeability pairs of the field being worked.",
         }),
         // Equations copied from lithology.rs's manifest doc; the chart identities are
         // the module's own recorded derivation (Lith-6, Por-11).
         "midplot" => Some(ModuleHelp {
             summary: "Apparent matrix density and apparent matrix volumetric \
-                      photoelectric factor - the two axes of the MID plot. The fluid is \
+                      photoelectric factor, the two axes of the MID plot. The fluid is \
                       removed from the density and from the photoelectric absorption at \
                       an apparent porosity read the way you would by hand off the \
                       density-neutron chart; crossplot UMAA against RHOMAA and switch \
@@ -414,7 +414,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "UMAA = (U − φa·U_FL)/(1 − φa)",
             ],
             references: &[
-                "Schlumberger Log Interpretation Charts - Lith-6 (Umaa-Rhomaa MID \
+                "Schlumberger Log Interpretation Charts, Lith-6 (Umaa-Rhomaa MID \
                  plot) and Por-11 (the apparent-porosity read)",
             ],
             note: "",
@@ -433,9 +433,9 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "PERM_RT = 1014.24·FZI_mean(RT)²·φ³/(1−φ)²",
             ],
             references: &[
-                "Amaefule et al. (1993) - RQI/FZI",
-                "Kolodzie (1980) - Winland R35",
-                "Corbett & Potter (2004) - the GHE bin series",
+                "Amaefule et al. (1993): RQI/FZI",
+                "Kolodzie (1980): Winland R35",
+                "Corbett & Potter (2004): the GHE bin series",
             ],
             note: "Author-year as this project's records hold them; the constants were \
                    re-verified against the records on 2026-07-22.",
@@ -469,18 +469,18 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "Port classes: nano < 0.1 < micro < 0.5 < meso < 2.5 < macro < 10 ≤ mega (µm)",
             ],
             references: &[
-                "Pittman, E.D. (1992), AAPG Bulletin v76 no.2, 191-198 - Table 1 in \
+                "Pittman, E.D. (1992), AAPG Bulletin v76 no.2, 191-198; Table 1 in \
                  full, verified against the paper",
             ],
             note: "The paper's own cautions ride along: correlation falls with \
                    saturation (0.926 at r20 to 0.820 at r75), and the family is \
-                   non-monotone below ~11% porosity - that is the published \
+                   non-monotone below ~11% porosity; that is the published \
                    arithmetic, not an implementation artifact.",
         }),
         // The cutoff ladder is the user's own declaration; nothing to cite.
         "rt_cutoff" => Some(ModuleHelp {
             summary: "A log-domain rock-type class from a declared Vsh + PHIE cutoff \
-                      ladder - the electrofacies half of the rock-typing tie-in. Class \
+                      ladder, the electrofacies half of the rock-typing tie-in. Class \
                       1 is the best rock, class 3 is non-net; validate the ladder \
                       against a core-derived rock type with the confusion-matrix QC \
                       before attaching per-class laws.",
@@ -491,7 +491,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             ],
             references: &[],
             note: "The cutoffs are the interpreter's own declaration for the field \
-                   being worked - they ship absent, and the chapter shows one way to \
+                   being worked: they ship absent, and the chapter shows one way to \
                    derive a starting ladder from the data itself.",
         }),
         // Equations copied from modules.rs's thin_bed_ts manifest doc; the citation is
@@ -542,7 +542,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             references: &[],
             note: "The Arps temperature conversion is carried by name as this project's \
                    method record holds it. The shipped trend starting values are \
-                   feet-based starting points - refit per basin, and convert before a \
+                   feet-based starting points: refit per basin, and convert before a \
                    metric well.",
         }),
         "badhole" => Some(ModuleHelp {
@@ -581,7 +581,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
         "nphimat" => Some(ModuleHelp {
             summary: "Converts a neutron log recorded in one matrix convention into all \
                       three (limestone, sandstone, dolomite) using the chartbook \
-                      porosity-equivalence curves - Por-5 for the CNL thermal tools, \
+                      porosity-equivalence curves: Por-5 for the CNL thermal tools, \
                       Por-4 for the epithermal APS and the sidewall SNP. Limestone units \
                       are the chart's apparent-limestone axis, on which calcite is the \
                       identity.",
@@ -591,11 +591,11 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "where C_SS and C_DOL are the chart's matrix curves; the input convention passes through unchanged",
             ],
             references: &[
-                "Schlumberger Log Interpretation Charts - Por-5 (CNL thermal neutron) \
+                "Schlumberger Log Interpretation Charts, Por-5 (CNL thermal neutron) \
                  and Por-4 (APS epithermal and SNP), the porosity-equivalence curve \
                  families",
             ],
-            note: "Apply environmental corrections first - the charts assume corrected \
+            note: "Apply environmental corrections first: the charts assume corrected \
                    logs. SALINITY = INTERPOLATE evaluates the fresh and 250-kppm charts \
                    completely and interpolates the finished answers (TNPH family only).",
         }),
@@ -612,12 +612,12 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "GASDEN: real-gas density of an SG_GAS gas at FPRESS/FTEMP (Standing pseudo-criticals, Papay z-factor)",
             ],
             references: &[
-                "Standing - natural-gas pseudo-critical correlations",
-                "Papay (1968) - z-factor correlation",
+                "Standing: natural-gas pseudo-critical correlations",
+                "Papay (1968): z-factor correlation",
             ],
             note: "Correlation names as this project's method record holds them; the \
                    full primary citations are pending verification. Feed RHOB_GC to \
-                   density porosity - not to a density-neutron combination, whose gas \
+                   density porosity, not to a density-neutron combination, whose gas \
                    handling assumes an uncorrected pair.",
         }),
         "gr_hole_corr" => Some(ModuleHelp {
@@ -629,7 +629,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "BS from the BS curve where present, else BS_DEF",
             ],
             references: &[],
-            note: "The run refuses if CALI is missing at any finite GR sample - it never \
+            note: "The run refuses if CALI is missing at any finite GR sample: it never \
                    writes an unmarked uncorrected copy under the corrected name.",
         }),
         "nphi_env_corr" => Some(ModuleHelp {
@@ -642,7 +642,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "NPHI_EC = NPHI + K_TEMP·(FTEMP − T_REF) + K_SAL·(SALW/100000)",
             ],
             references: &[],
-            note: "The shipped coefficients are practitioner starting values - replace \
+            note: "The shipped coefficients are practitioner starting values: replace \
                    them with values read from the applicable CNL chart for the tool in \
                    hand. SALW defaults to the chart reference condition (fresh), so the \
                    salinity term is inert until the study declares its formation \
@@ -656,7 +656,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "RHOB_EC = RHOB + K_RHO·(CALI − HD_REF)  for CALI > HD_REF; unchanged within gauge",
             ],
             references: &[],
-            note: "Use with the BADHOLE flag - beyond a few inches of washout no \
+            note: "Use with the BADHOLE flag: beyond a few inches of washout no \
                    correction is trustworthy.",
         }),
         "gr_normalize" => Some(ModuleHelp {
@@ -682,7 +682,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             equations: &[
                 "prediction = Σ wi·yi / Σ wi over the K nearest training samples",
                 "wi = 1/(di + 1e-6), di = Euclidean distance in z-scored predictor space",
-                "MAX_RAW: OUT = max(raw, synthetic)  - the washout rule for RHOB, since bad hole only pushes RHOB down",
+                "MAX_RAW: OUT = max(raw, synthetic), the washout rule for RHOB, since bad hole only pushes RHOB down",
             ],
             references: &[],
             note: "Mask the run to good-hole intervals so bad samples never train the \
@@ -721,7 +721,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "RATE: replace where the change from the previous live sample exceeds MAX_RATE per depth unit",
             ],
             references: &[],
-            note: "Set WINDOW narrower than the thinnest bed you intend to keep - a bed \
+            note: "Set WINDOW narrower than the thinnest bed you intend to keep: a bed \
                    no thicker than the window is indistinguishable from a spike. The \
                    Gaussian consistency constant (the reciprocal of the standard-normal \
                    75th percentile) is a mathematical estimator constant, not a \
@@ -729,12 +729,12 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
         }),
         "smooth" => Some(ModuleHelp {
             summary: "Averages a curve over a window stated as a thickness. A missing \
-                      sample stays missing and no gap is bridged - smoothing never \
+                      sample stays missing and no gap is bridged: smoothing never \
                       fills, because a filled sample is a claim about rock nobody \
                       logged.",
             equations: &[
                 "MEAN: arithmetic mean of the live samples in the window",
-                "MEDIAN: window median - keeps a step edge where a mean would ramp across it",
+                "MEDIAN: window median, which keeps a step edge where a mean would ramp across it",
                 "SAVGOL: local quadratic least-squares fit on the real (depth, value) pairs, evaluated at the sample",
             ],
             references: &[],
@@ -759,7 +759,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             summary: "Fills holes no wider than a declared maximum and marks every \
                       sample it invented in a companion flag curve, so a filled value \
                       can always be told from a logged one. A gap open at one end is \
-                      never filled - that would extrapolate past where the tool \
+                      never filled: that would extrapolate past where the tool \
                       stopped.",
             equations: &[
                 "LINEAR: a straight line between the live samples either side (gap ≤ MAX_GAP, bounded both ends)",
@@ -772,7 +772,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                    depends on why the data is missing.",
         }),
         "flip" => Some(ModuleHelp {
-            summary: "Mirrors a curve about a pivot - for an SP recorded with the wrong \
+            summary: "Mirrors a curve about a pivot: for an SP recorded with the wrong \
                       sign convention, or any reading delivered inverted.",
             equations: &[
                 "OUT = 2·pivot − CURVE",
@@ -780,7 +780,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             ],
             references: &[],
             note: "MIDRANGE and MEAN are computed per well, so two wells' flipped curves \
-                   are no longer on a common scale - use a VALUE pivot for anything that \
+                   are no longer on a common scale; use a VALUE pivot for anything that \
                    feeds a correlation.",
         }),
         "normalize" => Some(ModuleHelp {
@@ -807,10 +807,10 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                       has to know it was upscaled.",
             equations: &[
                 "beds: INTERVAL slices, CLASS runs of a constant value, ZONES marker intervals, or AUTO from the curve itself",
-                "MEAN - right for porosity and every volume fraction, because those add",
-                "GEOMETRIC: k = (k1·k2·…·kn)^(1/n)  - the standard permeability estimate in randomly heterogeneous rock",
-                "HARMONIC: k = n / Σ(1/ki)  - permeability across layers in series",
-                "MODE - the commonest value, and the only upscale for a class curve",
+                "MEAN: right for porosity and every volume fraction, because those add",
+                "GEOMETRIC: k = (k1·k2·…·kn)^(1/n), the standard permeability estimate in randomly heterogeneous rock",
+                "HARMONIC: k = n / Σ(1/ki), permeability across layers in series",
+                "MODE: the commonest value, and the only upscale for a class curve",
             ],
             references: &[],
             note: "Set the blocked curve's draw style to Step, or the log view draws a \
@@ -820,12 +820,12 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
         }),
         "bed_detect" => Some(ModuleHelp {
             summary: "Finds bed boundaries from a curve's own steps and writes the bed \
-                      number each sample falls in - the same segmentation Block's AUTO \
+                      number each sample falls in: the same segmentation Block's AUTO \
                       mode uses, exposed on its own so the beds can be looked at on a \
                       log before anything is averaged over them.",
             equations: &[
                 "a new bed opens where |x − bed mean| > SENS·noise and the bed already spans MIN_BED",
-                "noise = robust spread of the curve's first differences / √2  - the curve's noise, not its variability across the well",
+                "noise = robust spread of the curve's first differences / √2, the curve's noise, not its variability across the well",
             ],
             references: &[],
             note: "SandiBumi's own segmentation heuristic. Over-segmentation is what a \
@@ -841,8 +841,8 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             summary: "Unsupervised electrofacies by k-means: this well's samples are \
                       clustered in the space of the supplied curves (z-scored by \
                       default, so mixed units are comparable) into K classes. Labels \
-                      are ordered by the mean of the first supplied curve - usually GR \
-                      - so FACIES 0 is the cleanest class and the numbering is \
+                      are ordered by the mean of the first supplied curve (usually \
+                      GR), so FACIES 0 is the cleanest class and the numbering is \
                       monotone in shaliness.",
             equations: &[
                 "assign each sample to the nearest of K centroids in z-scored curve space",
@@ -850,15 +850,15 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "labels reordered by ascending mean of the first curve",
             ],
             references: &[],
-            note: "Standard k-means - no primary citation is recorded in this \
+            note: "Standard k-means; no primary citation is recorded in this \
                    project's method ledger; the label-ordering and z-scoring \
                    conventions are SandiBumi's own. Deterministic for a given seed.",
         }),
         "gmm_facies" => Some(ModuleHelp {
             summary: "Soft electrofacies by Gaussian mixture: every sample gets a \
                       membership probability per class rather than a hard assignment. \
-                      FPROB is the winning class's posterior - 1.0 is unambiguous, \
-                      about 1/K is a boundary or mixed sample - so transitional beds \
+                      FPROB is the winning class's posterior (1.0 is unambiguous, \
+                      about 1/K is a boundary or mixed sample), so transitional beds \
                       are visible instead of being forced into a class.",
             equations: &[
                 "diagonal-covariance Gaussian mixture fitted by EM, initialized from k-means",
@@ -866,14 +866,14 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "labels reordered by ascending mean of the first curve",
             ],
             references: &[],
-            note: "Standard Gaussian mixture - no primary citation is recorded in \
+            note: "Standard Gaussian mixture; no primary citation is recorded in \
                    this project's method ledger; conventions as the k-means module. \
                    Deterministic for a given seed.",
         }),
         "toc_passey" => Some(ModuleHelp {
-            summary: "Total organic carbon from the Passey ΔlogR overlay - the \
+            summary: "Total organic carbon from the Passey ΔlogR overlay: the \
                       separation between deep resistivity and a baselined porosity \
-                      curve, converted to TOC with a maturity term - plus the \
+                      curve, converted to TOC with a maturity term, plus the \
                       Schmoker-Hester density TOC as an independent cross-check \
                       whenever a density log is present.",
             equations: &[
@@ -892,7 +892,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             note: "Baselines are picked on a non-source, clay-rich interval where the \
                    two curves overlie, and TOC is very sensitive to them. LOM 6-12 \
                    (Hood-Gutjahr-Heacock scale); the conversion is calibrated to \
-                   LOM <= 12. The Schmoker fit is Bakken-specific - a cross-check, \
+                   LOM <= 12. The Schmoker fit is Bakken-specific: a cross-check, \
                    not a substitute.",
         }),
         "kerogen" => Some(ModuleHelp {
@@ -929,20 +929,20 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
             ],
             references: &[
                 "Langmuir (1918), J. Am. Chem. Soc. 40(9): 1361-1403",
-                "Mavor & Nelson (1996) - the GRI petro-application of the isotherm",
+                "Mavor & Nelson (1996): the GRI petro-application of the isotherm",
                 "Ambrose et al. (2010), SPE 131772",
             ],
             note: "The Langmuir pair VL/PL ships absent and requires matching core \
-                   desorption or isotherm data - an isotherm from another basin is \
+                   desorption or isotherm data: an isotherm from another basin is \
                    the wrong isotherm. The Ambrose pore-volume correction is \
                    deferred, so high-TOC high-pressure free gas reads slightly \
                    high.",
         }),
         "brittleness" => Some(ModuleHelp {
-            summary: "Brittleness index, 0 ductile to 1 brittle, two ways: elastic - \
+            summary: "Brittleness index, 0 ductile to 1 brittle, two ways. Elastic: \
                       dynamic Young's modulus and Poisson's ratio from the sonic \
-                      pair and density, normalized and averaged per Rickman - or \
-                      mineralogical, from a mineral solve's volume fractions.",
+                      pair and density, normalized and averaged per Rickman. \
+                      Mineralogical: from a mineral solve's volume fractions.",
             equations: &[
                 "G = ρ·Vs²;  K = ρ·(Vp² − 4/3·Vs²);  ν = (3K − 2G)/(2(3K + G));  E = 9KG/(3K + G)",
                 "Rickman: BI = (E_norm + ν_norm)/2, E over E_LO..E_HI (Mpsi), ν over NU_LO..NU_HI",
@@ -955,7 +955,7 @@ pub fn module_help(module: &str) -> Option<ModuleHelp> {
                 "Wang & Gale (2009), GCAGS Transactions 59",
             ],
             note: "The shipped normalization endpoints (1-8 Mpsi, 0.40-0.15) are \
-                   Rickman's own Barnett calibration on dynamic log values - \
+                   Rickman's own Barnett calibration on dynamic log values: \
                    recalibrate per basin, and apply any static correction after \
                    this index, not before. Mineral volumes come from a SandiMin \
                    run; a missing mineral counts as absent.",

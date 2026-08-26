@@ -4,7 +4,7 @@
 <h2>Step by step: finding the beds before averaging over them</h2>
 
 <p>Bed Detect writes the bed number each sample falls in, found from the
-curve's own steps — the same segmentation Block's AUTO mode uses, exposed on
+curve's own steps, the same segmentation Block's AUTO mode uses, exposed on
 its own so the beds can be <i>looked at</i> before anything is averaged over
 them. That order is the point: over-segmentation is what a step-finder gets
 wrong when it gets anything wrong, and a blocked curve computed from beds
@@ -19,17 +19,17 @@ calling a bed is a property of the tool and the rock.</p>
 
 <h3>The picks</h3>
 
-<p><b>MIN_BED 1&nbsp;m</b> — the thinnest bed worth keeping at this dataset's
+<p><b>MIN_BED 1&nbsp;m</b>, the thinnest bed worth keeping at this dataset's
 0.1524&nbsp;m sampling (the despike-window argument again), and <b>SENS 2</b>,
 the shipped two-noise-units convention. The noise scale is measured from the
-curve's own sample-to-sample differences divided by √2 — the curve's
+curve's own sample-to-sample differences divided by √2, the curve's
 <i>noise</i>, not how much it varies across the well, so a strongly layered
 section does not desensitize its own boundary detection.</p>
 
 <figure>
   <img src="../img/guide-beddetect-pane.png"
        alt="The Bed Detect pane on GR with a 1 m minimum bed" />
-  <figcaption>SandiBumi's own segmentation heuristic — the module doc is the
+  <figcaption>SandiBumi's own segmentation heuristic. The module doc is the
     derivation.</figcaption>
 </figure>
 
@@ -37,6 +37,6 @@ section does not desensitize its own boundary detection.</p>
 
 <p>On these wells: <b>3 clean</b>, finding <b>18–19 beds per well</b> over the
 ~60&nbsp;m sections. Before running Block against it, put GR_BED in a track as
-class blocks and judge the boundaries against the log — then Block with
+class blocks and judge the boundaries against the log, then Block with
 OPT_BEDS&nbsp;=&nbsp;CLASS pointing at the curve you have actually
 inspected.</p>

@@ -64,20 +64,20 @@ PHIT_SH = (RHO_DSH − RHO_SH)/(RHO_DSH − RHO_W)</pre>
 <h2>Step by step: the first porosity</h2>
 
 <p>Density porosity is where interpretation porosity usually starts: one log, one
-matrix, one fluid. This walkthrough assumes a VSH curve already exists — porosity
+matrix, one fluid. This walkthrough assumes a VSH curve already exists. Porosity
 modules consume VSH, so a VSH chapter's run comes first (see
 <a href="vsh_gr.html">VSH from Gamma Ray</a>).</p>
 
 <h3>What you actually have to enter</h3>
 
 <p>Open <b>Petrophysics → Porosity → Porosity from Density</b>. Most of this pane
-ships filled, each value with its citation printed under the field — matrix 2.65
+ships filled, each value with its citation printed under the field: matrix 2.65
 (three installed tools agree), fluid 1.0, dry-shale 2.70, water 1.0, the 0.3 PHIE cap
 and the 0.001 floor. The one number the pane refuses to guess is <b>RHO_SH</b>, the
-shale density — a property of <i>your</i> shale. For this run:</p>
+shale density, a property of <i>your</i> shale. For this run:</p>
 
 <ul>
-  <li><b>RHO_SH 2.45</b> — the median RHOB of SANDI-01's samples at GR ≥ 112 gAPI,
+  <li><b>RHO_SH 2.45</b>, the median RHOB of SANDI-01's samples at GR ≥ 112 gAPI,
     the same shale population the GR_SH pick defined. Recorded in the run's reference
     field exactly so.</li>
 </ul>
@@ -92,7 +92,7 @@ shale density — a property of <i>your</i> shale. For this run:</p>
 
 <p>On these wells: <b>3 clean · 0 degraded · 0 failed</b>. The run writes PHIE (the
 shale-corrected effective porosity) and PHIT (with the shale's own porosity added
-back), plus the unlimited PHIE_DEN beside the limited curve — the apparent and the
+back), plus the unlimited PHIE_DEN beside the limited curve. The apparent and the
 corrected answer keep different names, the same rule VSH_GR follows. Above 95% VSH the
 sample is treated as shale outright.</p>
 
@@ -128,7 +128,7 @@ caps, and what the saturation chapters consume.</p>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>fluid_density</code>); the pane lists them with sources at the point of choice.</li></ul>
 <h3>RHO_DSH <span class="src">(g/cc)</span></h3>
 <p>Dry shale density</p>
-<ul><li><b>Default:</b> 2.7 <span class="src">— source: Jauhar adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 2.7 <span class="src">— source: Adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 2 to 3.2 g/cc</li>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>dry_shale_density</code>); the pane lists them with sources at the point of choice.</li></ul>
 <h3>RHO_W <span class="src">(g/cc)</span></h3>
@@ -143,7 +143,7 @@ caps, and what the saturation chapters consume.</p>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>max_effective_porosity</code>); the pane lists them with sources at the point of choice.</li></ul>
 <h3>PHIE_FLOOR <span class="src">(v/v)</span></h3>
 <p>Floor applied to limited PHIE where the limit binds</p>
-<ul><li><b>Default:</b> 0.001 <span class="src">— source: Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; DEC-091 (2026-08-21) closed the bottom of the range AT that default so no run can write a floor the pay summary would re-floor, putting IP's competing 0.0001 (F17) deliberately out of reach; upper guard 0.01 stays below any real cutoff; docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0.001 <span class="src">— source: DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; DEC-091 (2026-08-21) closed the bottom of the range AT that default so no run can write a floor the pay summary would re-floor, putting IP's competing 0.0001 (F17) deliberately out of reach; upper guard 0.01 stays below any real cutoff; docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0.001 to 0.01 v/v</li></ul>
 <h3>DPHIMAX <span class="src">(v/v)</span></h3>
 <p>Smooth roll-off increment above PHIE_MAX (IP DeltaPhiMax)</p>

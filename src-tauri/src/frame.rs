@@ -269,7 +269,7 @@ pub fn block_spec() -> ModuleSpec {
                 "SENS", "AUTO: how far off the bed's mean is a new bed, in noise units", "", 2.0,
                 0.5, 20.0,
                 "Two-noise-units convention for change detection (same family as the Hampel K in \
-                 condition.rs), NOT a field calibration; ruled a shipping starting value by Jauhar \
+                 condition.rs), NOT a field calibration; ruled a shipping starting value by \
                  adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md",
             ),
             opt_labelled(
@@ -445,7 +445,7 @@ pub fn bed_detect_spec() -> ModuleSpec {
                 0.5,
                 20.0,
                 "Two-noise-units convention for change detection (same family as the Hampel K in \
-                 condition.rs), NOT a field calibration; ruled a shipping starting value by Jauhar \
+                 condition.rs), NOT a field calibration; ruled a shipping starting value by \
                  adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md",
             ),
             log_in("CURVE", "Curve to segment", "", "GR", true),

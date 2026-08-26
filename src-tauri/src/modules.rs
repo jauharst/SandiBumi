@@ -969,7 +969,7 @@ pub(crate) fn param_well(
 /// linearized coefficient), so the shipped number is his multi-basin starting value under the
 /// DEC-059 practitioner-attribution pattern, never a vendor citation. Rows with a more
 /// specific record (DCAL_MAX, XOVER_MIN, the temperature chain) carry their own strings.
-pub(crate) const DEC077_PRACTITIONER: &str = "Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md";
+pub(crate) const DEC077_PRACTITIONER: &str = "Adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md";
 
 /// A whole-well absent parameter that is required only on named option branches.
 pub(crate) fn param_open_well_when(
@@ -4308,7 +4308,7 @@ fn phi_den_spec() -> ModuleSpec {
             with_sources(
                 param(
                     "RHO_DSH", "Dry shale density", "g/cc", 2.70, 2.0, 3.2,
-                    "Jauhar adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md",
+                    "Adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md",
                 ),
                 crate::param_sources::DRY_SHALE_DENSITY,
             ),
@@ -4426,7 +4426,7 @@ fn phie_floor_param() -> ArgSpec {
         crate::param_sources::PHIE_FLOOR,
         crate::param_sources::PHIE_FLOOR,
         0.01,
-        "Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; DEC-091 (2026-08-21) closed the bottom of the range AT that default so no run can write a floor the pay summary would re-floor, putting IP's competing 0.0001 (F17) deliberately out of reach; upper guard 0.01 stays below any real cutoff; docs/takeover/DECISIONS.md",
+        "DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; DEC-091 (2026-08-21) closed the bottom of the range AT that default so no run can write a floor the pay summary would re-floor, putting IP's competing 0.0001 (F17) deliberately out of reach; upper guard 0.01 stays below any real cutoff; docs/takeover/DECISIONS.md",
     )
 }
 
@@ -4582,7 +4582,7 @@ fn phi_dn_spec() -> ModuleSpec {
             with_sources(
                 param(
                     "RHO_DSH", "Dry shale density", "g/cc", 2.70, 2.0, 3.2,
-                    "Jauhar adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md",
+                    "Adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md",
                 ),
                 crate::param_sources::DRY_SHALE_DENSITY,
             ),
@@ -4840,7 +4840,7 @@ fn phi_dnbk_spec() -> ModuleSpec {
             with_sources(
                 param(
                     "RHO_DSH", "Dry shale density", "g/cc", 2.70, 2.0, 3.2,
-                    "Jauhar adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md",
+                    "Adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md",
                 ),
                 crate::param_sources::DRY_SHALE_DENSITY,
             ),
@@ -5036,7 +5036,7 @@ fn phi_son_spec() -> ModuleSpec {
               PHIE - the one convention both vendors agree on exactly (SB-POR-013). RHG80: the \
               genuine three-segment Raymer-Hunt-Gardner 1980 transform (DEC-017; primary \
               source: Raymer, Hunt & Gardner, SPWLA 21st Annual Logging Symposium 1980, paper \
-              P, copy in Jauhar's library; constants paper-verified under DEC-079): phi < 37% \
+              P, copy held in the project library; constants paper-verified under DEC-079): phi < 37% \
               inverts V = (1-phi)^2*Vma + phi*Vf as the quadratic root, phi > 47% inverts the \
               fluid-suspension form (needs RHO_MA/RHO_FL, the paper's own density pairings), \
               37-47% is the paper's dt-linear interpolation. FIELD_OBSERVED: \
@@ -5067,7 +5067,7 @@ fn phi_son_spec() -> ModuleSpec {
                     vec![validity(
                         "phi_son.endpoint_order",
                         "The matrix transit time must be strictly below the shale transit time.",
-                        "Jauhar ruling DEC-063 (2026-08-18): DT MA should always be lower than DT SH; an inverted pair turns the shale subtraction into an addition (SB-POR-009 ordering)",
+                        "Ruling DEC-063 (2026-08-18): DT MA should always be lower than DT SH; an inverted pair turns the shale subtraction into an addition (SB-POR-009 ordering)",
                         ValidityRule::LessThan { other: "DT_SH".into() },
                     )],
                 ),
@@ -5540,7 +5540,7 @@ fn ftemp_grad_spec() -> ModuleSpec {
                 0.0474,
                 0.005,
                 0.1,
-                "Jauhar ruling DEC-085 R-3 (2026-08-20): the house default gradient is 0.026 degF/ft - this is that value in this parameter's degC/m unit (0.026 x (5/9) / 0.3048 = 0.04739, rounded 0.0474), ending the 58 percent disagreement with precalc.TEMP_GRAD that AUDIT-2026-08-20 finding 30 measured (~33 degC apart at 2000 m, ~25 percent in Rw). Supersedes the 0.03 degC/m DEC-077 carried; starting value, refit per basin as ever; docs/takeover/DECISIONS.md",
+                "Ruling DEC-085 R-3 (2026-08-20): the house default gradient is 0.026 degF/ft - this is that value in this parameter's degC/m unit (0.026 x (5/9) / 0.3048 = 0.04739, rounded 0.0474), ending the 58 percent disagreement with precalc.TEMP_GRAD that AUDIT-2026-08-20 finding 30 measured (~33 degC apart at 2000 m, ~25 percent in Rw). Supersedes the 0.03 degC/m DEC-077 carried; starting value, refit per basin as ever; docs/takeover/DECISIONS.md",
             ),
             param_open_well_when(
                 "BHT",
@@ -5549,7 +5549,7 @@ fn ftemp_grad_spec() -> ModuleSpec {
                 30.0,
                 250.0,
                 &[("OPT_FT", "BHT")],
-                "Absent by Jauhar adjudication DEC-077 (2026-08-19): a well-specific measurement is user input, never a default (Halliburton book 3 worked example); docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters; docs/takeover/DECISIONS.md",
+                "Absent by adjudication DEC-077 (2026-08-19): a well-specific measurement is user input, never a default (Halliburton book 3 worked example); docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters; docs/takeover/DECISIONS.md",
             ),
             param_open_well_when(
                 "TD_BHT",
@@ -5558,7 +5558,7 @@ fn ftemp_grad_spec() -> ModuleSpec {
                 100.0,
                 10000.0,
                 &[("OPT_FT", "BHT")],
-                "Absent by Jauhar adjudication DEC-077 (2026-08-19): a well-specific measurement is user input, never a default (Halliburton book 3 worked example); docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters; docs/takeover/DECISIONS.md",
+                "Absent by adjudication DEC-077 (2026-08-19): a well-specific measurement is user input, never a default (Halliburton book 3 worked example); docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters; docs/takeover/DECISIONS.md",
             ),
             log_out("FTEMP", "Formation temperature", "degC"),
         ],
@@ -5630,11 +5630,11 @@ fn precalc_spec() -> ModuleSpec {
             // PSURF/PGRAD below deliberately stay per-zone: a pressure compartment is real.
             param_well(
                 "SURF_TEMP", "Surface temperature (intercept, whole well)", "degF|degC", 77.0, -50.0, 150.0,
-                "Jauhar adjudication DEC-077 (2026-08-19): 77 degF starting value per DEC-059, one study's feet-based fit re-attributed to the owner - entered in OPT_TU units (default degF); refit per basin, and convert for metric wells (SB-ENV-045); docs/takeover/DECISIONS.md",
+                "Adjudication DEC-077 (2026-08-19): 77 degF starting value per DEC-059, one study's feet-based fit re-attributed to the owner - entered in OPT_TU units (default degF); refit per basin, and convert for metric wells (SB-ENV-045); docs/takeover/DECISIONS.md",
             ),
             param_well(
                 "TEMP_GRAD", "Temperature gradient per TVDSS unit (whole well)", "deg/ft|m", 0.026, 0.0005, 0.2,
-                "Jauhar adjudication DEC-077 (2026-08-19): 0.026 deg/ft starting value per DEC-059, one study's feet-based fit re-attributed to the owner - per depth unit of the TVDSS curve; refit per basin, and convert for metric wells (SB-ENV-045); CONFIRMED as the house default by DEC-085 R-3 (2026-08-20, verbatim: the right one is 0.026 degF/ft) - ftemp_grad.TGRAD now carries the same physical gradient in degC/m; docs/takeover/DECISIONS.md",
+                "Adjudication DEC-077 (2026-08-19): 0.026 deg/ft starting value per DEC-059, one study's feet-based fit re-attributed to the owner - per depth unit of the TVDSS curve; refit per basin, and convert for metric wells (SB-ENV-045); CONFIRMED as the house default by DEC-085 R-3 (2026-08-20, verbatim: the right one is 0.026 degF/ft) - ftemp_grad.TGRAD now carries the same physical gradient in degC/m; docs/takeover/DECISIONS.md",
             ),
             param_open("PSURF", "Formation pressure intercept", "psi", -500.0, 5000.0, true),
             param_open("PGRAD", "Pressure gradient per TVDSS unit", "psi/ft|m", 0.05, 5.0, true),
@@ -5785,7 +5785,7 @@ fn badhole_spec() -> ModuleSpec {
                 0.05,
                 0.0,
                 0.5,
-                "Jauhar adjudication DEC-077 (2026-08-19): 0.05 g/cc multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it matches none of the seven tabulated precedent values; docs/takeover/DECISIONS.md",
+                "Adjudication DEC-077 (2026-08-19): 0.05 g/cc multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it matches none of the seven tabulated precedent values; docs/takeover/DECISIONS.md",
             ),
             param(
                 "DCAL_MAX",
@@ -5794,7 +5794,7 @@ fn badhole_spec() -> ModuleSpec {
                 1.0,
                 0.0,
                 12.0,
-                "Jauhar adjudication DEC-077 (2026-08-19): 1.0 in multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it is half the 2 in value used by every delivered study; docs/takeover/DECISIONS.md",
+                "Adjudication DEC-077 (2026-08-19): 1.0 in multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it is half the 2 in value used by every delivered study; docs/takeover/DECISIONS.md",
             ),
             ArgSpec {
                 min: None,
@@ -6034,7 +6034,7 @@ fn condflag_spec() -> ModuleSpec {
                 0.04,
                 0.0,
                 0.3,
-                "Jauhar adjudication DEC-077 (2026-08-19): 0.04 v/v multi-basin starting value per DEC-059, ruled with the chapter's own warning in view that 0.04 equals the matrix-scale error size (SB-ENV-012/029) - convert the neutron convention first; docs/takeover/DECISIONS.md",
+                "Adjudication DEC-077 (2026-08-19): 0.04 v/v multi-basin starting value per DEC-059, ruled with the chapter's own warning in view that 0.04 equals the matrix-scale error size (SB-ENV-012/029) - convert the neutron convention first; docs/takeover/DECISIONS.md",
             ),
             param(
                 "MIN_THICK",
@@ -6043,7 +6043,7 @@ fn condflag_spec() -> ModuleSpec {
                 0.25,
                 0.0,
                 10.0,
-                "Jauhar adjudication DEC-077 (2026-08-19): 0.25 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md",
+                "Adjudication DEC-077 (2026-08-19): 0.25 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md",
             ),
             param(
                 "SHOULDER",
@@ -6052,7 +6052,7 @@ fn condflag_spec() -> ModuleSpec {
                 0.5,
                 0.0,
                 5.0,
-                "Jauhar adjudication DEC-077 (2026-08-19): 0.5 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md",
+                "Adjudication DEC-077 (2026-08-19): 0.5 starting value per DEC-059 - a resolution-scale convention stated in metres, in the depth curve's declared unit; rescale for feet wells; docs/takeover/DECISIONS.md",
             ),
             opt("OPT_XCOND", "Include gas crossover in COND_FLAG", "NO", &["NO", "YES"]),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
@@ -6846,12 +6846,12 @@ fn nphi_env_corr_spec() -> ModuleSpec {
             param("K_TEMP", "Temperature coefficient", "v/v per degC", 0.0001, -0.01, 0.01, DEC077_PRACTITIONER),
             param(
                 "T_REF", "Chart reference temperature", "degC", 21.1, 0.0, 100.0,
-                "Halliburton LWD Log Interpretation Charts (Sperry Drilling, 2018) book pp. 268/270: 'The reference temperature is 70 F' / fresh water at atmospheric pressure and 70 F (21.1 C); adopted by Jauhar adjudication DEC-077 (2026-08-19), replacing the uncited 24.0; docs/takeover/DECISIONS.md",
+                "Halliburton LWD Log Interpretation Charts (Sperry Drilling, 2018) book pp. 268/270: 'The reference temperature is 70 F' / fresh water at atmospheric pressure and 70 F (21.1 C); adopted by adjudication DEC-077 (2026-08-19), replacing the uncited 24.0; docs/takeover/DECISIONS.md",
             ),
             param("K_SAL", "Salinity coefficient per 100 kppm", "v/v", -0.002, -0.05, 0.05, DEC077_PRACTITIONER),
             param(
                 "SALW", "Formation water salinity", "ppm", 0.0, 0.0, 300000.0,
-                "Fresh-water reference condition (concentration zero) - the three-vendor agreement: GE CNL panel ships 0 kppm (IP 2025 F_qc section 3), the SLB panel value is a unit artifact that is effectively fresh, and Halliburton's chart axes are kppm Cl- referenced to fresh water (book pp. 268-269); adopted by Jauhar adjudication DEC-077 (2026-08-19) - the correction is inert until the study declares its salinity; docs/takeover/DECISIONS.md",
+                "Fresh-water reference condition (concentration zero) - the three-vendor agreement: GE CNL panel ships 0 kppm (IP 2025 F_qc section 3), the SLB panel value is a unit artifact that is effectively fresh, and Halliburton's chart axes are kppm Cl- referenced to fresh water (book pp. 268-269); adopted by adjudication DEC-077 (2026-08-19) - the correction is inert until the study declares its salinity; docs/takeover/DECISIONS.md",
             ),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             // FTEMP must come from precalc/ftemp_grad COMPUTED output, not a raw LAS curve — a raw
@@ -6934,7 +6934,7 @@ fn rhob_hole_corr_spec() -> ModuleSpec {
                 10.0,
                 4.0,
                 20.0,
-                "Jauhar adjudication DEC-077 (2026-08-19): 10 in multi-basin starting value per DEC-059 - the vendor reference diameter is PER-TOOL and stated on each chart (Halliburton Chart 2-1: 6.5 in for the 4.75-in DGR; SB-ENV-013 records it as a property of tool and bit), so no universal number is adoptable; docs/takeover/DECISIONS.md",
+                "Adjudication DEC-077 (2026-08-19): 10 in multi-basin starting value per DEC-059 - the vendor reference diameter is PER-TOOL and stated on each chart (Halliburton Chart 2-1: 6.5 in for the 4.75-in DGR; SB-ENV-013 records it as a property of tool and bit), so no universal number is adoptable; docs/takeover/DECISIONS.md",
             ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             with_validity(
@@ -15239,7 +15239,7 @@ mod tests {
                 module.args.iter().filter(|arg| arg.kind == ArgKind::Param).map(|arg| {
                     let class = if arg.default_source == ABSENT_DEFAULT_SOURCE {
                         "absent"
-                    } else if arg.default_source.contains("adopted by Jauhar adjudication DEC-077")
+                    } else if arg.default_source.contains("adopted by adjudication DEC-077")
                     {
                         "adopted"
                     } else if arg.default_source.contains("DEC-077") {

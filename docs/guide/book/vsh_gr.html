@@ -54,7 +54,7 @@
 <div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · VSH</div>
 <h1>VSH from Gamma Ray</h1>
 <p class="modmeta">Module id <code>vsh_gr</code> · category <b>VSH</b></p>
-<p>Shale volume from the gamma-ray log. A gamma-ray index is taken between a clean-sand endpoint (GR_MA) and a shale endpoint (GR_SH), then optionally passed through a published non-linear transform - Stieber, Larionov or Clavier. VSH is the result limited to 0-1; VSH_GR keeps the unlimited value beside it.</p>
+<p>Shale volume from the gamma-ray log. A gamma-ray index is taken between a clean-sand endpoint (GR_MA) and a shale endpoint (GR_SH), then optionally passed through a published non-linear transform: Stieber, Larionov or Clavier. VSH is the result limited to 0-1; VSH_GR keeps the unlimited value beside it.</p>
 <pre class="equations">IGR = (GR − GR_MA) / (GR_SH − GR_MA)
 LINEAR: VSH = IGR
 Stieber: VSH = IGR / (3 − 2·IGR)   [variants: IGR / (2 − IGR), IGR / (4 − 3·IGR)]
@@ -62,8 +62,8 @@ Larionov, Mesozoic and older: VSH = (2^(2·IGR) − 1) / (2² − 1)   [publishe
 Larionov, Tertiary / unconsolidated: VSH = (2^(3.7·IGR) − 1) / (2^3.7 − 1)   [published decimal: 0.083·(2^(3.7·IGR) − 1)]
 Clavier: VSH = 1.7 − √(3.38 − (IGR + 0.7)²)</pre>
 <h2>References</h2>
-<ul><li>Larionov (1969) - the Mesozoic-and-older and Tertiary transforms</li>
-<li>Stieber (1970/71) - the three ratio forms</li>
+<ul><li>Larionov (1969): the Mesozoic-and-older and Tertiary transforms</li>
+<li>Stieber (1970/71): the three ratio forms</li>
 <li>Clavier et al. (1971)</li></ul>
 <p class="note">Author and year as this project's method ledger records them; the full primary citations are pending verification.</p>
 <!-- Authored walkthrough for the vsh_gr guidebook chapter. Adapted from
@@ -78,7 +78,7 @@ Clavier: VSH = 1.7 − √(3.38 − (IGR + 0.7)²)</pre>
 <p>This walkthrough assumes the first-hour setup: three SANDI-* wells with GR,
 resistivity, neutron and density imported, and tops splitting them into a shale cap,
 two sands and a base seal. On the way it meets the four mechanics every later module
-run reuses — where parameters come from, who the run says it was run by, what
+run reuses: where parameters come from, who the run says it was run by, what
 "degraded" means, and where the output went.</p>
 
 <h3>Open the module</h3>
@@ -86,7 +86,7 @@ run reuses — where parameters come from, who the run says it was run by, what
 <p>Modules live in the <b>Petrophysics</b> ribbon tab, grouped the way you would group
 them yourself. Click <b>VSH ▾ → VSH from Gamma Ray</b>.</p>
 
-<p>It opens as a working pane docked beside your log view — not a popup — because you
+<p>It opens as a working pane docked beside your log view, not a popup, because you
 will tune it while looking at the log. Every module pane in SandiBumi is built the
 same way, generated from the module's own manifest, so once you can read this one you
 can read all of them.</p>
@@ -100,33 +100,33 @@ can read all of them.</p>
 <p>Reading the pane top to bottom:</p>
 
 <ul>
-  <li><b>RUN ON</b> — who gets computed. It opens on <b>All</b> (every well in the
+  <li><b>RUN ON</b>: who gets computed. It opens on <b>All</b> (every well in the
     project, here 3). <b>Selection</b> is the well you clicked in the Wells pane;
     <b>Pinned</b> is the wells you starred; <b>Custom…</b> is an explicit list. One
-    run, many wells — that is the normal way to work, not a batch afterthought.</li>
-  <li><b>OPT_GR</b> — the GR-index transform (LINEAR here; the dropdown holds the
+    run, many wells: that is the normal way to work, not a batch afterthought.</li>
+  <li><b>OPT_GR</b>: the GR-index transform (LINEAR here; the dropdown holds the
     non-linear forms listed above). Every choice and every range check in this pane
-    cites where it came from — the app telling you its defaults are sourced, not
+    cites where it came from, the app telling you its defaults are sourced, not
     invented.</li>
   <li><b>GR_MA and GR_SH have no default.</b> The clean-sand and shale endpoints are a
     property of <i>your</i> basin, and a number that ships pre-filled would be somebody
     else's calibration silently applied to your field. The link under each field shows
-    where other installed tools carry values — precisely so you can see they disagree.
+    where other installed tools carry values, precisely so you can see they disagree.
     You supply these two numbers yourself, next.</li>
-  <li><b>GR</b> input — "Auto — GR_COR → GR_EC → GR" is the preference order: a
+  <li><b>GR</b> input. "Auto — GR_COR → GR_EC → GR" is the preference order: a
     corrected gamma ray is used where it exists, otherwise the raw curve. You can pin
     a specific mnemonic instead.</li>
-  <li><b>MASK</b> — optionally name a flag curve (a bad-hole flag, say) and every
+  <li><b>MASK</b>: optionally name a flag curve (a bad-hole flag, say) and every
     flagged sample becomes missing in the output.</li>
-  <li><b>INPUT / OUTPUT LOG SET</b> — the run reads "(current values)" and writes into
+  <li><b>INPUT / OUTPUT LOG SET</b>: the run reads "(current values)" and writes into
     a named output set, <b>INTERP</b> by default.</li>
-  <li>The green callout: values here are the whole-well defaults — per-zone parameters
+  <li>The green callout: values here are the whole-well defaults; per-zone parameters
     from the Zones pane take precedence inside their zones.</li>
 </ul>
 
 <h3>Pick the endpoints from your own data</h3>
 
-<p>Where do GR_MA and GR_SH come from? From the histogram — the same place you would
+<p>Where do GR_MA and GR_SH come from? From the histogram, the same place you would
 pick them in any interpretation. Open <b>Plot → Histogram</b>; it builds for the
 selected well and opens on GR.</p>
 
@@ -137,7 +137,7 @@ selected well and opens on GR.</p>
     reading.</figcaption>
 </figure>
 
-<p>SANDI-01's gamma ray is cleanly bimodal — sands on the left, shales on the right —
+<p>SANDI-01's gamma ray is cleanly bimodal (sands on the left, shales on the right),
 and the stat chips above the plot do the reading for you: <b>P5&nbsp;=&nbsp;43.5,
 P95&nbsp;=&nbsp;111.8&nbsp;gAPI</b>, drawn as dashed lines on the plot. We round to
 <b>GR_MA&nbsp;=&nbsp;44</b> and <b>GR_SH&nbsp;=&nbsp;112</b> and type them into the
@@ -150,7 +150,7 @@ anywhere.</p>
 
 <h3>The run wants to know who and why</h3>
 
-<p>Press <b>Run VSH from Gamma Ray</b>. The first time, it refuses — in the pane, by
+<p>Press <b>Run VSH from Gamma Ray</b>. The first time, it refuses in the pane, by
 name:</p>
 
 <blockquote>Enter the session operator identity before computing.</blockquote>
@@ -161,14 +161,14 @@ into <b>Session operator</b>. Run again and it refuses once more:</p>
 <blockquote>Enter the source/reference covering this run's explicit values.</blockquote>
 
 <p>You typed explicit numbers (44 and 112), so the run demands the reference that
-covers them — the same discipline a reviewed study applies to every parameter. The
+covers them, the same discipline a reviewed study applies to every parameter. The
 honest citation is simply where the picks came from:
 <code>GR histogram P5/P95 picks, SANDI-01 (43.5 / 111.8 gAPI, rounded)</code>. This
 text is stored with the run and follows the output curves; when someone asks in two
 years where 44 came from, the answer is attached to the curve, not lost in a
 notebook.</p>
 
-<h3>Read the outcome — "degraded" is the app being honest</h3>
+<h3>Read the outcome: "degraded" is the app being honest</h3>
 
 <p>Run again. The pane reports into the <b>Processing</b> panel and summarises:</p>
 
@@ -188,30 +188,30 @@ range [0, 1] (46 occurrences)</blockquote>
 
 <p>This is the consequence of the P5/P95 pick, reported instead of hidden. SANDI-01's
 GR actually spans 41.5–115.2 gAPI; every sample cleaner than 44 or shalier than 112
-computes a GR index below 0 or above 1, and the limited output clamps it — about 46 of
+computes a GR index below 0 or above 1, and the limited output clamps it, about 46 of
 395 samples, the tails the percentile pick deliberately excluded. "Degraded" never
 means the run half-worked; it means the result carries a warning you should read once
-and then either accept (as here — clamping at the endpoints is exactly what percentile
+and then either accept (as here: clamping at the endpoints is exactly what percentile
 picks imply) or fix by re-running with different picks. A well that actually failed
 says <b>failed</b>, and writes nothing.</p>
 
 <h3>Where the answer went</h3>
 
-<p>The run wrote three curves per well into the <b>INTERP</b> output set — open the
+<p>The run wrote three curves per well into the <b>INTERP</b> output set. Open the
 Inspector's <b>Curve Catalog</b> tab to see them listed beside the RAW curves:</p>
 
 <ul>
-  <li><b>VSH</b> — the limited volume of shale, 0 to 1. This is the interpretation.</li>
-  <li><b>VSH_GR</b> — the <i>unlimited</i> GR index (here −0.04 to 1.05). The apparent
+  <li><b>VSH</b>: the limited volume of shale, 0 to 1. This is the interpretation.</li>
+  <li><b>VSH_GR</b>: the <i>unlimited</i> GR index (here −0.04 to 1.05). The apparent
     answer and the corrected answer get different names on purpose, so a report can
     never quote one as the other.</li>
-  <li><b>VSH_PROV</b> — a per-sample flag saying <i>why</i> each sample is what it is
-    (computed, input missing, masked, endpoint invalid). Categorical — a reason, never
+  <li><b>VSH_PROV</b>: a per-sample flag saying <i>why</i> each sample is what it is
+    (computed, input missing, masked, endpoint invalid). Categorical: a reason, never
     a mask.</li>
 </ul>
 
 <p>The catalog's log-set line states the storage rule in one breath: every run is kept
-as a version — nothing is overwritten. Re-running with better endpoints writes INTERP
+as a version; nothing is overwritten. Re-running with better endpoints writes INTERP
 v2; v1 stays. That is why a module run is <i>re-runnable, not undoable</i>: undo is
 for edits, while a run you disagree with is simply run again, and both versions remain
 comparable.</p>
@@ -231,8 +231,8 @@ curve's mnemonic to <code>VSH</code> with a 0–1 scale, and OK.</p>
 
 <p>At 1:500 the interpretation reads at a glance: VSH near zero through both sands,
 near one in the shale cap and below TOP_SHALE_2, tracking the gamma ray. If anything
-looks wrong, the pane you ran from is still open — change a number and run again.
-That loop — pane, run, look, adjust — is how every module in SandiBumi is meant to be
+looks wrong, the pane you ran from is still open. Change a number and run again.
+That loop (pane, run, look, adjust) is how every module in SandiBumi is meant to be
 worked.</p>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>

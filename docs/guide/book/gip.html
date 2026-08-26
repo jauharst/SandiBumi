@@ -61,15 +61,15 @@ GIP_TOTAL = GIP_FREE + GIP_ADS
 cbm: GIP_ADS·(1 − F_ASH − F_MOIST);  PCD = PL·GC/(VL − GC)</pre>
 <h2>References</h2>
 <ul><li>Langmuir (1918), J. Am. Chem. Soc. 40(9): 1361-1403</li>
-<li>Mavor &amp; Nelson (1996) - the GRI petro-application of the isotherm</li>
+<li>Mavor &amp; Nelson (1996): the GRI petro-application of the isotherm</li>
 <li>Ambrose et al. (2010), SPE 131772</li></ul>
-<p class="note">The Langmuir pair VL/PL ships absent and requires matching core desorption or isotherm data - an isotherm from another basin is the wrong isotherm. The Ambrose pore-volume correction is deferred, so high-TOC high-pressure free gas reads slightly high.</p>
+<p class="note">The Langmuir pair VL/PL ships absent and requires matching core desorption or isotherm data: an isotherm from another basin is the wrong isotherm. The Ambrose pore-volume correction is deferred, so high-TOC high-pressure free gas reads slightly high.</p>
 <!-- Authored walkthrough for the gip guidebook chapter. Numbers captured
      live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
 
 <h2>Step by step: gas-in-place as a curve</h2>
 
-<p>Gas-in-place per sample, as gas <i>content</i> — scf per ton of rock — so it
+<p>Gas-in-place per sample, as gas <i>content</i> (scf per ton of rock), so it
 composites like any other curve. Free gas comes from porosity and saturation
 through the gas formation-volume factor; adsorbed gas through the Langmuir
 isotherm; the total is their sum. CBM mode adds the dry-ash-free correction
@@ -86,13 +86,13 @@ measurements, or the adsorbed term is not computable.</p>
 <h3>The picks, each with its defence</h3>
 
 <ul>
-  <li><b>VL 100&nbsp;scf/ton / PL 1000&nbsp;psia</b> — the shale seeds this
+  <li><b>VL 100&nbsp;scf/ton / PL 1000&nbsp;psia</b>: the shale seeds this
     project's method record documents, standing in for the matched isotherm a
     synthetic delivery cannot have.</li>
-  <li><b>RES_P 2187&nbsp;psia, TEMP_F 210&nbsp;°F</b> — the precalc trends
+  <li><b>RES_P 2187&nbsp;psia, TEMP_F 210&nbsp;°F</b>: the precalc trends
     evaluated at 1530&nbsp;m (hydrostatic pressure, the metric temperature
     trend).</li>
-  <li><b>Z_FAC 0.9</b> — the gas-correction module's Papay solve at these same
+  <li><b>Z_FAC 0.9</b>: the gas-correction module's Papay solve at these same
     conditions.</li>
 </ul>
 
@@ -107,7 +107,7 @@ measurements, or the adsorbed term is not computable.</p>
 
 <p>On these wells: <b>3 clean</b>. The adsorbed term is a near-constant
 <b>~69&nbsp;scf/ton</b> (the isotherm at one pressure), while free gas is
-<b>0 over most of the section and ~405&nbsp;scf/ton across the gas sand</b> —
+<b>0 over most of the section and ~405&nbsp;scf/ton across the gas sand</b>,
 the split telling you what kind of resource this section would be. One caveat
 rides along from the method record: the Ambrose pore-volume correction is
 deferred, so high-TOC, high-pressure free gas reads slightly high.</p>

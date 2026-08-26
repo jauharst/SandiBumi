@@ -54,7 +54,7 @@
 <div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Porosity</div>
 <h1>Porosity from Density-Neutron</h1>
 <p class="modmeta">Module id <code>phi_dn</code> · category <b>Porosity</b></p>
-<p>Quick-look density-neutron porosity: shale-reduces RHOB and NPHI, converts each to porosity, and combines them as the simple average or the gas RMS. A comparison shortcut only - deliberately not a crossplot porosity method; for the analytic crossplot use Porosity from Bateman-Konen.</p>
+<p>Quick-look density-neutron porosity: shale-reduces RHOB and NPHI, converts each to porosity, and combines them as the simple average or the gas RMS. A comparison shortcut only, deliberately not a crossplot porosity method; for the analytic crossplot use Porosity from Bateman-Konen.</p>
 <pre class="equations">AVERAGE: PHIX = (PHID + PHIN)/2
 GAS_RMS: PHIX = √((PHID² + PHIN²)/2)
 PHIE = PHIX·(1 − VSH)
@@ -79,7 +79,7 @@ undeclared basis cannot be checked - declare it (set_curve_neutron_basis) or con
 with nphimat first.</blockquote>
 
 <p>That is this run happening on camera: the SANDI deliveries say "limestone" in the
-LAS header, but the application never infers a matrix basis — it must be DECLARED
+LAS header, but the application never infers a matrix basis. It must be DECLARED
 (Curve Catalog → the neutron curve's basis, citing the header), or the curve converted
 with <b>Neutron Matrix Conversion</b>. Here the basis was declared LIMESTONE with the
 header as its source, and the run proceeded.</p>
@@ -87,8 +87,8 @@ header as its source, and the run proceeded.</p>
 <h3>Enter the shale point</h3>
 
 <ul>
-  <li><b>RHO_SH 2.45 / NPHI_SH 0.38</b> (limestone units, matching the declared curve)
-    — medians of SANDI-01's samples at GR ≥ 112 gAPI. Everything else is a cited
+  <li><b>RHO_SH 2.45 / NPHI_SH 0.38</b> (limestone units, matching the declared curve):
+    medians of SANDI-01's samples at GR ≥ 112 gAPI. Everything else is a cited
     default, including the AVERAGE/GAS_RMS choice (AVERAGE).</li>
 </ul>
 
@@ -100,7 +100,7 @@ header as its source, and the run proceeded.</p>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>1 clean · 2 degraded</b>. The degraded wells report two clamps —
+<p>On these wells: <b>1 clean · 2 degraded</b>. The degraded wells report two clamps:
 the shale-reduced neutron held to its [-0.015, 0.4] guard band at one sample, and the
 effective porosity held at the 0.001 floor at another. Single-sample clamps at guard
 rails are the normal texture of real logs; a well that failed outright would say
@@ -141,7 +141,7 @@ rails are the normal texture of real logs; a well that failed outright would say
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>shale_neutron_endpoint</code>); the pane lists them with sources at the point of choice.</li></ul>
 <h3>RHO_DSH <span class="src">(g/cc)</span></h3>
 <p>Dry shale density</p>
-<ul><li><b>Default:</b> 2.7 <span class="src">— source: Jauhar adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 2.7 <span class="src">— source: Adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 2 to 3.2 g/cc</li>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>dry_shale_density</code>); the pane lists them with sources at the point of choice.</li></ul>
 <h3>RHO_W <span class="src">(g/cc)</span></h3>
@@ -156,7 +156,7 @@ rails are the normal texture of real logs; a well that failed outright would say
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>max_effective_porosity</code>); the pane lists them with sources at the point of choice.</li></ul>
 <h3>PHIE_FLOOR <span class="src">(v/v)</span></h3>
 <p>Floor applied to limited PHIE where the limit binds</p>
-<ul><li><b>Default:</b> 0.001 <span class="src">— source: Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; DEC-091 (2026-08-21) closed the bottom of the range AT that default so no run can write a floor the pay summary would re-floor, putting IP's competing 0.0001 (F17) deliberately out of reach; upper guard 0.01 stays below any real cutoff; docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0.001 <span class="src">— source: DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; DEC-091 (2026-08-21) closed the bottom of the range AT that default so no run can write a floor the pay summary would re-floor, putting IP's competing 0.0001 (F17) deliberately out of reach; upper guard 0.01 stays below any real cutoff; docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0.001 to 0.01 v/v</li></ul>
 <h3>DPHIMAX <span class="src">(v/v)</span></h3>
 <p>Smooth roll-off increment above PHIE_MAX (IP DeltaPhiMax)</p>

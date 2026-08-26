@@ -68,12 +68,12 @@ tool was characterized at and the formation the log was actually run in.</p>
 
 <h3>The picks</h3>
 
-<p>The shipped coefficients are <b>practitioner starting values</b> — replace
+<p>The shipped coefficients are <b>practitioner starting values</b>. Replace
 them with values read from the applicable CNL chart for the tool in hand where
 one is available. <b>SALW stays 0</b>, the chart reference condition itself
 (fresh): until the study declares its formation salinity the salinity term is
 deliberately inert, rather than defaulted to somebody else's brine. Run
-Formation Temperature first — without FTEMP only the salinity term can apply.</p>
+Formation Temperature first: without FTEMP only the salinity term can apply.</p>
 
 <figure>
   <img src="../img/guide-nphienv-pane.png"
@@ -99,19 +99,19 @@ conversion, because the equivalence charts assume corrected logs.</p>
 <p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
 <h3>K_TEMP <span class="src">(v/v per degC)</span></h3>
 <p>Temperature coefficient</p>
-<ul><li><b>Default:</b> 0.0001 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0.0001 <span class="src">— source: Adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> -0.01 to 0.01 v/v per degC</li></ul>
 <h3>T_REF <span class="src">(degC)</span></h3>
 <p>Chart reference temperature</p>
-<ul><li><b>Default:</b> 21.1 <span class="src">— source: Halliburton LWD Log Interpretation Charts (Sperry Drilling, 2018) book pp. 268/270: 'The reference temperature is 70 F' / fresh water at atmospheric pressure and 70 F (21.1 C); adopted by Jauhar adjudication DEC-077 (2026-08-19), replacing the uncited 24.0; docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 21.1 <span class="src">— source: Halliburton LWD Log Interpretation Charts (Sperry Drilling, 2018) book pp. 268/270: 'The reference temperature is 70 F' / fresh water at atmospheric pressure and 70 F (21.1 C); adopted by adjudication DEC-077 (2026-08-19), replacing the uncited 24.0; docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0 to 100 degC</li></ul>
 <h3>K_SAL <span class="src">(v/v)</span></h3>
 <p>Salinity coefficient per 100 kppm</p>
-<ul><li><b>Default:</b> -0.002 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> -0.002 <span class="src">— source: Adjudication DEC-077 (2026-08-19): multi-basin practitioner starting value per DEC-059 - vendors correct through charts and ship no adoptable number for this quantity (corpus negative, docs/takeover/DRAFT_ENV004_source_adjudication.md); docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> -0.05 to 0.05 v/v</li></ul>
 <h3>SALW <span class="src">(ppm)</span></h3>
 <p>Formation water salinity</p>
-<ul><li><b>Default:</b> 0 <span class="src">— source: Fresh-water reference condition (concentration zero) - the three-vendor agreement: GE CNL panel ships 0 kppm (IP 2025 F_qc section 3), the SLB panel value is a unit artifact that is effectively fresh, and Halliburton's chart axes are kppm Cl- referenced to fresh water (book pp. 268-269); adopted by Jauhar adjudication DEC-077 (2026-08-19) - the correction is inert until the study declares its salinity; docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0 <span class="src">— source: Fresh-water reference condition (concentration zero) - the three-vendor agreement: GE CNL panel ships 0 kppm (IP 2025 F_qc section 3), the SLB panel value is a unit artifact that is effectively fresh, and Halliburton's chart axes are kppm Cl- referenced to fresh water (book pp. 268-269); adopted by adjudication DEC-077 (2026-08-19) - the correction is inert until the study declares its salinity; docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0 to 300000 ppm</li></ul>
 <h2>Output curves</h2>
 <div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>NPHI_EC</td><td>Environmentally corrected neutron porosity</td></tr>

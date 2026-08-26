@@ -5,7 +5,7 @@
 
 <p>The simplest rock typing there is: a declared Vsh + PHIE cutoff ladder, three
 classes, best to non-net. The ladder ships absent because a cutoff is an
-interpretation, not a constant — and the module's whole design assumes you will
+interpretation, not a constant. And the module's whole design assumes you will
 validate the ladder against a core-derived rock type with the confusion-matrix QC
 before attaching per-class laws to it.</p>
 
@@ -15,16 +15,16 @@ before attaching per-class laws to it.</p>
 dataset's own sand population (samples at GR&nbsp;&lt;&nbsp;60):</p>
 
 <ul>
-  <li><b>VSH1 0.458 / VSH2 0.467</b> — the P90 and P95 of VSH within the sands: the
+  <li><b>VSH1 0.458 / VSH2 0.467</b>, the P90 and P95 of VSH within the sands: the
     sand population's own upper edge, and a slightly forgiving variant of it.</li>
-  <li><b>PHI1 0.148 / PHI2 0.134</b> — the P50 and P25 of PHIE_DEN within the sands:
+  <li><b>PHI1 0.148 / PHI2 0.134</b>, the P50 and P25 of PHIE_DEN within the sands:
     median sand quality, and the lower quartile.</li>
   <li>The pane enforces VSH1 ≤ VSH2 and PHI1 ≥ PHI2, so a ladder that ranks
     backwards is refused before it classifies anything.</li>
 </ul>
 
-<p>A percentile ladder is a <i>starting point with a defence</i> — every number has
-a command behind it — not a validated rock type. The validation is the tie-in.</p>
+<p>A percentile ladder is a <i>starting point with a defence</i> (every number has
+a command behind it), not a validated rock type. The validation is the tie-in.</p>
 
 <figure>
   <img src="../img/guide-rtcutoff-pane.png"
@@ -36,7 +36,7 @@ a command behind it — not a validated rock type. The validation is the tie-in.
 <h3>Run and read</h3>
 
 <p>On these wells: <b>3 clean</b>. The class census over the classified samples:
-284 in class 1, 147 in class 2, 733 in class 3 — most of the section is non-net,
+284 in class 1, 147 in class 2, 733 in class 3. Most of the section is non-net,
 which is what a section that is two-thirds shale should say. Next stop on a real
 study: Rock Typing ▸ Facies Tie-in, where this RT_LOG meets the core-derived rock
 type in a confusion matrix, and the ladder gets adjusted for the misclassifications

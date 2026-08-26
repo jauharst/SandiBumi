@@ -54,7 +54,7 @@
 <div class="crumb"><a href="index.html">SandiBumi Guidebook</a> · Facies</div>
 <h1>Electrofacies (K-means)</h1>
 <p class="modmeta">Module id <code>electrofacies</code> · category <b>Facies</b></p>
-<p>Unsupervised electrofacies by k-means: this well's samples are clustered in the space of the supplied curves (z-scored by default, so mixed units are comparable) into K classes. Labels are ordered by the mean of the first supplied curve - usually GR - so FACIES 0 is the cleanest class and the numbering is monotone in shaliness.</p>
+<p>Unsupervised electrofacies by k-means: this well's samples are clustered in the space of the supplied curves (z-scored by default, so mixed units are comparable) into K classes. Labels are ordered by the mean of the first supplied curve (usually GR), so FACIES 0 is the cleanest class and the numbering is monotone in shaliness.</p>
 <pre class="equations">assign each sample to the nearest of K centroids in z-scored curve space
 centroids re-estimated as class means, iterated to convergence (k-means++ seeding, best of several starts)
 labels reordered by ascending mean of the first curve</pre>
@@ -64,7 +64,7 @@ labels reordered by ascending mean of the first curve</pre>
 <h2>Step by step: unsupervised facies by k-means</h2>
 
 <p>Electrofacies clusters each well's samples in the space of the supplied curves
-— z-scored by default so mixed units are comparable — into K classes. The
+(z-scored by default so mixed units are comparable) into K classes. The
 convention worth knowing: labels are ordered by the mean of the <i>first</i>
 supplied curve, usually GR, so FACIES 0 is the cleanest class and the numbering
 is monotone in shaliness. Clustering is per well and deterministic for a given
@@ -73,7 +73,7 @@ seed.</p>
 <h3>The picks</h3>
 
 <p>Shipped defaults throughout: <b>K&nbsp;5, seed 42</b>, z-scored
-GR/RHOB/NPHI/DT/SP. K is the interpretation decision here — start near the number
+GR/RHOB/NPHI/DT/SP. K is the interpretation decision here, so start near the number
 of lithologies you expect and judge the result on a log, not on a statistic. Any
 curve slot with no data is dropped; a sample missing any present curve gets
 FACIES&nbsp;=&nbsp;MISSING.</p>
@@ -88,7 +88,7 @@ FACIES&nbsp;=&nbsp;MISSING.</p>
 
 <p>On these wells: <b>3 clean</b>. The pooled census over 1164 classified
 samples: 267 / 297 / 15 / 198 / 387 across facies 0–4. Class 2's 15 samples are
-the number to interrogate — a class that thin is either a real thin lithology or
+the number to interrogate: a class that thin is either a real thin lithology or
 K set one too high. Put FACIES in a track as class blocks (the Facies layout
 ships with the block style) and judge it against the log before anything
 consumes it.</p>

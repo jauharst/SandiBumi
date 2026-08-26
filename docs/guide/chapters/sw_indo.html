@@ -4,7 +4,7 @@
 <h2>Step by step: the Indonesia equation</h2>
 
 <p>Poupon-Leveaux's Indonesia equation writes total conductivity as a clay term, a
-clean-sand Archie term and a geometric cross-term between them — built for shaly sands
+clean-sand Archie term and a geometric cross-term between them, built for shaly sands
 where a separate clay-water model is more parameters than the data can support. The
 pane offers the three published shale-exponent forms by name; this run uses
 <b>FULL</b> (v&nbsp;=&nbsp;VSH^(2−VSH)), the default.</p>
@@ -12,15 +12,15 @@ pane offers the three published shale-exponent forms by name; this run uses
 <h3>The picks</h3>
 
 <p>Same convention and water pick as the <a href="sw_arch.html">Archie chapter</a>,
-plus the one parameter Indonesia adds — the shale resistivity:</p>
+plus the one parameter Indonesia adds, the shale resistivity:</p>
 
 <ul>
-  <li><b>A 1 · M 2 · N 2</b> — the dossier's reference-case convention, declared.</li>
-  <li><b>RW 0.058 ohm·m</b> — median wet-sand Rwa, as before.</li>
-  <li><b>RT_SH 2.5 ohm·m</b> — the median RES_DEEP over the 55 samples at
-    GR&nbsp;≥&nbsp;112 gAPI: this dataset's own shale resistivity.</li>
-  <li><b>SWE_IRR 0.16</b> — the SSC-derived irreducible floor, as before.</li>
-  <li><b>VSH input</b> — the VSH curve from the gamma-ray run; PHIE pinned to
+  <li><b>A 1 · M 2 · N 2</b>: the dossier's reference-case convention, declared.</li>
+  <li><b>RW 0.058 ohm·m</b>: median wet-sand Rwa, as before.</li>
+  <li><b>RT_SH 2.5 ohm·m</b>: the median RES_DEEP over the 55 samples at
+    GR&nbsp;≥&nbsp;112 gAPI, this dataset's own shale resistivity.</li>
+  <li><b>SWE_IRR 0.16</b>: the SSC-derived irreducible floor, as before.</li>
+  <li><b>VSH input</b>: the VSH curve from the gamma-ray run; PHIE pinned to
     PHIE_DEN so the porosity's provenance is one method, not a mixture.</li>
 </ul>
 
@@ -33,14 +33,14 @@ plus the one parameter Indonesia adds — the shale resistivity:</p>
 <h3>Run and read</h3>
 
 <p>On these wells: <b>0 clean · 3 degraded</b>, and the report is worth reading
-closely. The clamp count drops to ~93 per well — against Archie's 372 — because the
+closely. The clamp count drops to ~93 per well (against Archie's 372) because the
 clay term now absorbs the shale conductivity that Archie could only explain as water.
 One sample per well reports <i>"VSH&nbsp;≥&nbsp;1 leaves no effective porosity, so the
-saturation is degenerate rather than measured"</i> — the equation refusing to
+saturation is degenerate rather than measured"</i>, the equation refusing to
 manufacture a number where the rock model says there is no reservoir.</p>
 
 <p>The comparison that teaches the method: in the clean gas sand the median
-<code>SWE_INDO</code> is 0.084 — identical to Archie's, because at VSH&nbsp;→&nbsp;0
+<code>SWE_INDO</code> is 0.084, identical to Archie's, because at VSH&nbsp;→&nbsp;0
 the Indonesia equation <i>is</i> Archie. The two separate only where VSH grows, which
 is exactly the interval a shaly-sand equation exists for. Put SWE_ARCH and SWE_INDO on
 one track and the divergence maps the shale.</p>

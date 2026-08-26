@@ -71,7 +71,7 @@ one fired.</p>
 
 <h3>The picks</h3>
 
-<p><b>DCAL_MAX 1&nbsp;in</b> (shipped) and <b>BS_INPUT 8.5&nbsp;in</b> — this
+<p><b>DCAL_MAX 1&nbsp;in</b> (shipped) and <b>BS_INPUT 8.5&nbsp;in</b>. This
 delivery has no BS curve, and its in-gauge caliper reads ~8.6&nbsp;in, the
 standard 8½-in bit. No DRHO was delivered either, which sets up the honest
 half of this chapter.</p>
@@ -79,13 +79,13 @@ half of this chapter.</p>
 <figure>
   <img src="../img/guide-badhole-pane.png"
        alt="The Bad-Hole QC pane with the bit size entered" />
-  <figcaption>DRHO, CALI and BS are all optional inputs — the flag evaluates
+  <figcaption>DRHO, CALI and BS are all optional inputs: the flag evaluates
     whatever the delivery actually carries.</figcaption>
 </figure>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>3 clean</b>, with <b>612 of 1185 samples flagged</b> — the
+<p>On these wells: <b>3 clean</b>, with <b>612 of 1185 samples flagged</b>, the
 dataset's designed washout intervals, where CALI jumps ~2.5&nbsp;in over bit.
 And the evaluated companions tell the full story:
 <b>BADHOLE_DRHO_EVALUATED&nbsp;=&nbsp;0 everywhere</b> (no DRHO was delivered, so
@@ -104,11 +104,11 @@ later run.</p>
 <p>Whole-well defaults; per-zone values from the Zones pane take precedence inside their zones (except where a parameter is marked one-value-per-well).</p>
 <h3>DRHO_MAX</h3>
 <p>Max acceptable density correction (starting value in g/cc)</p>
-<ul><li><b>Default:</b> 0.05 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 0.05 g/cc multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it matches none of the seven tabulated precedent values; docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 0.05 <span class="src">— source: Adjudication DEC-077 (2026-08-19): 0.05 g/cc multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it matches none of the seven tabulated precedent values; docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0 to 0.5</li></ul>
 <h3>DCAL_MAX <span class="src">(in)</span></h3>
 <p>Max acceptable absolute caliper departure from bit size</p>
-<ul><li><b>Default:</b> 1 <span class="src">— source: Jauhar adjudication DEC-077 (2026-08-19): 1.0 in multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it is half the 2 in value used by every delivered study; docs/takeover/DECISIONS.md</span></li>
+<ul><li><b>Default:</b> 1 <span class="src">— source: Adjudication DEC-077 (2026-08-19): 1.0 in multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it is half the 2 in value used by every delivered study; docs/takeover/DECISIONS.md</span></li>
 <li><b>Accepted range:</b> 0 to 12 in</li></ul>
 <h3>BS_INPUT <span class="src">(in)</span></h3>
 <p>Optional explicit bit size when the BS curve is absent — blank means unavailable</p>

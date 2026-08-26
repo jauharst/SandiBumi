@@ -59,9 +59,9 @@
 iterated until |ΔPHIT| &lt; 1e-4 (max 20 passes; non-converging samples stay MISSING)
 GASDEN: real-gas density of an SG_GAS gas at FPRESS/FTEMP (Standing pseudo-criticals, Papay z-factor)</pre>
 <h2>References</h2>
-<ul><li>Standing - natural-gas pseudo-critical correlations</li>
-<li>Papay (1968) - z-factor correlation</li></ul>
-<p class="note">Correlation names as this project's method record holds them; the full primary citations are pending verification. Feed RHOB_GC to density porosity - not to a density-neutron combination, whose gas handling assumes an uncorrected pair.</p>
+<ul><li>Standing: natural-gas pseudo-critical correlations</li>
+<li>Papay (1968): z-factor correlation</li></ul>
+<p class="note">Correlation names as this project's method record holds them; the full primary citations are pending verification. Feed RHOB_GC to density porosity, not to a density-neutron combination, whose gas handling assumes an uncorrected pair.</p>
 <!-- Authored walkthrough for the gascorr guidebook chapter. Numbers captured
      live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
 
@@ -71,21 +71,21 @@ GASDEN: real-gas density of an SG_GAS gas at FPRESS/FTEMP (Standing pseudo-criti
 This module removes the effect by iteration: solve porosity and Archie water
 saturation from the current density, replace the gas volume with liquid
 (RHOB_GC&nbsp;=&nbsp;RHOB&nbsp;+&nbsp;PHIT·(1−SWT)·(RHO_FL−GASDEN)), and repeat
-until porosity settles. The gas density itself is a real-gas calculation —
-Standing pseudo-criticals with a Papay z-factor — at the formation pressure and
+until porosity settles. The gas density itself is a real-gas calculation
+(Standing pseudo-criticals with a Papay z-factor) at the formation pressure and
 temperature the precalc step wrote.</p>
 
 <h3>The picks, each with its defence</h3>
 
 <ul>
-  <li><b>SG_GAS 0.65</b> — the module's own worked-example gas gravity (the
+  <li><b>SG_GAS 0.65</b>, the module's own worked-example gas gravity (the
     value its Standing/Papay check numbers are computed at).</li>
-  <li><b>a=1, m=n=2</b> — the reference-case Archie convention, as the
+  <li><b>a=1, m=n=2</b>, the reference-case Archie convention, as the
     saturation shelf runs.</li>
-  <li><b>RW 0.127&nbsp;ohmm</b> — the RtC fit's water-zone Rw on total
+  <li><b>RW 0.127&nbsp;ohmm</b>, the RtC fit's water-zone Rw on total
     porosity, derived in the saturation increment.</li>
-  <li><b>OPT_GATE FLAGGED</b> on condflag's XOVER_FLAG — the default, and the
-    safe one: EVERYWHERE lets high-resistivity low-density beds (coal, resistive
+  <li><b>OPT_GATE FLAGGED</b> on condflag's XOVER_FLAG (the default, and the
+    safe one): EVERYWHERE lets high-resistivity low-density beds (coal, resistive
     washouts) masquerade as gas and collect large spurious corrections.</li>
 </ul>
 
@@ -98,11 +98,11 @@ temperature the precalc step wrote.</p>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>3 clean</b>. Exactly <b>265 samples were corrected — the
+<p>On these wells: <b>3 clean</b>. Exactly <b>265 samples were corrected, the
 XOVER_FLAG count to the sample</b>, which is the FLAGGED gate doing its job.
 GASDEN converged at ~0.102&nbsp;g/cc, and the largest single restoration put
 <b>+0.139&nbsp;g/cc</b> back onto the bulk density. Feed RHOB_GC to density
-porosity — not to a density-neutron combination, whose own gas handling assumes
+porosity, not to a density-neutron combination, whose own gas handling assumes
 an uncorrected pair.</p>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>

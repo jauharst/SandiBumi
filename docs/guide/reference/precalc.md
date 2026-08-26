@@ -22,7 +22,7 @@ Whole-well defaults; per-zone values from the Zones pane take precedence inside 
 
 Surface temperature (intercept, whole well)
 
-- **Default:** 77 — source: Jauhar adjudication DEC-077 (2026-08-19): 77 degF starting value per DEC-059, one study's feet-based fit re-attributed to the owner - entered in OPT_TU units (default degF); refit per basin, and convert for metric wells (SB-ENV-045); docs/takeover/DECISIONS.md
+- **Default:** 77 — source: Adjudication DEC-077 (2026-08-19): 77 degF starting value per DEC-059, one study's feet-based fit re-attributed to the owner - entered in OPT_TU units (default degF); refit per basin, and convert for metric wells (SB-ENV-045); docs/takeover/DECISIONS.md
 - **Accepted range:** -50 to 150 degF|degC
 - **One value per well** — a named-zone override of this parameter is refused.
 
@@ -30,7 +30,7 @@ Surface temperature (intercept, whole well)
 
 Temperature gradient per TVDSS unit (whole well)
 
-- **Default:** 0.026 — source: Jauhar adjudication DEC-077 (2026-08-19): 0.026 deg/ft starting value per DEC-059, one study's feet-based fit re-attributed to the owner - per depth unit of the TVDSS curve; refit per basin, and convert for metric wells (SB-ENV-045); CONFIRMED as the house default by DEC-085 R-3 (2026-08-20, verbatim: the right one is 0.026 degF/ft) - ftemp_grad.TGRAD now carries the same physical gradient in degC/m; docs/takeover/DECISIONS.md
+- **Default:** 0.026 — source: Adjudication DEC-077 (2026-08-19): 0.026 deg/ft starting value per DEC-059, one study's feet-based fit re-attributed to the owner - per depth unit of the TVDSS curve; refit per basin, and convert for metric wells (SB-ENV-045); CONFIRMED as the house default by DEC-085 R-3 (2026-08-20, verbatim: the right one is 0.026 degF/ft) - ftemp_grad.TGRAD now carries the same physical gradient in degC/m; docs/takeover/DECISIONS.md
 - **Accepted range:** 0.0005 to 0.2 deg/ft|m
 - **One value per well** — a named-zone override of this parameter is refused.
 

@@ -33,7 +33,7 @@ Thinnest bed worth calling a bed
 
 How far off the bed's mean is a new bed, in noise units
 
-- **Default:** 2 — source: Two-noise-units convention for change detection (same family as the Hampel K in condition.rs), NOT a field calibration; ruled a shipping starting value by Jauhar adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md
+- **Default:** 2 — source: Two-noise-units convention for change detection (same family as the Hampel K in condition.rs), NOT a field calibration; ruled a shipping starting value by adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md
 - **Accepted range:** 0.5 to 20
 
 ## Output curves

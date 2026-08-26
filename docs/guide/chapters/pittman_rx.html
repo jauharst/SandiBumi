@@ -7,7 +7,7 @@
 mercury-saturation level from 10 to 75 percent; this module writes the whole family
 (PR10..PR75), plus the radius at your chosen APEX saturation and its
 Hartmann-Beaumont port class. The coefficients are Pittman's Table 1 in full,
-verified against the paper — including the parts of the paper most implementations
+verified against the paper, including the parts of the paper most implementations
 quietly drop.</p>
 
 <h3>The one choice: APEX</h3>
@@ -26,10 +26,10 @@ Inputs are PHIE_DEN and PERM_XFM by name, as across this shelf.</p>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>3 clean</b>; the sand-interval median RAPEX is 0.79 µm — a
+<p>On these wells: <b>3 clean</b>; the sand-interval median RAPEX is 0.79 µm, a
 <i>meso</i> port class. Two cautions ride with every output, and both are the
 paper's own arithmetic rather than this implementation's: the correlation weakens as
 saturation rises (0.926 at r20 down to 0.820 at r75), and the family is non-monotone
 below about 11% porosity. The module does not "correct" either, because a published
-table quietly reshaped stops being citable — the caution belongs in the reading, not
+table quietly reshaped stops being citable. The caution belongs in the reading, not
 in the coefficients.</p>

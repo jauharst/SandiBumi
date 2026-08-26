@@ -22,14 +22,14 @@ Whole-well defaults; per-zone values from the Zones pane take precedence inside 
 
 Max acceptable density correction (starting value in g/cc)
 
-- **Default:** 0.05 — source: Jauhar adjudication DEC-077 (2026-08-19): 0.05 g/cc multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it matches none of the seven tabulated precedent values; docs/takeover/DECISIONS.md
+- **Default:** 0.05 — source: Adjudication DEC-077 (2026-08-19): 0.05 g/cc multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it matches none of the seven tabulated precedent values; docs/takeover/DECISIONS.md
 - **Accepted range:** 0 to 0.5
 
 ### DCAL_MAX *(in)*
 
 Max acceptable absolute caliper departure from bit size
 
-- **Default:** 1 — source: Jauhar adjudication DEC-077 (2026-08-19): 1.0 in multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it is half the 2 in value used by every delivered study; docs/takeover/DECISIONS.md
+- **Default:** 1 — source: Adjudication DEC-077 (2026-08-19): 1.0 in multi-basin starting value per DEC-059, ruled with the chapter's own note in view that it is half the 2 in value used by every delivered study; docs/takeover/DECISIONS.md
 - **Accepted range:** 0 to 12 in
 
 ### BS_INPUT *(in)*

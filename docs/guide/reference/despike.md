@@ -38,7 +38,7 @@ Filter window (thickness, centred)
 
 HAMPEL: deviations from the median before a sample is a spike
 
-- **Default:** 3 — source: Ordinary three-deviation convention (same family as Tukey 1.5 x IQR in distribution.rs), NOT a field calibration; ruled a shipping starting value by Jauhar adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md
+- **Default:** 3 — source: Ordinary three-deviation convention (same family as Tukey 1.5 x IQR in distribution.rs), NOT a field calibration; ruled a shipping starting value by adjudication DEC-077 (2026-08-19); docs/takeover/DECISIONS.md
 - **Accepted range:** 0.5 to 20
 
 ### THRESH

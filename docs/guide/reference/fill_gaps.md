@@ -6,7 +6,7 @@ Module id `fill_gaps` · category **Condition** · [reference index](README.md)
 
 Fills holes in a curve that are no wider than MAX_GAP, and marks every sample it invented in <OUT>_FILL.
 
-A filled sample is not a measurement. That is the whole reason for the flag curve (Jauhar, 2026-08-05): without it a filled value is indistinguishable from a logged one in a crossplot, a histogram, a net count or a report, and the person reading the number is not the person who chose the limit. Mask on <OUT>_FILL to take them back out of any run.
+A filled sample is not a measurement. That is the whole reason for the flag curve: without it a filled value is indistinguishable from a logged one in a crossplot, a histogram, a net count or a report, and the person reading the number is not the person who chose the limit. Mask on <OUT>_FILL to take them back out of any run.
 
 **A gap open at one end is never filled.** A hole at the top or the bottom of the curve has live data on one side only, so filling it is extrapolation — inventing rock past where the tool stopped. Only a gap bounded above AND below is a candidate.
 

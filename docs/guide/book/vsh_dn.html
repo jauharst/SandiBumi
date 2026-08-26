@@ -67,7 +67,7 @@ VSH = VSH_DN limited to 0–1</pre>
 <h2>Step by step: the second opinion on shale volume</h2>
 
 <p>This walkthrough assumes the first-hour setup and the
-<a href="vsh_gr.html">VSH from Gamma Ray</a> chapter — the four mechanics every module
+<a href="vsh_gr.html">VSH from Gamma Ray</a> chapter. The four mechanics every module
 run reuses (parameters, custody, "degraded", output sets) are taught there and not
 repeated here.</p>
 
@@ -75,23 +75,23 @@ repeated here.</p>
 
 <p>The crossplot endpoints only mean something in one matrix convention. The SANDI
 wells deliver NPHI in limestone units; run <b>Data Prep → Neutron Matrix Conversion</b>
-once (it ran clean on all three wells here) and you get <code>NPHI_SS</code> — the same
+once (it ran clean on all three wells here) and you get <code>NPHI_SS</code>, the same
 log in quartz-sandstone units, where the clean-sand matrix point sits at 0.</p>
 
 <h3>Enter the triangle</h3>
 
 <p>Open <b>Petrophysics → VSH → VSH from Density-Neutron</b> and pin the NPHI input to
 <code>NPHI_SS</code>. The six endpoints entered for this run, with where each came
-from — the same text that went into the run's reference field:</p>
+from, the same text that went into the run's reference field:</p>
 
 <ul>
-  <li><b>RHO_MA 2.65 / NPHI_MA 0</b> — the sandstone matrix point, from the pane's own
+  <li><b>RHO_MA 2.65 / NPHI_MA 0</b>: the sandstone matrix point, from the pane's own
     shipped-values list (three installed tools agree on 2.65; the matrix neutron in
     sandstone units is 0).</li>
-  <li><b>RHO_SH 2.45 / NPHI_SH 0.42</b> — medians of SANDI-01's samples at
+  <li><b>RHO_SH 2.45 / NPHI_SH 0.42</b>: medians of SANDI-01's samples at
     GR ≥ 112 gAPI (the shale population the first-hour GR_SH pick defined), NPHI read
     in sandstone units.</li>
-  <li><b>GR_MA 44 / GR_SH 112</b> — the first-hour histogram picks, reused for the
+  <li><b>GR_MA 44 / GR_SH 112</b>: the first-hour histogram picks, reused for the
     GR comparison flag.</li>
 </ul>
 
@@ -116,7 +116,7 @@ endpoint) computes an index outside 0–1, and the limited curve clips it while
 
 <p>This is why the module wants GR too: <code>VSH_DN_FLAG</code> goes to 1 wherever
 the N-D answer is off-model or diverges from the clay-type-insensitive GR VSH by more
-than FLAG_TOL. Read the flag before trusting VSH_DN in a gas leg or an unusual clay —
+than FLAG_TOL. Read the flag before trusting VSH_DN in a gas leg or an unusual clay:
 the neutron shale endpoint is hydroxyl-driven, and one number cannot represent both a
 kaolinite and an illite shale.</p>
 <h2>What the application enforces</h2>

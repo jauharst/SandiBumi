@@ -3,7 +3,7 @@
 
 <h2>Step by step: the por-perm law you fit yourself</h2>
 
-<p>This module is one straight line — log-permeability against porosity — and both
+<p>This module is one straight line (log-permeability against porosity), and both
 coefficients are yours: it ships nothing, because a por-perm law is a property of the
 rock family it was regressed on, and someone else's line applied to your rock is a
 number with no owner.</p>
@@ -11,8 +11,8 @@ number with no owner.</p>
 <h3>Fit the line on the core</h3>
 
 <p>The SANDI-01 RCAL delivery carries 15 plugs with core porosity and permeability.
-An ordinary least-squares fit of log₁₀(CPERM) on CPOR — <b>as a fraction</b>, which
-is the unit this module expects — gives:</p>
+An ordinary least-squares fit of log₁₀(CPERM) on CPOR (<b>as a fraction</b>, which
+is the unit this module expects) gives:</p>
 
 <ul>
   <li><b>PT_A 17.92 · PT_B −2.203</b>, R² 0.981 over the 15 plugs. The fit quality
@@ -30,7 +30,7 @@ is the unit this module expects — gives:</p>
 <h3>Run and read</h3>
 
 <p>On these wells: <b>3 clean</b>, writing <code>PERM_XFM</code> and the generic
-<code>PERM</code>. In the sands the transform reads a median 2.8 mD — and comparing
+<code>PERM</code>. In the sands the transform reads a median 2.8 mD. Comparing
 that against the published-constant estimates of the
 <a href="perm_wyllie_rose.html">Wyllie-Rose</a> and
 <a href="perm_coates.html">Coates</a> chapters (73 and 65 mD on the same samples) is
@@ -40,4 +40,4 @@ core-calibrated line is the one whose disagreement you can argue about with data
 <p>One naming habit the rock-typing chapters depend on: every permeability module
 also writes the generic <code>PERM</code>, so the <b>last</b> module run owns that
 name. Downstream consumers should select <code>PERM_XFM</code> (or whichever named
-output they mean) explicitly — never the generic slot.</p>
+output they mean) explicitly, never the generic slot.</p>

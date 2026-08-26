@@ -18,7 +18,7 @@ undeclared basis cannot be checked - declare it (set_curve_neutron_basis) or con
 with nphimat first.</blockquote>
 
 <p>That is this run happening on camera: the SANDI deliveries say "limestone" in the
-LAS header, but the application never infers a matrix basis — it must be DECLARED
+LAS header, but the application never infers a matrix basis. It must be DECLARED
 (Curve Catalog → the neutron curve's basis, citing the header), or the curve converted
 with <b>Neutron Matrix Conversion</b>. Here the basis was declared LIMESTONE with the
 header as its source, and the run proceeded.</p>
@@ -26,8 +26,8 @@ header as its source, and the run proceeded.</p>
 <h3>Enter the shale point</h3>
 
 <ul>
-  <li><b>RHO_SH 2.45 / NPHI_SH 0.38</b> (limestone units, matching the declared curve)
-    — medians of SANDI-01's samples at GR ≥ 112 gAPI. Everything else is a cited
+  <li><b>RHO_SH 2.45 / NPHI_SH 0.38</b> (limestone units, matching the declared curve):
+    medians of SANDI-01's samples at GR ≥ 112 gAPI. Everything else is a cited
     default, including the AVERAGE/GAS_RMS choice (AVERAGE).</li>
 </ul>
 
@@ -39,7 +39,7 @@ header as its source, and the run proceeded.</p>
 
 <h3>Run and read</h3>
 
-<p>On these wells: <b>1 clean · 2 degraded</b>. The degraded wells report two clamps —
+<p>On these wells: <b>1 clean · 2 degraded</b>. The degraded wells report two clamps:
 the shale-reduced neutron held to its [-0.015, 0.4] guard band at one sample, and the
 effective porosity held at the 0.001 floor at another. Single-sample clamps at guard
 rails are the normal texture of real logs; a well that failed outright would say

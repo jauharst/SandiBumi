@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — The guidebook and help cards drop the em-dash voice, and adjudications go by DEC number
+
+- [ ] **Bare DEC numbers.** Every adjudication string a pane or the book shows now cites the
+      decision number alone: "Adjudication DEC-077 (2026-08-19)", "Ruling DEC-063". The phi_son
+      doc's paper note reads "copy held in the project library". In-source comments are
+      untouched on purpose; they are the repo's record. Verify: open any environmental-correction
+      pane's parameter source tooltip, or the badhole/condflag book pages.
+- [ ] **The dash sweep.** The 52 chapters go from 324 em dashes to 12, every survivor inside a
+      verbatim quote of the app's own message or a pane-name image alt. The 51 help cards lose
+      their spaced-hyphen clause breaks the same way. Citations, numeric ranges, hyphenated
+      names (Wang-Gale, Raymer-Hunt-Gardner) and minus signs are untouched, and the per-file
+      digit and tag fingerprints were compared before and after, so no number moved. Read any
+      chapter you know well (vsh_gr and ssc changed most) and judge the voice.
+- [ ] **Flagged, not changed:** the SSC/SSPW parameter sources still cite the source Loglan
+      filenames (sspw.lls, porosity_sspw.lls) in pane tooltips — same exposure family as the
+      derivation-map scrub, left for your ruling.
+
 ## 2026-08-26 — Two queued defect fixes: the RtC C0 box and the neutron-basis vocabulary
 
 - [ ] **Calibrate RtC → sw_rtc now round-trips.** The fit on the SANDI wells returned

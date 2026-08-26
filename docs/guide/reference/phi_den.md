@@ -50,7 +50,7 @@ Fluid density
 
 Dry shale density
 
-- **Default:** 2.7 — source: Jauhar adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md
+- **Default:** 2.7 — source: Adjudication DEC-069 (2026-08-18): 2.70 g/cc from multi-basin Indonesian experience; clay-mineral bracket kaolinite 2.62-smectite 2.68 g/cc; 2.65 rejected (matches no held source: IP 2.78, Techlog 2.85, Geolog none); docs/takeover/DECISIONS.md
 - **Accepted range:** 2 to 3.2 g/cc
 - Competing shipped values exist for this parameter across installed tools (topic `dry_shale_density`); the pane lists them with sources at the point of choice.
 
@@ -74,7 +74,7 @@ Maximum allowed PHIE
 
 Floor applied to limited PHIE where the limit binds
 
-- **Default:** 0.001 — source: Jauhar DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; DEC-091 (2026-08-21) closed the bottom of the range AT that default so no run can write a floor the pay summary would re-floor, putting IP's competing 0.0001 (F17) deliberately out of reach; upper guard 0.01 stays below any real cutoff; docs/takeover/DECISIONS.md
+- **Default:** 0.001 — source: DEC-043 (2026-08-16) ruled 0.001 over ship-absent; DEC-067 (2026-08-18) ships it as the cited DEFAULT, user-settable per the chapter's documented-user-decision clause; DEC-091 (2026-08-21) closed the bottom of the range AT that default so no run can write a floor the pay summary would re-floor, putting IP's competing 0.0001 (F17) deliberately out of reach; upper guard 0.01 stays below any real cutoff; docs/takeover/DECISIONS.md
 - **Accepted range:** 0.001 to 0.01 v/v
 
 ### DPHIMAX *(v/v)*
