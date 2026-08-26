@@ -62,6 +62,30 @@ fn insert_fixture_well(conn: &duckdb::Connection, well_id: &str) {
     .unwrap();
 }
 
+/// Whether `.gitignore` deliberately keeps a path out of the repository.
+///
+/// `Path::exists` answers "is this file on THIS disk", which is not the question "is this document
+/// in the tree" and gave one commit two verdicts: a gitignored path sits in a working copy that
+/// copied it in - a docs lane does exactly that with the evidence corpus - and is absent from every
+/// fresh clone, so the same assertion passed on one machine and failed on another. `.gitignore` is
+/// TRACKED, so reading it answers the question the same way everywhere.
+///
+/// Deliberately literal: a prefix match on directory entries, an exact match otherwise. This is not
+/// a gitignore implementation and must not grow into one - negations, globs and nested ignore files
+/// all exist, and none of them is needed to state that a policy exclusion is still policy.
+fn excluded_by_gitignore(repo: &Path, cited: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string(repo.join(".gitignore")) else {
+        return false;
+    };
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with('!'))
+        .any(|entry| match entry.strip_suffix('/') {
+            Some(dir) => cited.starts_with(&format!("{dir}/")),
+            None => cited == entry,
+        })
+}
+
 fn rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(root).unwrap() {
         let path = entry.unwrap().path();
@@ -597,6 +621,28 @@ fn the_clearing_write_retires_the_declared_family_and_still_replaces_what_it_wri
 /// Pinned from both sides: every cited document must resolve, AND the acknowledged list may
 /// shrink but never go stale — a file that arrives must lose its exception rather than keep it.
 #[test]
+fn a_policy_exclusion_is_read_from_gitignore_and_an_ordinary_document_is_not_excused() {
+    // `excluded_by_gitignore` is the only thing standing between "acknowledged because policy
+    // keeps it out" and "acknowledged because somebody deleted it". The test above cannot catch a
+    // helper that got too permissive - a version returning true for everything passes it, and the
+    // stale-entry guard then protects nothing while still looking green. So pin BOTH answers.
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+
+    assert!(
+        excluded_by_gitignore(&repo, "docs/research_2026-08/plt024_route2_sources_2026-08-19.md"),
+        "the corpus must read as gitignore-excluded, or its CITED_BUT_ABSENT entry is unguarded"
+    );
+    assert!(
+        !excluded_by_gitignore(&repo, "docs/PRD_v2/11_porosity.md"),
+        "a committed chapter must never read as policy-excluded, or a lost document is excused"
+    );
+    assert!(
+        !excluded_by_gitignore(&repo, "docs/RELEASE.md"),
+        "docs/RELEASE.md is absent, not excluded - it is acknowledged on the other ground"
+    );
+}
+
+#[test]
 fn every_document_this_code_cites_is_actually_in_the_tree() {
     // The one document cited across this codebase that is NOT on master. It is real and it is
     // 225 lines long, but it lives only on the unmerged branch `docs/prd-and-security-hardening`
@@ -611,7 +657,23 @@ fn every_document_this_code_cites_is_actually_in_the_tree() {
     // Left as an exception rather than re-pointed: mapping §3.1/§3.2/§3.3/§5 onto PRD_v2 sections
     // would be authoring a governance mapping, and restoring a release policy to master is
     // Jauhar's call. Recorded in the audit triage notes for that decision.
-    const CITED_BUT_ABSENT: &[&str] = &["docs/RELEASE.md"];
+    // The second entry is absent for a DIFFERENT reason, and that difference is what
+    // `excluded_by_gitignore` below exists for. `docs/research_2026-08/` is the cross-tool
+    // evidence corpus - vendor material extracted from IP / Techlog / Geolog documentation, which
+    // CONTRACT.md 2.1 forbids transcribing into this tree. .gitignore excludes it deliberately, so
+    // it will never be here, and a working copy that copied the corpus in still has it on disk.
+    //
+    // Both citation sites already name the PUBLISHED primary source - Raymer, Hunt & Gardner, "An
+    // improved sonic transit time-to-porosity transform", SPWLA 21st Annual Logging Symposium
+    // 1980, paper P - and reach for the corpus only to say where that extraction was banked. What
+    // dangles is a local breadcrumb, not the derivation. Listed rather than re-pointed because the
+    // breadcrumb is worth keeping for whoever holds the corpus, and the committed chapter
+    // .gitignore tells code lanes to implement from is already cited beside it
+    // (`docs/PRD_v2/11_porosity.md` F3, same doc comment).
+    const CITED_BUT_ABSENT: &[&str] = &[
+        "docs/RELEASE.md",
+        "docs/research_2026-08/plt024_route2_sources_2026-08-19.md",
+    ];
 
     let mut sources = Vec::new();
     rust_sources(Path::new(env!("CARGO_MANIFEST_DIR")).join("src").as_path(), &mut sources);
@@ -654,7 +716,7 @@ fn every_document_this_code_cites_is_actually_in_the_tree() {
     // that closed, and the next reader trusts it.
     for known in CITED_BUT_ABSENT {
         assert!(
-            !repo.join(known).exists(),
+            !repo.join(known).exists() || excluded_by_gitignore(&repo, known),
             "{known} is in the tree now - delete its entry in CITED_BUT_ABSENT, the list may \
              shrink but must never go stale"
         );
