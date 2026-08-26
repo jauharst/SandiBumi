@@ -50,6 +50,37 @@ that is written down.
 Engineering-initiated; not carrying a DEC number, and awaiting Jauhar's acknowledgement that the
 signed map now reads this way.
 
+## Post-signature amendment — 2026-08-26, `sw_rtc` reclassified IN-HOUSE
+
+**One class moved: `sw_rtc`, CITED → IN-HOUSE.** This supersedes "No status class moved" in the
+amendment above, which was accurate when written — that pass reworded three strings and left
+every class deliberately alone. This is the follow-up it flagged.
+
+**The reason is in this document's own legend.** The IN-HOUSE entry distinguished itself from
+`ssc`/`sw_rtc`/`sw_imts` on the grounds that each "traces to a `docs/` method note of its own"
+— but IN-HOUSE is *defined* as having exactly that ("derivation IS the repo documentation
+(module doc + method note)"), so a method note cannot be what separates them. The clause that
+actually discriminates is the one right after it: "and, for `ssc` and `sw_imts`, to published
+papers besides." `sw_rtc` is absent from that list, and always was.
+
+**What the sources say.** `ssc` traces to Kuttan et al.; `sw_imts` is a scaling of the
+Waxman-Smits family and cites Waxman & Smits 1968, Waxman & Thomas 1974, Juhasz 1979/1981.
+`sw_rtc` cites no paper: its equation is a regressed excess conductivity fitted in the
+originating research, and `docs/method_lrlc_rtc_imts.md` lists Waxman-Smits, Clavier dual-water
+and Juhasz under "Context" rather than as its source. That is the IN-HOUSE test as written —
+SandiBumi's own algorithm whose derivation IS the repo documentation.
+
+**The three were grouped by shared provenance, not by shared class.** All three came out of one
+research programme, which is why they sat together; scrubbing all three of the same identifiers
+in the first amendment is what made the mismatch visible.
+
+**Scope, and what does not move.** `ssc` and `sw_imts` stay CITED — their published lineage is
+real and is the reason. No source of record changed and no equation changed. **No number moves
+either:** `DerivationClass` is a documentation field, destructured away at `ancestry.rs:170` and
+in `modules::validate_method_derivations`, so only the source STRING reaches a deliverable. This
+corrects the register, not the software.
+
+
 ## Status legend (proposed)
 
 - **CITED** — the method derivation traces to a repo-recorded source (a `docs/` method note, a
@@ -60,9 +91,11 @@ signed map now reads this way.
   statement is its own derivation; there is no physical method to source. Parameter defaults
   remain individually sourced via the `param_sources` gate.
 - **IN-HOUSE** — SandiBumi's own algorithm whose derivation IS the repo documentation (module
-  doc + method note). Distinct from `ssc`/`sw_rtc`/`sw_imts`, which are CITED because each
-  traces to a `docs/` method note of its own — and, for `ssc` and `sw_imts`, to published
-  papers besides.
+  doc + method note). Distinct from `ssc` and `sw_imts`, which are CITED because each traces
+  to a published paper besides its own `docs/` method note — `ssc` to Kuttan et al., `sw_imts`
+  to the Waxman-Smits family. Having a `docs/` method note is not what makes a row CITED:
+  IN-HOUSE is defined as having one. That distinction is what moved `sw_rtc` on 2026-08-26,
+  recorded in the second amendment above.
 - **RETIRED** — kept in the catalog only so saved chains resolve; blocked at `run_module`.
 
 ## The map
@@ -128,7 +161,7 @@ saturation model ships without its paper. Quoted verbatim from that table.
 | `sw_arch` | Archie | Archie 1942 Trans. AIME 146:54–62 (Geolog sw_arch.info References block; docs/PRD_v2/12_saturation.md:470) | CITED |
 | `sw_indo` | Indonesia | Poupon & Leveaux 1971 SPWLA 12th Paper O (Geolog sw_indo.info References block; docs/PRD_v2/12_saturation.md:472); Worthington type 4 per Geolog | CITED |
 | `sw_sim` | Simandoux (both branches) | Simandoux 1963 Revue de l'IFP (SPWLA 'Shaly Sand' Reprint Volume 1982 translation); Bardon & Pied 1969 SPWLA 10th Paper Z (Geolog sw_sim.info References block; docs/PRD_v2/12_saturation.md:470–471, :158); bisection substitution ruled in DEC-065 | CITED |
-| `sw_rtc` | RtC (LRLC) | SandiBumi RtC excess-conductivity correction for low-resistivity low-contrast pay (clay-chemistry Qv path + capillary-bound-water path); docs/method_lrlc_rtc_imts.md RtC sections; lrlc.rs:1–13 | CITED |
+| `sw_rtc` | RtC (LRLC) | SandiBumi RtC excess-conductivity correction for low-resistivity low-contrast pay — the docs/method_lrlc_rtc_imts.md RtC sections ARE the derivation (regressed excess conductivity over the clay-chemistry Qv path + the capillary-bound-water path, then Archie on the corrected term); lrlc.rs:1–13 | IN-HOUSE |
 | `sw_imts` | IMTS (LRLC) | SandiBumi IMTS mineral-textural scaling of the Waxman-Smits family; docs/method_lrlc_rtc_imts.md IMTS sections; Waxman & Smits 1968 SPEJ, Waxman & Thomas 1974 SPEJ, Juhasz 1979 SPWLA 20th Paper AA and 1981 SPWLA 22nd (docs/PRD_v2/12_saturation.md:473) | CITED |
 | `multimin` | Multimin (retired) | multimin.rs:1–14 — superseded by SandiMin (`multimin2`, whose physics traces to docs/multimin_ref_spec.md + docs/multimin_ip_spec.md); spec kept only so saved chains resolve; execution blocked at `run_module` | RETIRED |
 | `sw_height` | Saturation-height | docs/PRD_v2/15_sat-height-rocktyping.md §5 Leverett and Skelt-Harrison parameters; satheight.rs (scal_pc + Leverett-J fit + sw_height) | CITED |
