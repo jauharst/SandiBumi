@@ -50,7 +50,23 @@ const CSS = `
     margin: 0; background: var(--bg); color: var(--text);
     font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
   }
-  .page { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+  .layout { max-width: 1150px; margin: 0 auto; padding: 24px 20px 60px;
+            display: flex; gap: 18px; align-items: flex-start; }
+  .nav { width: 250px; flex: none; position: sticky; top: 16px;
+         max-height: calc(100vh - 32px); overflow-y: auto;
+         background: var(--panel); border: 1px solid var(--border);
+         border-radius: 12px; padding: 12px 14px 16px; font-size: 13px; }
+  .nav .nav-home { display: block; font-weight: 700; color: var(--brand);
+                   text-decoration: none; padding: 4px 6px 8px; }
+  .nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+            color: var(--dim); border: none; margin: 12px 0 3px; padding: 0 6px; }
+  .nav a { display: block; padding: 2px 6px; border-radius: 4px;
+           color: var(--text); text-decoration: none; }
+  .nav a:hover { background: var(--panel-alt); }
+  .nav a.here { background: var(--brand); color: #fff; }
+  .nav .missing { color: var(--dim); font-style: italic; padding: 2px 6px; }
+  .content { flex: 1; min-width: 0; }
+  @media (max-width: 920px) { .nav { display: none; } .layout { display: block; } }
   .card { background: var(--panel); border: 1px solid var(--border);
           border-radius: 12px; padding: 28px 32px; }
   .crumb { font-size: 12px; color: var(--dim); margin-bottom: 14px; }
@@ -83,7 +99,7 @@ const CSS = `
   .toc td.missing { color: var(--dim); font-style: italic; }
 `;
 
-function shell(title, body) {
+function shell(title, nav, body) {
   return `<!doctype html>
 <!-- ${REGEN} -->
 <html lang="en">
@@ -94,12 +110,57 @@ function shell(title, body) {
 <style>${CSS}</style>
 </head>
 <body>
-<div class="page"><div class="card">
+<div class="layout">
+<nav class="nav">
+${nav}
+</nav>
+<div class="content"><div class="card">
 ${body}
 </div></div>
+</div>
 </body>
 </html>
 `;
+}
+
+// The reading order of the book: the workflow order an interpretation actually
+// follows (prepare, condition, frame, then the interpretation shelves), not the
+// manifest's own registration order. Categories the list does not know are
+// appended in manifest order so a new shelf can never fall out of the nav.
+const CATEGORY_ORDER = [
+  'Prep', 'Condition', 'Frame', 'VSH', 'Porosity', 'Lithology', 'Saturation',
+  'Permeability', 'Rock Typing', 'ThinBeds', 'Facies', 'Unconventional',
+];
+
+function orderedCategories(specs) {
+  const present = [...new Set(specs.map((m) => m.category))];
+  return [
+    ...CATEGORY_ORDER.filter((c) => present.includes(c)),
+    ...present.filter((c) => !CATEGORY_ORDER.includes(c)),
+  ];
+}
+
+/** The left navigation pane: every module grouped by category in reading order,
+ *  the current page highlighted, unwritten chapters greyed rather than hidden so
+ *  the reader always sees the whole shape of the book. */
+function navHtml(specs, hasChapter, current) {
+  const parts = [];
+  parts.push(
+    `<a class="nav-home${current === 'index' ? ' here' : ''}" href="index.html">SandiBumi Guidebook</a>`,
+  );
+  for (const cat of orderedCategories(specs)) {
+    parts.push(`<h2>${esc(cat)}</h2>`);
+    for (const m of specs.filter((s) => s.category === cat)) {
+      if (!hasChapter.has(m.name)) {
+        parts.push(`<span class="missing">${esc(m.title)}</span>`);
+      } else if (m.name === current) {
+        parts.push(`<a class="here" href="${esc(m.name)}.html">${esc(m.title)}</a>`);
+      } else {
+        parts.push(`<a href="${esc(m.name)}.html">${esc(m.title)}</a>`);
+      }
+    }
+  }
+  return parts.join('\n');
 }
 
 function conditionText(c) {
@@ -127,7 +188,10 @@ function renderParam(a) {
         'entering it explicitly must also cite the source that covers it.',
     );
   } else {
-    items.push(`<b>Default:</b> ${esc(a.default) || '—'} <span class="src">— source: ${esc(a.default_source)}</span>`);
+    // The provenance behind a default (default_source) is deliberately NOT rendered
+    // here: it cites internal files and decision records, which belong in the pane's
+    // source tooltip and docs/guide/reference/, not in the client-facing book.
+    items.push(`<b>Default:</b> ${esc(a.default) || '—'}`);
   }
   if (a.min !== null || a.max !== null) {
     items.push(`<b>Accepted range:</b> ${a.min ?? '−∞'} to ${a.max ?? '∞'}${a.unit ? ` ${esc(a.unit)}` : ''}`);
@@ -198,7 +262,7 @@ function outputRow(a) {
   return `<tr><td>${esc(a.name)}</td><td>${esc(a.desc)}${flag}</td></tr>`;
 }
 
-function renderChapter(m, walkthrough) {
+function renderChapter(m, walkthrough, nav) {
   const byKind = (k) => m.args.filter((a) => a.kind === k);
   const params = byKind('param');
   const options = [...byKind('option'), ...byKind('text')];
@@ -255,11 +319,10 @@ function renderChapter(m, walkthrough) {
         `${outputs.map(outputRow).join('\n')}</table></div>`,
     );
   }
-  parts.push(`<p class="footer">${esc(REGEN)}</p>`);
-  return shell(m.title, parts.join('\n'));
+  return shell(m.title, nav, parts.join('\n'));
 }
 
-function renderIndex(specs, hasChapter) {
+function renderIndex(specs, hasChapter, nav) {
   const parts = [];
   parts.push('<h1>SandiBumi Guidebook</h1>');
   parts.push(
@@ -268,8 +331,7 @@ function renderIndex(specs, hasChapter) {
       'application enforces for that module. For the workflow these modules live in, start ' +
       'with the first-hour guide (<code>docs/guide/first-hour.md</code>).</p>',
   );
-  const categories = [...new Set(specs.map((m) => m.category))].sort();
-  for (const cat of categories) {
+  for (const cat of orderedCategories(specs)) {
     parts.push(`<h2>${esc(cat)}</h2>`);
     const rows = specs
       .filter((s) => s.category === cat)
@@ -280,8 +342,7 @@ function renderIndex(specs, hasChapter) {
       );
     parts.push(`<div class="wrap"><table><tr><th>Module</th><th>Id</th></tr>${rows.join('\n')}</table></div>`);
   }
-  parts.push(`<p class="footer">${esc(REGEN)}</p>`);
-  return shell('Index', parts.join('\n'));
+  return shell('Index', nav, parts.join('\n'));
 }
 
 // ---------------------------------------------------------------------------
@@ -301,13 +362,13 @@ if (unknownChapters.length) {
 }
 
 const pages = new Map();
-pages.set('index.html', renderIndex(specs, hasChapter));
+pages.set('index.html', renderIndex(specs, hasChapter, navHtml(specs, hasChapter, 'index')));
 for (const m of specs) {
   if (!hasChapter.has(m.name)) continue;
   const walkthrough = fs
     .readFileSync(path.join(chaptersDir, `${m.name}.html`), 'utf8')
     .replaceAll('\r\n', '\n');
-  pages.set(`${m.name}.html`, renderChapter(m, walkthrough));
+  pages.set(`${m.name}.html`, renderChapter(m, walkthrough, navHtml(specs, hasChapter, m.name)));
 }
 
 if (check) {

@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-26 — The guidebook gains its navigation pane and a ribbon button, and sheds internal provenance
+
+- [ ] **Left navigation pane.** Every book page now carries a sticky left nav listing the whole
+      catalog in workflow order (Prep → Condition → Frame → VSH → Porosity → Lithology →
+      Saturation → Permeability → Rock Typing → Thin Beds → Facies → Unconventional), with the
+      current chapter highlighted, so you always see where a module sits in the whole. The index
+      page follows the same order. Open docs/guide/book/index.html and click around.
+- [ ] **Guidebook ribbon button.** Project tab → Help group → Guidebook opens the book's index
+      in your browser, beside the existing per-module "See complete guidebook" links.
+- [ ] **Internal provenance is out of the rendered book.** The "GENERATED — do not hand-edit"
+      line no longer renders (it survives as an HTML comment for anyone editing the file), and
+      parameter Default lines no longer print their "— source: …" tails naming internal files
+      and decision records; those stay in the pane tooltips and docs/guide/reference/.
+- [ ] **The second-pass rulings are in the spec.** docs/guidebook_prompt.md now carries the
+      2026-08-26 addendum: two readers per chapter (newcomer theory + senior
+      what-changes-when-I-change-this), the structured chapter skeleton, dedicated per-step
+      screenshots on a clean workspace, and the no-internal-provenance rule.
+
 ## 2026-08-26 — The guidebook and help cards drop the em-dash voice, and adjudications go by DEC number
 
 - [ ] **Bare DEC numbers.** Every adjudication string a pane or the book shows now cites the
