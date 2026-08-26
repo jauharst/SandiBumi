@@ -142,38 +142,89 @@
 <pre class="equations">SPLICED(z) = TOP_CURVE(z)  for z &lt; SPLICE_DEPTH
 SPLICED(z) = BOT_CURVE(z)  for z ≥ SPLICE_DEPTH</pre>
 <!-- Authored walkthrough for the splice guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: both sides verified sample-exact. -->
 
-<h2>Step by step: the run-to-run splice</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>The classic composite: one curve above the splice depth, the other at and
-below it. Two logging runs of the same tool, a casing shoe, a re-log over a
-washout. Wherever two deliveries of the same measurement meet at a depth, this
-is the join. Inputs are never modified; the result is a new
-<code>_SPL</code> curve.</p>
+<p>Splice Curves joins two curves at a stated depth: the top curve above the
+splice depth, the bottom curve at and below it, written as a new curve with
+neither input modified. This is the classic run-to-run splice: a well logged
+in two descents, each run covering part of the hole, combined into one
+continuous curve for interpretation.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p><b>GR above 1530&nbsp;m, GR_EC at and below it</b>: raw gamma up top, the
-hole-corrected version underneath, as a stand-in for a two-run delivery. The
-depth matters more than it looks: 1530&nbsp;m sits <b>inside all three wells'
-logged ranges</b> (1495–1570&nbsp;m), so both sides of the splice carry real
-samples. A splice depth outside the logged interval runs clean and
-demonstrates nothing: the output is silently one input end to end.</p>
+<p>None; the operation is a selection, not a computation. Which makes the
+petrophysics entirely about the splice depth: pick it inside an interval
+where both runs read the same rock, ideally a thick homogeneous bed, so any
+calibration difference between the runs shows up as a visible step at the
+splice rather than being hidden at a bed boundary where a step looks
+geological.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>SPLICE_DEPTH 1530&nbsp;m</b>, demonstrated by splicing the raw gamma
+    ray (above) onto its hole-corrected version (below), a stand-in for two
+    runs of the same tool. There is no shipped default because the depth is a
+    fact about your two runs' overlap, not a convention.</li>
+  <li>The verification is sample-exact, run live: above 1530&nbsp;m the
+    spliced curve differs from the top curve by <b>0.00000</b> at every
+    sample, and at and below by <b>0.00000</b> from the bottom curve. A
+    splice either reproduces its inputs exactly on each side or something is
+    wrong; there is no partial credit.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Overlay both runs in a log view and choose the splice depth inside
+    their overlap, in rock both runs read cleanly.</li>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Splice Curves</b>.</li>
+  <li>Select the top curve, the bottom curve, and the depth.</li>
+  <li>Fill the custody line and press <b>Run Splice Curves</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-splice-pane.png"
-       alt="The Splice Curves pane, GR over GR_EC at 1530 m" />
-  <figcaption>TOP_CURVE above, BOT_CURVE at and below the splice depth.</figcaption>
+       alt="The Splice Curves pane with the two runs and the depth" />
+  <figcaption>Two curves and one depth. The output takes the top curve's name
+    with a splice suffix.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>, 1185 samples out, of which <b>606 below
-1530&nbsp;m carry the corrected curve</b> and the rest the raw one. QC a real
-splice at the join: a step in the composite at the splice depth is the two runs
-disagreeing, and that disagreement is information about the runs, not something
-the splice should smooth over.</p>
+<p><b>3 clean</b>. Check both sides in the Database Inspector; each maximum
+absolute difference should be exactly zero:</p>
+
+<pre class="equations">SELECT MAX(ABS(sp.value - s.gr))
+FROM computed_curves sp
+JOIN standard_curves s ON sp.well_id = s.well_id AND sp.depth = s.depth
+WHERE sp.curve_name = 'GR_SPL' AND sp.depth &lt; 1530</pre>
+
+<figure>
+  <img src="../img/guide-splice-result.png"
+       alt="The Splice Curves run reporting three clean wells" />
+  <figcaption>Above the depth the top run, below it the bottom run, both
+    reproduced exactly.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Zoom the log view to the splice depth after running. A visible step
+    there is real information: the two runs disagree about the same rock, and
+    the disagreement belongs to normalization or calibration, not to the
+    splice.</li>
+  <li>A splice asserts the two runs are on the same depth reference. If the
+    boundary that should be continuous jumps at the splice, depth-shift the
+    mis-depthed run first (previous chapter), then splice.</li>
+  <li>Splicing curves of different physical meaning (a raw and an
+    environmentally corrected run, as in this demonstration) is fine for
+    display and wrong for interpretation; interpret from one consistent
+    treatment on both sides.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>SPLICED = TOP_CURVE above SPLICE_DEPTH, BOT_CURVE at and below it — the classic run-to-run splice. Written as &lt;TOP_CURVE&gt;_SPL; inputs are never modified.</p>

@@ -140,37 +140,91 @@
 <p class="modmeta">Module id <code>depth_shift</code> · category <b>Prep</b></p>
 <p>Shifts a curve by a block amount in depth and resamples it back onto the well's own grid by linear interpolation. Positive shift moves the feature deeper; the input curve is never modified.</p>
 <pre class="equations">OUT(z) = CURVE(z − SHIFT), resampled onto the well's depth grid  (+SHIFT = deeper)</pre>
-<!-- Authored walkthrough for the depth_shift guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+<!-- Authored walkthrough for the depth_shift guidebook chapter. Numbers
+     captured live from the sandboxed app on the SANDI-* example wells
+     (2026-08-26), second pass: the sign convention verified both ways. -->
 
-<h2>Step by step: a block depth shift</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Depth Shift moves a curve by a stated amount (positive is deeper) and
-resamples it back onto the well's own depth grid by linear interpolation. The
-input curve is never modified; the result is a new <code>_DS</code> curve
-beside it. SHIFT is zone-overridable, so different intervals can take different
-block shifts in one run.</p>
+<p>Depth Shift moves a curve by a stated amount along depth and resamples it
+back onto the well's own depth grid, writing the result as a new curve; the
+input is never modified. Reach for it when one logging run's depth log
+disagrees with the reference run: the classic tell is a bed boundary that
+sits a metre deeper on the resistivity than on the gamma ray because the
+tools were run on different descents.</p>
 
-<h3>The pick</h3>
+<h2>The physics</h2>
 
-<p><b>SHIFT +2&nbsp;m on GR</b>, a demonstration the size of a typical
-core-to-log tie. (For actual core work, use the Core ▸ Register Depth tools,
-which correlate rather than assert; this module is the general-purpose block
-move for curves.)</p>
+<p>A rigid block shift: every feature moves by SHIFT, with positive meaning
+the feature moves deeper, and the shifted values are linearly interpolated
+back onto the well's grid so downstream consumers see the same depths as
+every other curve. SHIFT is zone-overridable, so different intervals can take
+different block shifts, which is how a cable-stretch profile that grows with
+depth is applied in practice.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>SHIFT +2&nbsp;m</b>, demonstrated on the gamma ray. Run live: the
+    depth of the well's gamma-ray maximum moves by <b>+1.981&nbsp;m</b>, the
+    nearest grid multiple of the true 2&nbsp;m at this 0.152&nbsp;m sampling,
+    which is itself a lesson: a shifted-and-regridded feature lands on the
+    grid, so verify against the grid step, not the decimal you typed.</li>
+  <li>What changes with <b>SHIFT −2&nbsp;m</b>, run live: the same feature
+    moves <b>−1.981&nbsp;m</b>, shallower. The sign convention is the one
+    thing people get wrong with depth shifts, and it is cheap to verify this
+    way before shifting anything that matters.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Measure the mismatch first: pick one sharp boundary visible on both
+    the reference curve and the mis-depthed one, and read the depth
+    difference in a log view.</li>
+  <li>Open <b>Petrophysics ▸ Data Prep ▸ Depth Shift</b>.</li>
+  <li>Select the curve and enter the shift, positive to move its features
+    deeper.</li>
+  <li>Fill the custody line and press <b>Run Depth Shift</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-depthshift-pane.png"
-       alt="The Depth Shift pane with a 2 m shift" />
-  <figcaption>+2 m: every feature moves deeper by exactly that amount.</figcaption>
+       alt="The Depth Shift pane with the shift entered" />
+  <figcaption>One signed number. The original curve is never touched; the
+    shifted copy appears beside it.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. GR_DS carries <b>1143 finite samples against
-the original 1185</b>. The shift walked ~14 samples (2&nbsp;m at the
-0.1524&nbsp;m step) off the end of each well, and those depths are MISSING
-rather than extrapolated: a shifted curve states nothing about rock the
-original never logged.</p>
+<p><b>3 clean</b>. Overlay the shifted curve on the reference in a log view:
+the boundary you measured should now sit at the same depth on both. The
+Database Inspector version of the same check, comparing the depth of a
+distinctive feature before and after:</p>
+
+<pre class="equations">SELECT (SELECT depth FROM computed_curves
+        WHERE curve_name = 'GR_DS' ORDER BY value DESC LIMIT 1)
+     - (SELECT depth FROM standard_curves ORDER BY gr DESC LIMIT 1)</pre>
+
+<figure>
+  <img src="../img/guide-depthshift-result.png"
+       alt="The Depth Shift run reporting three clean wells" />
+  <figcaption>The feature moved by the stated shift, deeper for positive.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>A rigid shift fixes a rigid mismatch. If the mismatch grows with depth
+    (cable stretch), one number is wrong somewhere; use per-zone SHIFT
+    overrides to apply a stepped profile.</li>
+  <li>For core-to-log depth work there is a dedicated tool (Data ▸ Core ▸
+    Register Depth) that correlates rather than asks you for the number; this
+    module is for curve-to-curve run mismatches.</li>
+  <li>Shift before interpretation, not after: every module that combines
+    curves assumes they agree on depth, and a saturation computed from a
+    mis-depthed resistivity is wrong in a way no later shift repairs.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Shifts CURVE by SHIFT metres (+ = the feature moves DEEPER) and resamples it back onto the well's depth grid by linear interpolation. SHIFT is zone-overridable, so different intervals can take different block shifts. The result is written as &lt;CURVE&gt;_DS; the input curve is never modified.</p>

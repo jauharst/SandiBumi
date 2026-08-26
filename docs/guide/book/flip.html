@@ -142,37 +142,93 @@
 <pre class="equations">OUT = 2·pivot − CURVE
 pivot: a given VALUE, or this well's own MIDRANGE or MEAN</pre>
 <!-- Authored walkthrough for the flip guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the per-well pivot trap demonstrated with the pivot record. -->
 
-<h2>Step by step: flipping a curve about a pivot</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Flip mirrors a curve: OUT&nbsp;=&nbsp;2·pivot&nbsp;−&nbsp;CURVE. The use
-case is an SP delivered with the wrong sign convention, or any reading that
-arrived inverted. The whole decision is the pivot.</p>
+<p>Flip Polarity mirrors a curve about a pivot: OUT = 2 × pivot − CURVE. The
+canonical customer is an SP delivered with the wrong sign convention, mirrored
+about its shale baseline; more generally, any reading a vendor recorded
+inverted. It is a one-line arithmetic fix, and the interesting part is
+entirely in where the pivot comes from.</p>
 
-<h3>The picks</h3>
+<h2>The physics</h2>
 
-<p><b>VALUE, pivot −19&nbsp;mV</b>, the P95 of the three wells' pooled SP,
-read from the data as the shale baseline (P95 rather than the single maximum,
-so one stray sample cannot set the reference). VALUE is the only reproducible
-choice: MIDRANGE and MEAN are computed <i>per well</i>, so the same run gives
-each well a different pivot and two wells' flipped curves are no longer on a
-common scale. Fine for a quick look, never for anything feeding a
-correlation. The run records whichever pivot it used in the companion curve,
-so even the per-well modes stay recoverable.</p>
+<p>Mirroring preserves shape and spacing exactly; only direction reverses.
+The three pivot sources make three different statements:</p>
+
+<ul>
+  <li><b>VALUE</b>: mirror about a number you give. The only reproducible
+    choice, and the one to use when the pivot is a physical reference, such
+    as an SP shale baseline.</li>
+  <li><b>MIDRANGE</b>: mirror about (min + max) / 2 of the well's own curve.</li>
+  <li><b>MEAN</b>: mirror about the well's own mean.</li>
+</ul>
+
+<p>MIDRANGE and MEAN are computed per well, so the same run gives each well a
+different pivot, and two wells' flipped curves are no longer on a common
+scale. Sometimes that is exactly what you want for a shape-only display;
+never for anything quantitative.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>VALUE pivot 75</b>, demonstrated on the gamma ray (this dataset has
+    no SP, and the arithmetic does not care). Run live: GR spanning 40.21 to
+    115.60&nbsp;gAPI flips to 34.40 to 109.79, and the checks are exact:
+    2 × 75 − 115.60 = 34.40 and 2 × 75 − 40.21 = 109.79.</li>
+  <li>What changes under MIDRANGE, run live: the module's pivot-record output
+    shows each well flipped about its own number, <b>78.305, 78.365 and
+    77.335</b> for the three wells. One option, three different transforms,
+    and the record curve is how you would ever know.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Condition ▸ Flip Polarity</b>.</li>
+  <li>Select the curve, choose the pivot source, and state the pivot when
+    using VALUE.</li>
+  <li>Fill the custody line and press <b>Run Flip Polarity</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-flip-pane.png"
-       alt="The Flip Polarity pane, VALUE pivot at the shale baseline" />
-  <figcaption>One physical pivot for every well.</figcaption>
+       alt="The Flip Polarity pane with a stated pivot" />
+  <figcaption>The pivot source is the whole decision; the arithmetic is one
+    line.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>. And the mirror is exact: checked sample by
-sample against 2·(−19)&nbsp;−&nbsp;SP, <b>zero mismatches</b> across all 1185
-samples. The sand deflections that read −75&nbsp;mV now read +37 on the other
-side of the baseline; shale stays at the pivot.</p>
+<p><b>3 clean</b>. The output curve mirrors exactly, and the companion curve
+records the pivot actually used at every sample, which under VALUE is your
+number everywhere and under MIDRANGE or MEAN is each well's own. Verify the
+mirroring in the Database Inspector:</p>
+
+<pre class="equations">SELECT round(MIN(value), 2), round(MAX(value), 2)
+FROM computed_curves WHERE curve_name = 'GR_C' AND NOT isnan(value)</pre>
+
+<figure>
+  <img src="../img/guide-flip-result.png"
+       alt="The Flip Polarity run reporting three clean wells" />
+  <figcaption>Shape preserved, direction reversed, pivot recorded.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>For SP work, pick the shale baseline off the log and enter it as a
+    VALUE pivot. A per-well automatic pivot moves with every reprocessing of
+    the curve, and a baseline that moves is not a baseline.</li>
+  <li>After any multi-well flip with MIDRANGE or MEAN, read the pivot-record
+    curve before comparing wells; the record is the only place the per-well
+    scale difference is visible.</li>
+  <li>Flipping is not calibration. A curve that is inverted and also shifted
+    needs the flip here and the shift addressed on its own terms, not one
+    pivot chosen to fake both.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Mirrors a curve about a pivot: OUT = 2 x pivot - CURVE. For an SP recorded with the wrong sign convention, or any reading delivered inverted.

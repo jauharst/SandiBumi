@@ -144,51 +144,126 @@ RANGE: the same map from the curve's own MIN and MAX
 MEAN_SD: OUT = (x − mean)/sd·REF_SD + REF_MEAN
 SPACE = LOG: mapped in log10 and inverted afterwards; non-positive samples become MISSING</pre>
 <!-- Authored walkthrough for the normalize guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the refusal, the derived pair, and the anchor sensitivity. -->
 
-<h2>Step by step: normalizing onto a field reference</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Normalize maps any curve onto a common reference frame so wells can be
-compared and pooled: TWO_POINT (the workhorse: this run's P_LOW/P_HIGH
-percentiles mapped linearly onto a reference pair), RANGE (the same map from
-min/max: reproducible and spike-sensitive, for curves already despiked), or
-MEAN_SD (a z-score onto a reference mean and spread, when the distribution's
-shape matters more than its ends). SPACE&nbsp;=&nbsp;LOG works in log10, the
-honest frame for a resistivity or permeability.</p>
+<p>Normalize maps a curve onto a common reference frame so wells can be
+compared and pooled. The classic customer is the gamma ray: different logging
+vintages report the same shale at different gAPI, so a cutoff picked in one
+well means different rock in the next until the wells share a scale. The
+module works on any curve, and it absorbed the older GR-specific normalizer,
+whose chapter now points here.</p>
 
-<h3>First, the refusal</h3>
+<h2>The physics</h2>
 
-<p>Run TWO_POINT without a reference pair and every well refuses, verbatim:</p>
+<p>Three methods:</p>
 
-<blockquote><i>"REF_LOW and REF_HIGH must both be set — the reference pair IS
-the normalization, and there is no value that is right in two fields. Take it
+<ul>
+  <li><b>TWO_POINT</b> (the workhorse): read this run's P_LOW and P_HIGH
+    percentiles of the curve, per well, and map them linearly onto REF_LOW
+    and REF_HIGH. Percentiles rather than min and max because a single spike
+    sets a min or a max, and one bad sample would then rescale the whole
+    well.</li>
+  <li><b>RANGE</b>: the same map from the curve's own min and max.
+    Reproducible, and spike-sensitive by construction; use it only on a
+    curve already despiked.</li>
+  <li><b>MEAN_SD</b>: z-score onto a reference mean and standard
+    deviation.</li>
+</ul>
+
+<h2>The picks and why: the refusal comes first</h2>
+
+<p>The reference pair ships absent on purpose, and running without one is
+refused, demonstrated live (0 clean, 3 failed, each well reporting):</p>
+
+<pre class="equations">REF_LOW and REF_HIGH must both be set — the reference pair IS the
+normalization, and there is no value that is right in two fields. Take it
 from this field's own multi-well distribution, or from a reference well, and
-use the same pair for every well."</i></blockquote>
+use the same pair for every well.</pre>
 
-<p>That refusal is the module's whole philosophy: normalized output looks
-plausible whatever pair you use, and nothing downstream can catch a wrong one.
-So the pair ships absent and the run stops until you own the choice.</p>
+<figure>
+  <img src="../img/guide-normalize-refused.png"
+       alt="The Normalize run refusing with the reference pair absent" />
+  <figcaption>A pair from one basin is the wrong reference in another, and
+    normalized output looks plausible either way, so the module refuses to
+    guess.</figcaption>
+</figure>
 
-<h3>The picks</h3>
+<p>Deriving the pair is one query in the Database Inspector's read-only SQL
+panel, over the field's pooled distribution:</p>
 
-<p><b>TWO_POINT, P3/P97, reference pair 43&nbsp;/&nbsp;112&nbsp;gAPI</b>: the
-P3 and P97 of the three wells' pooled GR (43.18 / 112.37, computed from the
-delivery itself), rounded to integers as the field convention. Derived from
-this field's own distribution; the same pair for every well in the study.</p>
+<pre class="equations">SELECT round(quantile_cont(gr, 0.03), 2), round(quantile_cont(gr, 0.97), 2)
+FROM standard_curves WHERE NOT isnan(gr)</pre>
+
+<p>which on these wells gives <b>43.18 / 112.37&nbsp;gAPI</b>, the
+walkthrough's reference pair. On a real study, compute it over a common
+reference interval containing comparable rock, and then use the same pair for
+every well in the study, which is the entire point.</p>
+
+<ul>
+  <li><b>P_LOW 3, P_HIGH 97</b> (shipped): where each well's distribution is
+    anchored. Run live, what changes when the anchors move to P5/P95 with the
+    same reference pair: each well's P3/P97 lands at 42.45 to 42.73 and
+    112.87 to 112.91 instead of exactly on the pair, because the anchors now
+    sit inside the tails and the mapped extremes overshoot the reference
+    values. Anchor choice and reference pair are one decision made in two
+    places; report both.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Condition ▸ Normalize</b> and select the
+    curve.</li>
+  <li>Derive the field reference pair (query above, or an agreed reference
+    well) and enter REF_LOW and REF_HIGH, citing the derivation in the
+    custody line.</li>
+  <li>Press <b>Run Normalize</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-normalize-pane.png"
-       alt="The Normalize pane, TWO_POINT with the derived field pair" />
-  <figcaption>The reference pair is entered, never defaulted.</figcaption>
+       alt="The Normalize pane before the reference pair is entered" />
+  <figcaption>The reference fields ship empty. What goes in them is the
+    study's decision, recorded with its source.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>, and the map closes on itself: the pooled
-GR_N comes back with <b>P3&nbsp;=&nbsp;43.0 and P97&nbsp;=&nbsp;112.0
-exactly</b>. That coincidence-by-construction is also the QC for a real
-multi-well study: overlay the normalized histograms, and every well's P_LOW and
-P_HIGH should land on the reference pair.</p>
+<p><b>3 clean</b>, and the verification is beautifully strict: after the run,
+every well's P3/P97 of the normalized curve reads <b>exactly 43.18 /
+112.37</b>, the reference pair, to the decimal. That coincidence across wells
+is the definition of normalized, and the same query per well is the QC:</p>
+
+<pre class="equations">SELECT w.well_name,
+       round(quantile_cont(c.value, 0.03), 2), round(quantile_cont(c.value, 0.97), 2)
+FROM computed_curves c JOIN wells w ON w.well_id = c.well_id
+WHERE c.curve_name = 'GR_N' AND NOT isnan(c.value)
+GROUP BY w.well_name</pre>
+
+<figure>
+  <img src="../img/guide-normalize-result.png"
+       alt="The Normalize run reporting three clean wells" />
+  <figcaption>Three wells, one scale: the anchors of every normalized well
+    coincide on the reference pair.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>These example wells were already consistent (per-well P3/P97 within
+    0.4&nbsp;gAPI before normalizing); a study that needs this module will
+    see spreads of tens of gAPI, and the after-run coincidence check matters
+    all the more.</li>
+  <li>Mask the run to a common reference interval so every well's percentiles
+    are measured over comparable rock; a well whose logged section is mostly
+    sand anchors its P97 on the wrong population.</li>
+  <li>Normalized output always looks plausible, including when the pair is
+    wrong for the basin. That is why the pair is refused rather than
+    defaulted, and why the custody line asks where yours came from.</li>
+</ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Maps a curve onto a common reference frame so wells can be compared and pooled. Works on ANY curve — the arithmetic is not specific to gamma ray.

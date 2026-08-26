@@ -1,37 +1,95 @@
 <!-- Authored walkthrough for the clip guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: clean-workspace captures, the cost of a bound inside the data. -->
 
-<h2>Step by step: holding a curve inside a range</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Clip holds a curve inside a declared range, with two very different actions.
-<b>BLANK</b> (the default) turns an out-of-range sample MISSING: the right
-answer when the range is a validity check, because a resistivity of 10⁶ is not
-a very resistive rock, it is a reading the tool could not make, and pinning it
-to the bound would leave a real-looking number where there is no measurement.
-<b>CLAMP</b> pulls the sample to the bound, defensible only for a small
-arithmetic overshoot of a known physical limit. An empty bound is a statement
-that the curve is unbounded on that side, not an omission.</p>
+<p>Clip holds a curve inside a stated range. Its proper job is physical
+validity: a resistivity of 10<sup>6</sup>&nbsp;ohmm is not a very resistive
+rock, it is a reading the tool could not make, and a porosity of 1.4&nbsp;v/v
+is not porosity. Reach for Clip to convert those impossibilities into honest
+MISSING values before they pollute a regression or an average.</p>
 
-<h3>Two runs, two lessons</h3>
+<h2>The physics</h2>
 
-<p>At the physical bound <b>[0, 120]&nbsp;gAPI</b> this delivery blanked
-<b>nothing</b>. Pooled GR tops out at 115.6, and a validity screen that finds
-nothing to do says 3 clean and changes nothing, which is itself the answer.</p>
+<p>There is none, and that is the point to hold onto: Clip knows nothing
+about rock, only about the range you state. The two actions differ in what
+they claim afterwards:</p>
 
-<p>So the shipping run is an explicitly labelled <b>machinery demonstration</b>:
-[0,&nbsp;110], a bound deliberately below the pooled P97 of 112, chosen to
-blank the top shale readings so the Fill Gaps chapter has real gaps to work
-with. The run's reference field says exactly that; on a real study you never
-blank legitimate readings.</p>
+<ul>
+  <li><b>BLANK</b> (shipped): a sample outside the range becomes MISSING. The
+    right answer when the range is a validity check, because pinning an
+    impossible reading to the bound would leave a real-looking number where
+    there is no measurement.</li>
+  <li><b>CLAMP</b>: a sample outside the range is pulled to the bound. Only
+    defensible for a small arithmetic overshoot, a porosity of 1.02 from a
+    subtraction, where the value is nearly right and the bound is the
+    physics.</li>
+</ul>
+
+<p>MIN and MAX may each be left empty, which is a statement that the curve is
+unbounded on that side, not an omission.</p>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>MIN 0, MAX 200&nbsp;gAPI</b> on the gamma ray: a validity range,
+    outside anything this section can read. Run live: <b>0 samples
+    blanked</b>, and zero is the good outcome, the check confirming the
+    delivery is physically sensible.</li>
+  <li>What changes when the bound moves inside the data, run live: MAX
+    110&nbsp;gAPI blanks <b>184 of 1185 samples</b>, 16 percent of the
+    section, all of it real shale (this gamma ray runs 40.2 to
+    115.6&nbsp;gAPI). A clip bound is a statement about what is physically
+    impossible; the moment it moves inside the observed distribution it stops
+    being QC and starts deleting rock.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Condition ▸ Clip</b>.</li>
+  <li>State the validity range in the curve's own units, leaving a side empty
+    if it is genuinely unbounded.</li>
+  <li>Keep BLANK for validity work; choose CLAMP only for arithmetic
+    overshoot.</li>
+  <li>Fill the custody line and press <b>Run Clip</b>.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-clip-pane.png"
-       alt="The Clip pane with the demonstration bound and BLANK action" />
-  <figcaption>BLANK, with the flag and original-values companions on.</figcaption>
+       alt="The Clip pane with the validity range entered" />
+  <figcaption>A range and an action. Empty bounds are deliberate statements,
+    not missing fields.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>, with <b>184 samples blanked</b> into GR_CLP,
-the shale peaks above 110. The out-of-range flag marks each one and GR_CLP_ORIG
-keeps every original value, so even a demonstration is fully reversible.</p>
+<p><b>3 clean</b>, <b>0 blanked</b>: the whole log sits inside physical
+validity. The flag curve exists anyway, all zeros, which is itself the
+record that the check ran. Count in the Database Inspector:</p>
+
+<pre class="equations">SELECT COUNT(*) FILTER (WHERE value = 1)
+FROM computed_curves WHERE curve_name = 'GR_C_CLP'</pre>
+
+<figure>
+  <img src="../img/guide-clip-result.png"
+       alt="The Clip run reporting three clean wells with nothing blanked" />
+  <figcaption>Zero blanked is the pass verdict of a validity check, not a
+    wasted run.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Before setting a bound, look at the curve's histogram. A bound inside
+    the observed distribution deletes rock, and it deletes it silently on
+    every re-run.</li>
+  <li>Do not use Clip to remove washout effects: bad hole is flagged and
+    masked (the Bad-Hole chapter), because the samples there are wrong for a
+    reason worth recording, not out of range.</li>
+  <li>Blanked samples propagate as MISSING into everything downstream, which
+    is the honest behaviour, but count them first: a validity range that
+    blanks a fifth of the well is a delivery problem to raise, not a
+    conditioning step to keep.</li>
+</ul>

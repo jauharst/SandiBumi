@@ -1,42 +1,83 @@
 <!-- Authored walkthrough for the bed_detect guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26). -->
+     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+     second pass: the SENS dial demonstrated 19 beds to 47. -->
 
-<h2>Step by step: finding the beds before averaging over them</h2>
+<h2>What this is and when to reach for it</h2>
 
-<p>Bed Detect writes the bed number each sample falls in, found from the
-curve's own steps, the same segmentation Block's AUTO mode uses, exposed on
-its own so the beds can be <i>looked at</i> before anything is averaged over
-them. That order is the point: over-segmentation is what a step-finder gets
-wrong when it gets anything wrong, and a blocked curve computed from beds
-nobody checked looks perfectly reasonable.</p>
+<p>Bed Detect writes the bed number each sample falls in, segmented from the
+curve's own steps. It is the same segmentation the Block module's AUTO mode
+uses, exposed on its own so the beds can be looked at on a log before
+anything is averaged over them. That order matters: over-segmentation is what
+a step-finder gets wrong when it gets anything wrong, and a blocked curve
+computed from beds nobody checked looks perfectly reasonable.</p>
 
-<h3>First, the refusal</h3>
+<h2>The physics</h2>
 
-<blockquote><i>"MIN_BED must be set — Thinnest bed worth calling a bed"</i></blockquote>
+<p>A sample opens a new bed when it sits further from the running bed mean
+than the detector's threshold, scaled by SENS, and a candidate bed thinner
+than MIN_BED is not honoured. So the two controls split the job: MIN_BED is a
+statement about resolution (the thinnest bed the log can honestly resolve),
+SENS about contrast (how big a step in the curve counts as a boundary).</p>
 
-<p>No default, same reasoning as the despike window: the thinnest thing worth
-calling a bed is a property of the tool and the rock.</p>
+<h2>The picks and why</h2>
 
-<h3>The picks</h3>
+<ul>
+  <li><b>MIN_BED 1&nbsp;m</b>: a demonstration floor; at 0.15&nbsp;m sampling
+    the tools themselves cannot honestly resolve much thinner.</li>
+  <li><b>SENS 2</b> (shipped). Run live on these wells: SENS&nbsp;2 finds
+    <b>19, 20 and 19 beds</b> in the three wells, a segmentation that matches
+    the section's designed layering. Halving to SENS&nbsp;1 finds <b>47, 44
+    and 45</b>, well over twice the beds from the same rock: every wiggle
+    with a modest step now opens a boundary. The dial is the
+    over-segmentation dial, and the bed count is its first-order
+    readout.</li>
+</ul>
 
-<p><b>MIN_BED 1&nbsp;m</b>, the thinnest bed worth keeping at this dataset's
-0.1524&nbsp;m sampling (the despike-window argument again), and <b>SENS 2</b>,
-the shipped two-noise-units convention. The noise scale is measured from the
-curve's own sample-to-sample differences divided by √2, the curve's
-<i>noise</i>, not how much it varies across the well, so a strongly layered
-section does not desensitize its own boundary detection.</p>
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics ▸ Frame ▸ Bed Detect</b>.</li>
+  <li>Pick the segmenting curve (gamma ray here), set MIN_BED to the honest
+    resolution floor, leave SENS at 2 to start.</li>
+  <li>Fill the custody line and press <b>Run Bed Detect</b>.</li>
+  <li>Put the bed curve in a log-view track as class blocks and judge it
+    against the log before anything consumes it.</li>
+</ol>
 
 <figure>
   <img src="../img/guide-beddetect-pane.png"
-       alt="The Bed Detect pane on GR with a 1 m minimum bed" />
-  <figcaption>SandiBumi's own segmentation heuristic. The module doc is the
-    derivation.</figcaption>
+       alt="The Bed Detect pane with the resolution floor and sensitivity" />
+  <figcaption>Resolution and contrast, separated on purpose: MIN_BED is about
+    the log, SENS about the rock.</figcaption>
 </figure>
 
-<h3>Run and read</h3>
+<h2>Reading the result</h2>
 
-<p>On these wells: <b>3 clean</b>, finding <b>18–19 beds per well</b> over the
-~60&nbsp;m sections. Before running Block against it, put GR_BED in a track as
-class blocks and judge the boundaries against the log, then Block with
-OPT_BEDS&nbsp;=&nbsp;CLASS pointing at the curve you have actually
-inspected.</p>
+<p><b>3 clean</b>, about 19 beds per well. Count them per well in the
+Database Inspector:</p>
+
+<pre class="equations">SELECT w.well_name, MAX(c.value) + 1 AS beds
+FROM computed_curves c JOIN wells w ON w.well_id = c.well_id
+WHERE c.curve_name LIKE 'GR_BED%' AND NOT isnan(c.value)
+GROUP BY w.well_name</pre>
+
+<figure>
+  <img src="../img/guide-beddetect-result.png"
+       alt="The Bed Detect run reporting three clean wells" />
+  <figcaption>19 to 20 beds per well at the shipped sensitivity; the count is
+    the first thing to sanity-check.</figcaption>
+</figure>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li>Always view the beds as class blocks beside the segmenting curve before
+    running Block on them. Two beds where the log shows one contact, or one
+    bed spanning an obvious boundary, are visible in seconds there.</li>
+  <li>The bed count is a fast smell test: if it more than doubles when SENS
+    halves (as it does here), the extra beds are contrast noise, not
+    stratigraphy.</li>
+  <li>Segment on the least conditioned curve that shows the boundaries. A
+    smoothed input ramps its edges, and a ramp is exactly what a step-finder
+    cannot place.</li>
+</ul>
