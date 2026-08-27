@@ -20330,3 +20330,43 @@ generic wording must name the field.
       'Matrix density (RHG80 suspension segment)' field to fill in.
 - [ ] **The guidebook's Normalize chapter** quotes the refusal — the quoted text must match
       what the app actually says.
+
+## Modules ▸ every refusal that stops a run now speaks to the operator (2026-08-27)
+
+The branch-parameter refusal above fixed one message. Its neighbours still opened with the schema
+record — *"precondition 'PHI_SD_MAX' failed before thin_bed_ts ran: value NaN v/v at sample 0 is
+not finite. Fix the supplied value or its zone override."* — and that one is worth reading twice,
+because it is what an interpreter actually got for **leaving a field empty**. It reads as a data
+fault and points at a zone override the run never had. Five guidebook chapters quote it, each for
+a parameter the chapter itself describes as deliberately unset.
+
+The cause was that a parameter left empty does not arrive missing — the run fills it with "no
+value" at every depth — so it fell past the two checks written for an unset parameter and landed
+in the one written for bad numbers. All of them now lead with what did not run and which field is
+empty, say why the app will not decide it, and name the pane field by the label printed on it, with
+the rule and its source kept but trailing. An empty field, a zone override that misses samples, and
+an impossible number are told apart and worded differently. A curve that is out of range is told
+apart from a parameter that is: no pane field will fix a reading the tool recorded, so that one
+points at the input and the run mask instead.
+
+Two messages were deliberately left alone and say why in the code: no shipping module can produce
+either, and writing "what to do" for a refusal nobody can reach would mean inventing the remedy.
+
+- [ ] **Run Coates, Transform, Wyllie-Rose or Thin Beds with the constant left empty.** The refusal
+      must start "<module> did not run: <PARAM> is not set for this run", say it ships ABSENT, and
+      name the field to type into — not "value NaN at sample 0 is not finite".
+- [ ] **Set a zone override that covers only part of the interval.** The refusal must name the
+      sample where the hole is and point at the override, not report an empty field.
+- [ ] **Enter an inverted cutoff ladder (rt_cutoff VSH1 > VSH2).** The refusal must name BOTH
+      pane fields, since either could be the one you meant to change.
+- [ ] **Run a module on a well that lacks a required curve.** The refusal must name the field to
+      point at a populated curve.
+- [ ] **Pick a method id a saved chain no longer offers.** The refusal must list the permitted set
+      and name the selector.
+- [ ] **The five guidebook chapters** (Coates, Transform, Wyllie-Rose, Thin Beds, Workflow
+      Builder) plus SSC and Rock Type quote these refusals — the quoted text must match what the
+      app actually says.
+- [ ] **Two screenshots still show the old wording** and need re-capturing on real data, which is
+      not something the change itself can do: `guide-permcoates-refused.png` and
+      `guide-rtcutoff-refused.png`. (`guide-normalize-refused.png` from the previous increment is
+      in the same state.)

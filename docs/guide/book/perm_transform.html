@@ -518,8 +518,9 @@ actually measured, and nothing else.</p>
 smooth, plausible, wrong answer here. With porosity picked and the
 coefficients empty:</p>
 
-<pre class="equations">precondition 'PT_A' failed before perm_transform ran: value NaN
-at sample 0 is not finite. Fix the supplied value or its zone override.</pre>
+<pre class="equations">perm_transform did not run: PT_A is not set for this run. It ships ABSENT -
+the parameter has no defensible generic default, so the app cannot fill it
+in. Enter a value in the module pane's 'Slope' field.</pre>
 
 <h2>The picks and why</h2>
 

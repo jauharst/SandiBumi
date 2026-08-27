@@ -3455,6 +3455,16 @@ fn validate_option_value(spec: &ModuleSpec, arg: &ArgSpec, value: &str) -> Resul
     if value.is_empty() && !arg.required {
         return Ok(());
     }
+    // One wording, two callers - the sourced condition and the fallback for a manifest that
+    // predates them refuse the SAME thing, and two copies is two places for it to drift.
+    let unrecognised = |value: &str| {
+        format!(
+            "is set to '{}', which is not in the permitted set [{}]",
+            value,
+            arg.choices.join(", ")
+        )
+    };
+    let closed_set_remedy = format!("The set is closed on purpose: an unrecognised id would otherwise fall through to whichever method arm the code happens to default to, and the run would answer with physics nobody chose. Pick one of those ids in {}.", pane_field(arg));
     let mut has_sourced_enumeration = false;
     for condition in arg
         .validity_conditions
@@ -3472,28 +3482,21 @@ fn validate_option_value(spec: &ModuleSpec, arg: &ArgSpec, value: &str) -> Resul
             ));
         }
         if value.is_empty() || !arg.choices.iter().any(|choice| choice == value) {
-            return Err(format!(
-                "precondition '{}' on '{}' failed before {} ran: value '{}' is not in the permitted set [{}]. {} Source: {}",
-                condition.id,
-                arg.name,
-                spec.name,
-                value,
-                arg.choices.join(", "),
-                condition.statement,
-                condition.source
+            // The bracketed set is the naming phrase and is pinned complete AND in order, so it
+            // stays inside the fault clause where an operator reads it beside their own typo.
+            return Err(refuse_declared(
+                spec,
+                arg,
+                condition,
+                &unrecognised(value),
+                &closed_set_remedy,
             ));
         }
     }
     if !has_sourced_enumeration
         && (value.is_empty() || !arg.choices.iter().any(|choice| choice == value))
     {
-        return Err(format!(
-            "precondition '{}' failed before {} ran: option value '{}' is not in the permitted set [{}]. Choose one of the declared method ids.",
-            arg.name,
-            spec.name,
-            value,
-            arg.choices.join(", ")
-        ));
+        return Err(refuse_argument(spec, arg, &unrecognised(value), &closed_set_remedy));
     }
     Ok(())
 }
@@ -3518,6 +3521,52 @@ pub(crate) fn validate_module_options(
         validate_option_value(spec, arg, value)?;
     }
     Ok(())
+}
+
+/// The one wording for a precondition that STOPS a run, in the house voice: what did not run and
+/// what is wrong with it, why the app cannot decide it, what to do naming the pane control by the
+/// label printed on it - with the schema record kept, but trailing.
+///
+/// Two helpers rather than a `format!` per arm, for the `one_refusal_is_worded_once` reason: a
+/// voice written out at every arm has as many places to drift as it has arms, and the drift had
+/// already happened - the `RequiredValue` arm spoke to an operator while its neighbours in the
+/// same block opened with `precondition '<id>' failed before <module> ran`. This one carries a
+/// manifest condition, so its id, statement and source travel; [`refuse_argument`] is for the
+/// plain `required` checks, which have no condition at all.
+///
+/// `fault` completes "<ARG> ..." and is punctuated here, so an arm never writes the sentence.
+fn refuse_declared(
+    spec: &ModuleSpec,
+    arg: &ArgSpec,
+    condition: &ValidityCondition,
+    fault: &str,
+    remedy: &str,
+) -> String {
+    format!(
+        "{} did not run: {} {}. {} {} Source: {} (precondition {})",
+        spec.name, arg.name, fault, remedy, condition.statement, condition.source, condition.id
+    )
+}
+
+/// [`refuse_declared`] for the plain `required` checks, which no manifest condition covers.
+///
+/// Their record is the argument's own [`ArgSpec::default_source`] - the citation behind the value
+/// that would have been used had one shipped. [`ABSENT_DEFAULT_SOURCE`] is deliberately NOT
+/// printed as a source: "Source: ABSENT" names no document, and the remedy already says the
+/// parameter ships absent in words an operator can act on.
+fn refuse_argument(spec: &ModuleSpec, arg: &ArgSpec, fault: &str, remedy: &str) -> String {
+    let record = if arg.default_source.is_empty() || arg.default_source == ABSENT_DEFAULT_SOURCE {
+        String::new()
+    } else {
+        format!(" Source: {}", arg.default_source)
+    };
+    format!("{} did not run: {} {}. {}{}", spec.name, arg.name, fault, remedy, record)
+}
+
+/// Name a pane control the way the module dialog prints it (`moduleDialog` labels a field with the
+/// manifest `desc`), so a remedy points at something the operator can actually see.
+fn pane_field(arg: &ArgSpec) -> String {
+    format!("the module pane's '{}' field", arg.desc)
 }
 
 fn validate_declared_preconditions_ignoring(
@@ -3565,32 +3614,53 @@ fn validate_declared_preconditions_ignoring(
                         }
                         if min.map_or(false, |lo| value < lo) || max.map_or(false, |hi| value > hi) {
                             let suffix = if unit.is_empty() { String::new() } else { format!(" {unit}") };
-                            return Err(format!(
-                                "precondition '{}' on '{}' failed before {} ran: value {}{} at sample {} is outside {}{}. {} Source: {}",
-                                condition.id,
-                                arg.name,
-                                spec.name,
-                                value,
-                                suffix,
-                                index,
-                                format_numeric_range(*min, *max),
-                                suffix,
-                                condition.statement,
-                                condition.source
+                            // The remedy has to know WHERE the number came from. `numeric_value_at`
+                            // reads a Param or a LogIn, and the two need opposite advice: a typed
+                            // endpoint is corrected in its field, while a curve sample is the
+                            // measurement itself and no pane field will move it. Every shipping
+                            // declaration of this rule is on a Param today (vsh_gr GR_MA/GR_SH),
+                            // so the LogIn branch is the one that must not be guessed at later.
+                            let remedy = if arg.kind == ArgKind::LogIn {
+                                format!("The curve carries that reading, so no parameter field will change it - and a sample outside the declared range would compute a plausible answer from an implausible measurement. Select a different curve in {}, or exclude the interval with a flag curve in the run's Mask field.", pane_field(arg))
+                            } else {
+                                format!("The range is what the method is defined over, so the app will not clamp into it silently. Correct the value in {}, or in the zone override that supplies it.", pane_field(arg))
+                            };
+                            return Err(refuse_declared(
+                                spec,
+                                arg,
+                                condition,
+                                // "value <N> <unit> at sample <i>" is the naming phrase - it says
+                                // WHICH sample offended and with what - and chain.rs and
+                                // workflow.rs each pin it on a different route. It stays intact
+                                // inside the fault clause; only what surrounds it is copy.
+                                &format!(
+                                    "carries value {}{} at sample {}, outside {}{}",
+                                    value,
+                                    suffix,
+                                    index,
+                                    format_numeric_range(*min, *max),
+                                    suffix
+                                ),
+                                &remedy,
                             ));
                         }
                     }
                 }
                 ValidityRule::RequiredCompanion { any_of, .. } => {
                     if !any_of.iter().any(|name| populated(name)) {
-                        return Err(format!(
-                            "precondition '{}' on '{}' failed before {} ran: none of the required companion inputs [{}] has a finite sample. {} Source: {}",
-                            condition.id,
-                            arg.name,
-                            spec.name,
-                            any_of.join(", "),
-                            condition.statement,
-                            condition.source
+                        // "has a finite sample" is the naming phrase here - it says WHICH
+                        // condition fired (nothing anywhere in the well, not a gap at one
+                        // depth), and three tests pin it. It leads the fault clause for that
+                        // reason; the prose after it is copy.
+                        return Err(refuse_declared(
+                            spec,
+                            arg,
+                            condition,
+                            &format!(
+                                "needs a companion input, and none of [{}] has a finite sample",
+                                any_of.join(", ")
+                            ),
+                            &format!("A curve with no finite sample carries no measurement to work from, and the app will not invent the geometry it stands for. Select a populated curve for one of those roles beside {}.", pane_field(arg)),
                         ));
                     }
                 }
@@ -3604,22 +3674,13 @@ fn validate_declared_preconditions_ignoring(
                     let refuse = |fault: String| {
                         let body = if condition.refusal.is_empty() {
                             format!(
-                                "It deliberately ships with no default, so the app cannot fill it in. Enter a value in the module pane's '{}' field.",
-                                arg.desc
+                                "It deliberately ships with no default, so the app cannot fill it in. Enter a value in {}.",
+                                pane_field(arg)
                             )
                         } else {
                             condition.refusal.clone()
                         };
-                        format!(
-                            "{} did not run: {} {}. {} {} Source: {} (precondition {})",
-                            spec.name,
-                            arg.name,
-                            fault,
-                            body,
-                            condition.statement,
-                            condition.source,
-                            condition.id
-                        )
+                        refuse_declared(spec, arg, condition, &fault, &body)
                     };
                     let Some(values) = ctx.params.get(&arg.name) else {
                         return Err(refuse("is not set for this run".into()));
@@ -3664,6 +3725,15 @@ fn validate_declared_preconditions_ignoring(
                             spec.name, condition.id, input, arg.name
                         ));
                     }
+                    // Deliberately NOT reworded into the operator voice, unlike its neighbours.
+                    // No shipping manifest declares this rule - `RequiredWhereFinite` appears in
+                    // four places in the crate, all of them this arm, its sibling arms and the
+                    // enum itself, with no construction site - so no operator has ever read this
+                    // sentence. And its fault is not an empty field but a HOLE in delivered data:
+                    // one curve reads at a depth its partner does not. There is no pane control
+                    // that fills that in, so writing "what to do" here would mean inventing both
+                    // a remedy and a control for a fault shape nobody has met yet. It gets the
+                    // house voice when a manifest declares it and the real remedy is known.
                     for index in 0..ctx.n {
                         let primary = numeric_value_at(spec, ctx, input, index);
                         if !primary.is_some_and(f64::is_finite) {
@@ -3710,18 +3780,22 @@ fn validate_declared_preconditions_ignoring(
                             if strict { value >= other_value } else { value > other_value };
                         if value.is_finite() && other_value.is_finite() && violated {
                             let relation = if strict { "not less than" } else { "above" };
-                            return Err(format!(
-                                "precondition '{}' on '{}' failed before {} ran: value {} at sample {} is {} '{}' value {}. {} Source: {}",
-                                condition.id,
-                                arg.name,
-                                spec.name,
-                                value,
-                                index,
-                                relation,
-                                other,
-                                other_value,
-                                condition.statement,
-                                condition.source
+                            // An ordered pair is the one fault where naming a single field would
+                            // be a guess: either value could be the one that is wrong, and the
+                            // app has nothing to tell them apart. So the remedy names BOTH, by
+                            // the labels the pane prints - which means resolving the other
+                            // argument's desc rather than quoting its mnemonic twice.
+                            let other_field = spec
+                                .args
+                                .iter()
+                                .find(|candidate| candidate.name == *other)
+                                .map_or(other.as_str(), |candidate| candidate.desc.as_str());
+                            return Err(refuse_declared(
+                                spec,
+                                arg,
+                                condition,
+                                &format!("carries value {value} at sample {index}, {relation} '{other}' value {other_value}"),
+                                &format!("The two are an ordered pair, and the app cannot tell which of them you meant to change. Correct them in the module pane's '{}' and '{}' fields, or in the zone overrides that supply them.", arg.desc, other_field),
                             ));
                         }
                     }
@@ -3735,6 +3809,11 @@ fn validate_declared_preconditions_ignoring(
                 validate_option_value(spec, arg, &value)?;
             }
             ArgKind::Text => {
+                // Deliberately NOT reworded, for the `RequiredWhereFinite` reason: no shipping
+                // module declares an `ArgKind::Text` argument (`text_opt` has zero call sites -
+                // the output-name grid replaced its only caller), so this sentence has no reader
+                // and names no printed control. Give it the house voice when a manifest gives it
+                // a field, and the field a label.
                 let value = selected_value(spec, ctx, &arg.name);
                 if arg.required && value.trim().is_empty() {
                     return Err(format!(
@@ -3744,48 +3823,102 @@ fn validate_declared_preconditions_ignoring(
                 }
             }
             ArgKind::Param => {
+                // The one refusal in this function an operator actually MEETS. Production never
+                // reaches the two arms below - `workflow::resolve_param_arrays` gives every
+                // declared Param a full-length array, NaN-filled when nothing was supplied - so
+                // an empty pane field arrives here as all-NaN and lands in the sample loop. That
+                // loop used to answer it with "value NaN at sample 0 is not finite. Fix the
+                // supplied value or its zone override", which names a zone override the run does
+                // not have and reads as a data fault. Five guidebook chapters quote that sentence
+                // for a field the interpreter simply had not filled in.
+                //
+                // The split is `RequiredValue`'s, not a second invention: all-NaN IS the pane's
+                // empty field; a NaN beside finite samples is a HOLE, usually a zone override
+                // that does not span the interval; an infinity is neither - it is a supplied
+                // value that cannot be compared, clamped or averaged.
+                let absent_remedy = || {
+                    format!("It ships ABSENT - the parameter has no defensible generic default, so the app cannot fill it in. Enter a value in {}.", pane_field(arg))
+                };
                 let Some(values) = ctx.params.get(&arg.name) else {
                     if arg.required {
                         if arg.default_source == ABSENT_DEFAULT_SOURCE {
-                            return Err(format!(
-                                "precondition '{}' failed before {} ran: this required parameter ships ABSENT because it has no defensible generic default. Supply an interpreter value before running.",
-                                arg.name, spec.name
+                            return Err(refuse_argument(
+                                spec,
+                                arg,
+                                "is not set for this run",
+                                &absent_remedy(),
                             ));
                         }
-                        return Err(format!(
-                            "precondition '{}' failed before {} ran: the required parameter has no resolved per-sample values.",
-                            arg.name, spec.name
+                        return Err(refuse_argument(
+                            spec,
+                            arg,
+                            "has no resolved per-sample values",
+                            &format!("A required parameter reaches a module as one value per sample, and this run supplied none. Enter a value in {}; if that field is already filled, the run did not carry it here and the fault is worth reporting with the module and well.", pane_field(arg)),
                         ));
                     }
                     continue;
                 };
                 if arg.required && values.len() < ctx.n {
-                    return Err(format!(
-                        "precondition '{}' failed before {} ran: the required parameter has {} resolved sample values but the frame has {}.",
-                        arg.name,
-                        spec.name,
-                        values.len(),
-                        ctx.n
+                    // "the frame has <n>" is the naming phrase and is pinned. The remedy covers
+                    // both readings of a short array on purpose: none resolved at all is the pane
+                    // field, some-but-not-all is the run failing to carry it here, and there is
+                    // no evidence for a threshold that would tell them apart - inventing one
+                    // would put a guess in the operator's way.
+                    return Err(refuse_argument(
+                        spec,
+                        arg,
+                        &format!(
+                            "resolved {} sample values but the frame has {}",
+                            values.len(),
+                            ctx.n
+                        ),
+                        &format!("A parameter is one value per sample, and the app will not stretch a short array to fit the frame - the samples it invented would carry an answer nobody supplied. Enter a value in {}; if that field is already filled, the run did not carry it this far and the fault is worth reporting with the module and well.", pane_field(arg)),
                     ));
                 }
-                for (index, value) in values.iter().copied().enumerate().take(ctx.n) {
-                    if ignored_samples.contains(&index) {
-                        continue;
-                    }
-                    if value.is_nan() && !arg.required {
-                        continue;
-                    }
-                    if !value.is_finite() {
-                        let unit = if arg.unit.is_empty() { String::new() } else { format!(" {}", arg.unit) };
-                        return Err(format!(
-                            "precondition '{}' failed before {} ran: value {}{} at sample {} is not finite. Fix the supplied value or its zone override.",
-                            arg.name,
-                            spec.name,
-                            value,
-                            unit,
-                            index
-                        ));
-                    }
+                // Same offending sample the old scan picked - first non-ignored non-finite,
+                // with an optional parameter's NaN still legal - so only the WORDING moves.
+                let offending = values
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .take(ctx.n)
+                    .find(|(index, value)| {
+                        !ignored_samples.contains(index)
+                            && !value.is_finite()
+                            && !(value.is_nan() && !arg.required)
+                    });
+                if let Some((index, value)) = offending {
+                    let unit = if arg.unit.is_empty() { String::new() } else { format!(" {}", arg.unit) };
+                    let any_finite = values
+                        .iter()
+                        .copied()
+                        .enumerate()
+                        .take(ctx.n)
+                        .any(|(index, value)| !ignored_samples.contains(&index) && value.is_finite());
+                    return Err(if !value.is_nan() {
+                        refuse_argument(
+                            spec,
+                            arg,
+                            &format!("carries value {value}{unit} at sample {index}"),
+                            &format!("A parameter has to be finite - an infinity cannot be compared, clamped or averaged, so every number computed from it would be meaningless rather than wrong. Correct the value in {}, or in the zone override that supplies it.", pane_field(arg)),
+                        )
+                    } else if any_finite {
+                        refuse_argument(
+                            spec,
+                            arg,
+                            &format!("has no usable value at sample {index}"),
+                            &format!("It carries a value at other samples but not that one, which usually means a zone override that does not span the whole interval. Widen the override that supplies it, or set a well-wide value in {}.", pane_field(arg)),
+                        )
+                    } else if arg.default_source == ABSENT_DEFAULT_SOURCE {
+                        refuse_argument(spec, arg, "is not set for this run", &absent_remedy())
+                    } else {
+                        refuse_argument(
+                            spec,
+                            arg,
+                            "is not set for this run",
+                            &format!("It resolved to no value at any sample in this run. Enter a value in {}, or set it per zone.", pane_field(arg)),
+                        )
+                    });
                 }
             }
             ArgKind::LogIn => {
@@ -3801,9 +3934,16 @@ fn validate_declared_preconditions_ignoring(
                             .collect::<Vec<_>>()
                             .join(" or ")
                     };
-                    return Err(format!(
-                        "precondition '{}' failed before {} ran: none of the required input role [{}] has a finite sample. Select a populated curve before running the module.",
-                        arg.name, spec.name, expected
+                    // "required input role" and "has a finite sample" are both naming phrases
+                    // here - together they say the role was unfilled ANYWHERE in the well rather
+                    // than at one depth - and three tests across the crate pin them, one of them
+                    // to classify a fixture well that genuinely lacks the channel. They lead the
+                    // fault clause; the prose after them is copy.
+                    return Err(refuse_argument(
+                        spec,
+                        arg,
+                        &format!("is unpopulated - none of the required input role [{expected}] has a finite sample"),
+                        &format!("A curve with no finite sample carries no measurement to read, and the app will not stand one in for it. Select a populated curve in {}.", pane_field(arg)),
                     ));
                 }
             }
@@ -10337,6 +10477,127 @@ mod tests {
         assert!(
             hole.contains("REF_LOW has no usable value at sample 1"),
             "a hole with finite neighbours is a different fault from an empty field: {hole}"
+        );
+    }
+
+    /// The rest of the precondition refusals follow the branch-parameter one above into the house
+    /// voice. Pinned from BOTH sides, because either half alone is satisfiable by a worse message:
+    /// the operator prose must LEAD (a schema record with friendly text appended still buries the
+    /// part an interpreter can act on), and the schema record must still TRAIL (a message rewritten
+    /// to read well while dropping the condition id and source would pass a prose-only check and
+    /// lose what the guidebook and the takeover evidence cite).
+    ///
+    /// The parameter values here are test data, not defaults: 2.65 g/cc is quartz matrix density
+    /// and the rt_cutoff ladder repeats `rocktyping.rs`'s own explicit fixture.
+    #[test]
+    fn a_precondition_that_stops_a_run_leads_with_the_operator_and_trails_the_schema_record() {
+        let vsh_dn_ctx = |rho_ma: f64| {
+            ctx_with(
+                2,
+                &[("RHOB", vec![2.35, 2.40]), ("NPHI", vec![0.30, 0.28])],
+                &[
+                    ("RHO_MA", rho_ma),
+                    ("RHO_SH", 2.45),
+                    ("RHO_FL", 1.0),
+                    ("NPHI_MA", 0.0),
+                    ("NPHI_SH", 0.4),
+                    ("NPHI_FL", 1.0),
+                    ("GR_MA", 10.0),
+                    ("GR_SH", 100.0),
+                    ("FLAG_TOL", 0.25),
+                ],
+                &[],
+            )
+        };
+
+        // The shape production actually delivers: `workflow::resolve_param_arrays` gives every
+        // declared Param a full-length array, NaN-filled when the pane field was left empty, so
+        // an unset ABSENT parameter reaches the sample loop rather than the missing-key arm.
+        let empty = run_module("vsh_dn", &vsh_dn_ctx(f64::NAN))
+            .expect_err("an unset ABSENT parameter must refuse before the arithmetic");
+        assert!(
+            empty.starts_with("vsh_dn did not run: RHO_MA is not set for this run."),
+            "the operator voice must lead: {empty}"
+        );
+        assert!(
+            empty.contains("ABSENT") && empty.contains("the module pane's 'Matrix density' field"),
+            "the ruling and the printed control must both be named: {empty}"
+        );
+        assert!(
+            !empty.contains("is not finite") && !empty.contains("zone override"),
+            "an empty field must not be diagnosed as bad data, nor point at an override this run has no reason to have: {empty}"
+        );
+
+        // A hole is a different fault from an empty field, and an infinity from both.
+        let mut holed = vsh_dn_ctx(2.65);
+        holed.params.insert("RHO_MA".into(), vec![2.65, f64::NAN]);
+        let hole = run_module("vsh_dn", &holed).expect_err("a hole must refuse by position");
+        assert!(
+            hole.contains("RHO_MA has no usable value at sample 1")
+                && hole.contains("zone override"),
+            "a NaN beside finite samples is an override that misses samples: {hole}"
+        );
+        let infinite = run_module("vsh_dn", &vsh_dn_ctx(f64::INFINITY))
+            .expect_err("an infinite parameter must refuse");
+        assert!(
+            infinite.contains("RHO_MA carries value inf g/cc at sample 0")
+                && !infinite.contains("is not set for this run"),
+            "an infinity is a supplied value, not an empty field: {infinite}"
+        );
+
+        // An ordered pair names BOTH printed fields, because either could be the wrong one - and
+        // the condition id, both values and the source still travel behind the prose.
+        let ladder = run_module(
+            "rt_cutoff",
+            &ctx_with(
+                1,
+                &[("VSH", vec![0.10]), ("PHIE", vec![0.20])],
+                &[("VSH1", 0.50), ("PHI1", 0.12), ("VSH2", 0.20), ("PHI2", 0.06)],
+                &[],
+            ),
+        )
+        .expect_err("an inverted ladder must refuse");
+        assert!(
+            ladder.starts_with("rt_cutoff did not run: VSH1 carries value 0.5 at sample 0, above 'VSH2' value 0.2."),
+            "the operator voice must lead with both sides of the comparison: {ladder}"
+        );
+        assert!(
+            ladder.contains("(precondition rt_cutoff.vsh_ladder_order)")
+                && ladder.contains("ref_rocktyping_shf.md"),
+            "the condition id and source must still trail: {ladder}"
+        );
+
+        // A closed method set keeps the complete permitted list inside the fault clause, where an
+        // operator reads it beside their own typo.
+        let method = run_module(
+            "vsh_gr",
+            &ctx_with(
+                1,
+                &[("GR", vec![70.0])],
+                &[("GR_MA", 20.0), ("GR_SH", 120.0)],
+                &[("OPT_GR", "TYPO")],
+            ),
+        )
+        .expect_err("an undeclared method id must refuse");
+        assert!(
+            method.starts_with("vsh_gr did not run: OPT_GR is set to 'TYPO', which is not in the permitted set [LINEAR,"),
+            "the operator voice must lead and carry the permitted set: {method}"
+        );
+        assert!(
+            method.contains("(precondition vsh_gr.method_id)") && method.contains("vsh_gr.lls"),
+            "the condition id and source must still trail: {method}"
+        );
+
+        // An unfilled input role keeps both of its naming phrases - three tests across the crate
+        // read them, one to tell a fixture well that lacks the channel from a real failure.
+        let unpopulated = run_module(
+            "vsh_gr",
+            &ctx_with(1, &[("GR", vec![f32::NAN])], &[("GR_MA", 20.0), ("GR_SH", 120.0)], &[]),
+        )
+        .expect_err("an unpopulated required input must refuse");
+        assert!(
+            unpopulated.starts_with("vsh_gr did not run: GR is unpopulated - none of the required input role [GR] has a finite sample."),
+            "both naming phrases must survive, leading: {unpopulated}"
         );
     }
 

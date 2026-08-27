@@ -41,8 +41,10 @@ picking a side.</p>
 <p>There is no shipped irreducible saturation, because there is no generic
 one. With the constants chosen and SWE_IRR left empty, the run refuses:</p>
 
-<pre class="equations">precondition 'SWE_IRR' failed before perm_wyllie_rose ran: value NaN v/v
-at sample 0 is not finite. Fix the supplied value or its zone override.</pre>
+<pre class="equations">perm_wyllie_rose did not run: SWE_IRR is not set for this run. It ships
+ABSENT - the parameter has no defensible generic default, so the app cannot
+fill it in. Enter a value in the module pane's 'Irreducible effective water
+saturation' field.</pre>
 
 <h2>The picks and why</h2>
 
