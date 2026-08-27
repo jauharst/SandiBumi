@@ -69,24 +69,28 @@ run clean.</p>
 
 <h2>Reading the result</h2>
 
-<p><b>3 clean</b>. Run live on WYLLIE: median PHIT_SON <b>0.2849</b>, median
-PHIE_SON <b>0.178</b>. Note sonic PHIT reading well above density PHIT
-(0.2024): an uncompacted young section with no Cp divisor applied does
-exactly this, and the gap is the argument for either the compaction
-correction or the RHG transform, not a reason to distrust the density.</p>
+<p><b>0 clean &middot; 3 degraded</b> (the shale ceiling clamping the
+effective output at scattered samples). Run live on WYLLIE: median PHIT_SON
+<b>0.3717</b>, median PHIE_SON <b>0.1144</b>. Note sonic PHIT reading far
+above density PHIT (0.1686): an uncompacted young section with no Cp
+divisor applied does exactly this, and the gap is the argument for either
+the compaction correction or the RHG transform, not a reason to distrust
+the density.</p>
 
 <pre class="equations">SELECT round(median(value), 4) FROM computed_curves
 WHERE curve_name = 'PHIT_SON' AND NOT isnan(value)</pre>
 
 <p>The transform sensitivity, measured on the same picks with RHO_MA
-supplied: RHG80 reads <b>0.2863 / 0.187</b> against Wyllie's
-0.2849 / 0.178, about one porosity unit on PHIE. The transform choice is a
-real decision, and on this section a smaller one than the compaction
-question it sits beside.</p>
+supplied: RHG80 reads <b>0.3473 / 0.2098</b> against Wyllie's
+0.3717 / 0.1144, more than nine porosity units apart on PHIE in this slow,
+shaly section, and the RHG run comes back clean where Wyllie's effective
+porosities kept meeting the shale ceiling. On a section this uncompacted
+the transform choice is every bit as large as the compaction question it
+sits beside.</p>
 
 <figure>
   <img src="../img/guide-phison-result.png"
-       alt="The Porosity from Sonic run reporting three clean wells" />
+       alt="The Porosity from Sonic run reporting three degraded wells" />
   <figcaption>The Wyllie baseline. The RHG80 comparison ran on the same
     endpoints once its required matrix density was supplied.</figcaption>
 </figure>
