@@ -34,8 +34,19 @@ Radius scale changes (`src/styles.css` non-color tokens):
 - Keep `--r-sm` for dense inline controls unchanged.
 
 Typography:
-- Display face **Caprasimo** (Google Fonts) used ONLY for: brand wordmark next to the logo, screen/dialog titles ("Field Dashboard", "VSH — Shale Volume", "Import LAS", "Report — …", start-screen wordmark), and KPI numerals. Weight 400 always.
-- Body/UI face **Figtree** replaces Segoe UI in `--font-canvas` contexts where feasible; data grids stay 11–12.5px. Never use Caprasimo in data cells, axis labels or track headers.
+
+> **Superseded 2026-08-28, Jauhar's call** — *"change ALL this kind of font with more
+> natural and professional font"*. The Caprasimo display face is retired. The four
+> display surfaces below are unchanged as a LIST; what changed is the face that fills
+> them: they now use **Figtree at weight 700** (wordmarks and the boot title at 800)
+> instead of a separate display family. Every mention of Caprasimo further down this
+> file and in the `.dc.html` mockups is the 2026-08-01 handoff as delivered, kept as
+> the record — read the face from `organic-tokens.css`, which is the authority for
+> values. The rest of the type rule (which surfaces, and the ban on display type in
+> data) is unchanged and still binding.
+
+- Display surfaces are ONLY: brand wordmark next to the logo, screen/dialog titles ("Field Dashboard", "VSH — Shale Volume", "Import LAS", "Report — …", start-screen wordmark), and KPI numerals.
+- Body/UI face **Figtree** replaces Segoe UI in `--font-canvas` contexts where feasible; data grids stay 11–12.5px. Never use display type in data cells, axis labels or track headers.
 
 Shadows: use soft warm shadows (see `--shadow-sm/md/lg` in organic-tokens.css) instead of the current `--el-*` grey rgba values on light themes.
 
