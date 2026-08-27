@@ -1,7 +1,7 @@
-<!-- Authored walkthrough for the sw_height guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+<!-- Authored walkthrough for the sw_height guidebook chapter. Numbers re-measured
+     live on the SANDI-* example wells (2026-08-27, guide_measure harness),
      second pass: the FWL sensitivity measured, the above-contact population
-     read separately. -->
+     read separately, the permeability and porosity inputs named. -->
 
 <h2>What this is and when to reach for it</h2>
 
@@ -43,6 +43,11 @@ function fits the core poorly.</p>
     gas-brine interfacial tension.</li>
   <li><b>SWT_IRR 0.16</b>: the same irreducible floor the resistivity
     chapters use, so the two families clamp alike.</li>
+  <li><b>PERM on PERM_WR, PHIE on PHIE_DEN</b>: the Timur permeability from
+    the Wyllie-Rose chapter, paired with the density porosity it was computed
+    from. The J transform divides one by the other, so the pairing has to be
+    consistent — a permeability computed from one porosity divided by a
+    different porosity is a pore geometry no rock has.</li>
 </ul>
 
 <h2>Step by step</h2>
@@ -69,14 +74,14 @@ function fits the core poorly.</p>
 contact sits mid-section, so half of every well is below it and reads
 SWH = 1 by definition, which is why the whole-section median is exactly
 <b>1</b> and means nothing about pay. Above the contact the median is
-<b>0.4872</b> over 248 samples:</p>
+<b>0.4703</b> over 248 samples:</p>
 
 <pre class="equations">SELECT round(median(a.value), 4) FROM computed_curves a
 JOIN computed_curves h ON a.well_id = h.well_id AND a.depth = h.depth
  AND h.curve_name = 'HAFWL' AND h.value &gt; 0
 WHERE a.curve_name = 'SWT_HGT' AND NOT isnan(a.value)</pre>
 
-<p>That 0.49 median against the resistivity methods' 0.09 to 0.16 in the
+<p>That 0.47 median against the resistivity methods' 0.09 to 0.16 in the
 same gas sand is not a bug in either: with barely 20 m of column above the
 contact, this Pc model keeps the whole gas leg in transition, while
 resistivity sees it far drier. An R² of 0.586 on 24 plugs rides into every
@@ -85,7 +90,7 @@ evidence is precisely the calibration conversation this module exists to
 start.</p>
 
 <p>The FWL dial, measured: the contact moved 25 m deeper (1560) puts the
-whole section above it, and the median jumps from 1 to <b>0.4538</b>. The
+whole section above it, and the median jumps from 1 to <b>0.4257</b>. The
 transition zone travels bodily with the contact, so no parameter in this
 module deserves more scrutiny than the FWL, and it is zone-overridable
 for stacked reservoirs with different contacts. Restored to 1535, every

@@ -34,6 +34,71 @@ only appears past 1600 px so it never crowds the reading column.
       probe screenshot was deleted immediately, nothing was driven or captured against
       it, and the sandbox was reopened and is now top-of-recents. No client identifier
       reached the repo, the figures, or this file.
+## 2026-08-27 — Second pass, increment 16: the 29 increment-2/3/5 chapters re-measured against today's example dataset (chip task_75244154)
+
+Every live-measured number in the 29 walkthrough chapters from increments 2, 3 and 5 was
+re-measured headlessly: a temporary `#[ignore]`d Rust harness (not committed — the PR is
+docs-only) rebuilt a fresh sandbox from `dataset for test/examples/`, replayed the book's
+whole chain in chapter order with each chapter's documented parameters (pane semantics:
+manifest defaults pre-filled, so no DEFAULTED degradations), and printed every quoted
+statistic with the chapter's own QC query. Result: **20 of the 29 chapters reproduce to
+the decimal and are untouched; 9 carry edits** (`git diff --stat` on docs/guide/chapters:
+block, fill_gaps, flip, normalize, sspw, sw_arch, sw_height, sw_indo, sw_sim). Every
+refusal-message quote was also replayed verbatim (nphimat's DEC-025 refusal, ssc's GRN
+refusal, sw_rtc's A_CAP and sw_imts's S_FACTOR_GW preconditions all match exactly).
+
+- [ ] **The saturation trio's numbers were never wrong — they were state-dependent.**
+      sspw, sw_indo and sw_sim reproduce every quoted median exactly (sspw's sands
+      0.1959/0.1938/0.0547 and VOL 0.15 variant 0.0856/0.0002 included) **only when the
+      Gamma Ray chapter's VSH is the one standing**; in book order the density-neutron
+      chapter overwrites VSH last and the same runs read differently (e.g. sw_indo median
+      0.5749 instead of the chapter's 0.6615). The three chapters' Step-by-step now names
+      the gamma-ray VSH instead of "run VSH". Check: run VSH from Gamma Ray (44/112,
+      LINEAR), then SW — Indonesia FULL (RT_SH 2.5, RW 0.058, SWE_IRR 0.16) → median
+      0.6615.
+- [ ] **fill_gaps and block moved because porosity now withholds bad-hole samples**
+      (SB-POR-047): PHIE is 573 of 1185 finite, not 1164. fill_gaps: 573 → 594 after the
+      21 fills (the 1.22 m washout holes; the 1 m refusal still fills 0). block: 48
+      interval blocks / 15 facies blocks (were 81/27). The chapters' Inspector queries
+      verify both.
+- [ ] **sw_height now names its inputs and carries today's medians.** No perm×porosity
+      combination reproduces the old 0.4872/0.4538 (pre-regeneration permeability epoch);
+      the chapter now states PERM on PERM_WR and PHIE on PHIE_DEN — the Timur
+      permeability paired with the porosity it was computed from — and quotes 0.4703
+      above the contact (248 samples) and 0.4257 at FWL 1560. HAFWL −25.1..+19.9, the
+      whole-section median of 1, and the SCAL fit 0.511/−0.210 (R² 0.586, n 24) all
+      reproduce unchanged.
+- [ ] **normalize's refusal quote was stale**: the pane today reports the precondition
+      wording ("REF_LOW is required when OPT_METHOD = TWO_POINT"), not the module's
+      richer reference-pair sentence, which is now unreachable on this path — chip
+      task_2a1e995c filed to restore the house-pattern wording. The chapter quotes the
+      operative clause and keeps the reasoning as prose; every number (pooled 43.18/
+      112.37, per-well exact convergence, P5/P95 anchors) reproduces.
+- [ ] **flip's "this dataset has no SP" was false** — the regenerated LAS delivers SP.
+      Parenthetical reworded; all pivots (34.40/109.79, per-well 78.305/78.365/77.335)
+      reproduce.
+- [ ] **Finding, reported not rewritten — sw_arch's RW derivation**: the chapter derives
+      RW 0.058 as "the median Rwa = RES_DEEP·PHIE_DEN² over the 277 wet-sand samples";
+      today that query returns **0.0735 over the same 277 samples** (flag wiring does not
+      move it — the wet-sand values are identical either way — so this is dataset-regen
+      value drift at the parameter root). Every downstream saturation number in sw_arch,
+      sw_indo and sw_sim still reproduces exactly with 0.058 as entered, so the pick was
+      left as-is. Proposed follow-up increment: re-derive RW per the chapter's own
+      recipe and re-capture the three chapters' numbers and figures together. The
+      SWT_IRR 0.16 pick survives its re-derivation at the chapter's own rounding
+      (median 0.161); only its population count was corrected (271 → 280).
+- [ ] **Finding, out of scope — the increment-14 porosity chapters show a different
+      run state, not just a different dataset**: phi_son's quoted PHIT_SON 0.3717
+      reproduces exactly only with the BADHOLE/COAL flag inputs left unwired (today's
+      wired pane run gives 0.2849), and its PHIE_SON 0.1144 and all-clamp "0 clean ·
+      3 degraded" verdict are consistent with the gamma-ray VSH standing — the same
+      state the saturation trio was captured in — while both wired and unwired runs
+      under the density-neutron VSH come back 3 clean. The four porosity chapters were
+      not edited here; they need their own pass with the flag wiring and the VSH state
+      decided explicitly.
+
+Book regenerated: 98 pages (`node tools/gen-guidebook.mjs` — "wrote 98 page(s)",
+`--check` clean).
 
 ## 2026-08-27 — Second pass, increment 14: every module chapter's figures re-shot on a layout composed for that module's own workflow
 
