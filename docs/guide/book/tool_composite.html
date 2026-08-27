@@ -508,9 +508,9 @@
 <h2>What this is and when to reach for it</h2>
 
 <p>The Composite Log (<b>Plot &#9656; Composite&hellip;</b>) is the print
-deliverable: the log plot laid out at a true printed scale &ndash; 1:200
-means one metre of rock per five millimetres of paper, exactly &ndash;
-rather than a screenshot of whatever the screen happened to show. It
+deliverable: the log plot laid out at a true printed scale, where 1:200
+means one metre of rock per five millimetres of paper exactly, rather
+than a screenshot of whatever the screen happened to show. It
 renders any saved layout, paginates it onto a chosen paper size, and
 exports vector SVG or a multi-page PDF with nothing lost to
 rasterization. Reach for it whenever a log plot leaves the application:
@@ -528,14 +528,14 @@ a report figure, a wall print, a file for the client.</p>
 </figure>
 
 <ul>
-  <li><b>Layout picks what is drawn</b> &ndash; the same named layouts the
+  <li><b>Layout picks what is drawn</b>: the same named layouts the
     log views use (Standard, Interpretation, Facies, Core, or any you
     saved), so the print is the screen's arrangement, not a separate
     definition that can drift.</li>
   <li><b>Scale and page size pick the pagination.</b> The pane does the
     arithmetic and says so: the example well's 60&nbsp;m spans one A4
     page at 1:500 and two at 1:200, the first page covering
-    1500.0&ndash;1546.6&nbsp;m &ndash; 46.6&nbsp;m of rock being exactly
+    1500.0&ndash;1546.6&nbsp;m, which is 46.6&nbsp;m of rock, exactly
     what an A4 page holds at 1:200 after the header.</li>
   <li><b>The depth window is optional.</b> Left at "full" it prints the
     well's coverage; a top/bottom pair prints just the interval a chapter
@@ -555,14 +555,14 @@ a report figure, a wall print, a file for the client.</p>
 
 <h2>Reading the result</h2>
 
-<p>Check the title block first &ndash; it states well, layout, scale and
+<p>Check the title block first: it states well, layout, scale and
 interval, which is what makes the sheet self-describing when it is far
 from the software. Then check the pagination line against expectation:
 pages &times; usable page height &times; scale should equal the printed
 interval, and on the example it does (two pages at 1:200 for 60&nbsp;m,
 the first ending at 1546.6). Everything the screen draws prints the same
-way &ndash; tops, crossover fills, class blocks, point tracks, image
-strips &ndash; because the screen renderer and the print renderer
+way (tops, crossover fills, class blocks, point tracks, image
+strips), because the screen renderer and the print renderer
 implement the same drawing contracts; a difference between the two is a
 defect, not a setting.</p>
 

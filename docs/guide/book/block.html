@@ -598,7 +598,7 @@ FROM computed_curves WHERE curve_name = 'PHIE_BLK' AND NOT isnan(value)</pre>
     value as the bed's property.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Replaces a curve with one value per bed, held across the bed. The curve stays on the well's own depth frame, so nothing downstream has to know it was upscaled — set its draw style to Step in the curve editor, or the log view draws a gradient between two block values that the data never measured.
 
 OPT_BEDS — what a bed is:
@@ -624,13 +624,13 @@ An arithmetic upscale of a laminated sand-shale gives a permeability the rock do
 <p>Block thickness (OPT_BEDS = INTERVAL)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 10000 depth</li>
-<li><b>Checked before the run:</b> <code>interval.required_when_interval</code> — INTERVAL is required when OPT_BEDS = INTERVAL. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>interval.required_when_interval</code>: INTERVAL is required when OPT_BEDS = INTERVAL. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters</div></li></ul>
 <h3>MIN_BED <span class="src">(depth)</span></h3>
 <p>Thinnest bed worth calling a bed (OPT_BEDS = AUTO)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 10000 depth</li>
-<li><b>Checked before the run:</b> <code>min_bed.required_when_auto</code> — MIN_BED is required when OPT_BEDS = AUTO. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>min_bed.required_when_auto</code>: MIN_BED is required when OPT_BEDS = AUTO. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters</div></li></ul>
 <h3>SENS</h3>
 <p>AUTO: how far off the bed's mean is a new bed, in noise units</p>
@@ -639,25 +639,25 @@ An arithmetic upscale of a laminated sand-shale gives a permeability the rock do
 <h2>Options</h2>
 <h3>OPT_BEDS</h3>
 <p>What counts as one bed</p>
-<ul><li><b>Choices:</b><ul><li><code>INTERVAL</code> — equal slices of INTERVAL thickness</li>
-<li><code>CLASS</code> — each run of a constant value in the BEDS curve</li>
-<li><code>ZONES</code> — one value per marker interval</li>
-<li><code>AUTO</code> — boundaries found from the curve itself (inferred)</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>INTERVAL</code>: equal slices of INTERVAL thickness</li>
+<li><code>CLASS</code>: each run of a constant value in the BEDS curve</li>
+<li><code>ZONES</code>: one value per marker interval</li>
+<li><code>AUTO</code>: boundaries found from the curve itself (inferred)</li></ul></li>
 <li><b>Default:</b> <code>INTERVAL</code></li></ul>
 <h3>OPT_STAT</h3>
 <p>How a bed's value is taken</p>
-<ul><li><b>Choices:</b><ul><li><code>MEAN</code> — arithmetic; right for porosity and volume fractions</li>
-<li><code>GEOMETRIC</code> — the usual estimate for permeability</li>
-<li><code>HARMONIC</code> — permeability across layers in series</li>
-<li><code>MEDIAN</code> — the middle sample of the bed</li>
-<li><code>MIN</code> — the lowest sample of the bed</li>
-<li><code>MAX</code> — the highest sample of the bed</li>
-<li><code>MODE</code> — the bed's commonest value; the only upscale for a class curve</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>MEAN</code>: arithmetic; right for porosity and volume fractions</li>
+<li><code>GEOMETRIC</code>: the usual estimate for permeability</li>
+<li><code>HARMONIC</code>: permeability across layers in series</li>
+<li><code>MEDIAN</code>: the middle sample of the bed</li>
+<li><code>MIN</code>: the lowest sample of the bed</li>
+<li><code>MAX</code>: the highest sample of the bed</li>
+<li><code>MODE</code>: the bed's commonest value; the only upscale for a class curve</li></ul></li>
 <li><b>Default:</b> <code>MEAN</code></li></ul>
 <h3>OPT_FLAG</h3>
 <p>Write the bed number each sample fell in</p>
-<ul><li><b>Choices:</b><ul><li><code>YES</code> — write the bed-index curve</li>
-<li><code>NO</code> — the blocked curve only</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>YES</code>: write the bed-index curve</li>
+<li><code>NO</code>: the blocked curve only</li></ul></li>
 <li><b>Default:</b> <code>YES</code></li></ul>
 <h2>Output curves</h2>
 <div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Blocked curve</td></tr>

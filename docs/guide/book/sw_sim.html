@@ -550,7 +550,7 @@ the other equation in other software.</p>
 <h2>Step by step</h2>
 
 <ol>
-  <li>Run VSH and porosity as before — the gamma-ray VSH, as in the
+  <li>Run VSH and porosity as before, using the gamma-ray VSH as in the
     Indonesia chapter.</li>
   <li>Open the typed Simandoux pane from <b>Petrophysics ▸ Saturation</b>,
     confirm which typed id the study means, and press Run.</li>
@@ -605,7 +605,7 @@ Bardon-Pied form, every number returns exactly.</p>
     Bardon-Pied id is selected changes nothing, by design.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Each persisted id names one equation. simandoux_bardon_pied: 1/RT = PHIE^M*SWE^N/(A*Rw) + VSH*SWE/RT_SH. simandoux_modified_slb: 1/RT = PHIE^M*SWE^N/(A*Rw*(1-VSH)) + VSH^C*SWE/RT_SH. Legacy vendor tokens are accepted only as input aliases.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>FTEMP</td><td>Formation temperature (precalc, for MEASURED/SALINITY)</td><td><code>FTEMP</code></td><td>no</td><td>resolved from computed curves only, never the RAW import store</td></tr>
@@ -648,31 +648,31 @@ Bardon-Pied form, every number returns exactly.</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>formation_water_resistivity</code>); the pane lists them with sources at the point of choice.</li>
-<li><b>Checked before the run:</b> <code>rw.required_when_constant</code> — RW is required when OPT_RW = CONSTANT. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>rw.required_when_constant</code>: RW is required when OPT_RW = CONSTANT. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
 <h3>RWS <span class="src">(ohmm)</span></h3>
 <p>Measured water sample resistivity</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
-<li><b>Checked before the run:</b> <code>rws.required_when_measured</code> — RWS is required when OPT_RW = MEASURED. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>rws.required_when_measured</code>: RWS is required when OPT_RW = MEASURED. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
 <h3>RWT <span class="src">(degC)</span></h3>
 <p>Temperature of RWS measurement</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 150 degC</li>
-<li><b>Checked before the run:</b> <code>rwt.required_when_measured</code> — RWT is required when OPT_RW = MEASURED. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>rwt.required_when_measured</code>: RWT is required when OPT_RW = MEASURED. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
 <h3>SALW <span class="src">(ppm)</span></h3>
 <p>Formation water salinity</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 100 to 300000 ppm</li>
-<li><b>Checked before the run:</b> <code>salw.required_when_salinity</code> — SALW is required when OPT_RW = SALINITY. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>salw.required_when_salinity</code>: SALW is required when OPT_RW = SALINITY. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
 <h2>Options</h2>
 <h3>OPT_SIM</h3>
 <p>Equation identity</p>
-<ul><li><b>Choices:</b><ul><li><code>simandoux_bardon_pied</code> — Simandoux / Bardon-Pied (Geolog MODIFIED)</li>
-<li><code>simandoux_modified_slb</code> — Modified Simandoux / Schlumberger (Geolog SCHLUM)</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>simandoux_bardon_pied</code>: Simandoux / Bardon-Pied (Geolog MODIFIED)</li>
+<li><code>simandoux_modified_slb</code>: Modified Simandoux / Schlumberger (Geolog SCHLUM)</li></ul></li>
 <li><b>Default:</b> <code>simandoux_bardon_pied</code></li></ul>
 <h3>OPT_RW</h3>
 <p>Formation water resistivity source</p>

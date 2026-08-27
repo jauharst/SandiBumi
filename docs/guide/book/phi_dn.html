@@ -598,7 +598,7 @@ the zone that matters: measure a gas option in the gas zones.</p>
     over long intervals, the shale point is wrong.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Shale-corrects RHOB and NPHI to 'shale reduced' values, then combines density porosity and neutron porosity: AVERAGE = (PHID+PHIN)/2, GAS_RMS = sqrt((PHID²+PHIN²)/2) for gas-bearing zones. QUICK-LOOK COMPARISON ONLY - neither combination is a crossplot porosity method: no vendor ships either as one, and IP says of the field shortcuts that they should not be used for anything other than this. The chart-free analytic neutron-density method is a separate contract (SB-POR-021). PHIE = PHIX*(1-VSH); PHIT = PHIE + VSH*PHIT_SH.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>BADHOLE</td><td>Bad-hole flag (flagged samples excluded, exclusion recorded)</td><td><code>BADHOLE</code></td><td>no</td><td>—</td></tr>
@@ -654,13 +654,13 @@ the zone that matters: measure a gas option in the gas zones.</p>
 <p>Smooth roll-off increment above PHIE_MAX (IP DeltaPhiMax)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 1 v/v</li>
-<li><b>Checked before the run:</b> <code>dphimax.required_when_smooth_rolloff</code> — DPHIMAX is required when OPT_PHIEMAX = SMOOTH_ROLLOFF. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>dphimax.required_when_smooth_rolloff</code>: DPHIMAX is required when OPT_PHIEMAX = SMOOTH_ROLLOFF. Applies when: [object Object].
     <div class="src">Source: IP 2025 Interact.chm porosity-limit pages (image form embim71, D-11 adopted over the malformed swparameters.htm ASCII); NO default published - the corpus negative result and F21; docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md; DEC-066 (2026-08-18)</div></li></ul>
 <h3>VCL_CUTOFF <span class="src">(v/v)</span></h3>
 <p>Smooth roll-off onset shale volume (IP VclCutoff)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 1 v/v</li>
-<li><b>Checked before the run:</b> <code>vcl_cutoff.required_when_smooth_rolloff</code> — VCL_CUTOFF is required when OPT_PHIEMAX = SMOOTH_ROLLOFF. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>vcl_cutoff.required_when_smooth_rolloff</code>: VCL_CUTOFF is required when OPT_PHIEMAX = SMOOTH_ROLLOFF. Applies when: [object Object].
     <div class="src">Source: IP 2025 Interact.chm porosity-limit pages (image form embim71, D-11 adopted over the malformed swparameters.htm ASCII); NO default published - the corpus negative result and F21; docs/research_2026-07/ip2025_chm_ingest/B_core_petro.md; DEC-066 (2026-08-18)</div></li></ul>
 <h3>VSH_SHALE <span class="src">(v/v)</span></h3>
 <p>High-shale kill threshold (at or above it: PHIE = 0, PHIT = PHIT_SH)</p>

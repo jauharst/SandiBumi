@@ -629,7 +629,7 @@ costs nothing.</p>
     and reuse the same value across the permeability shelf.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>PERM = (C * PHIE^D / SWE_IRR^E)^2, mD. Defaults per method: TIMUR C=100 D=2.25 E=1; MORRIS_BIGGS_OIL C=250 D=3 E=1; MORRIS_BIGGS_GAS C=79 D=3 E=1; TIXIER C=250 D=3 E=1. The generalized form is Wyllie &amp; Rose (1950), Trans. AIME 189, 105-118, who replaced Carman-Kozeny's specific-surface term with irreducible water saturation; their own shape factor is 2.0-2.5, suggested as 2.25. They warned the result carries only order-of-magnitude significance, and that warning is inherited by every constant set below. TWO OF THE FOUR CARRY A NAME THEIR AUTHOR NEVER ATTACHED TO THEM. TIMUR here is the Schlumberger Chart K-3 curve, not Timur (1968), whose published relation is k = 0.136*phi^4.4/Swi^2 in PERCENT = 8581*phi^4.4/Swi^2 in fractions, i.e. C=92.63 D=2.2 in this squared form - close in good rock, about 14% low in tight rock, where a cutoff is decided. TIXIER is a post-1950 simplification of Wyllie-Rose, not Tixier (1949), which is a resistivity-gradient method; that is why TIXIER and MORRIS_BIGGS_OIL are byte-identical here - same lineage, same oil constant, arrived at twice. The 250/79 pair is attributed to Morris &amp; Biggs (1967, SPWLA 8th, Paper X) by IP and Techlog and to Wyllie &amp; Rose (1950) elsewhere; both authors were at Schlumberger and the 1967 paper is paywalled, so the attribution is UNRESOLVED. Lineage review: Balan, Mohaghegh &amp; Ameri, SPE 30978 (1995).</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>PHIE</td><td>Limited effective porosity</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr></table></div>
@@ -643,10 +643,10 @@ costs nothing.</p>
 <h2>Options</h2>
 <h3>OPT_WR</h3>
 <p>Wyllie-Rose variant</p>
-<ul><li><b>Choices:</b><ul><li><code>TIMUR</code> — TIMUR - Schlumberger Chart K-3, C=100 D=2.25 (not Timur 1968)</li>
-<li><code>MORRIS_BIGGS_OIL</code> — MORRIS_BIGGS_OIL - Wyllie-Rose oil constant, C=250 D=3</li>
-<li><code>MORRIS_BIGGS_GAS</code> — MORRIS_BIGGS_GAS - Wyllie-Rose gas constant, C=79 D=3</li>
-<li><code>TIXIER</code> — TIXIER - Wyllie-Rose oil constant again (not Tixier 1949)</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>TIMUR</code>: TIMUR - Schlumberger Chart K-3, C=100 D=2.25 (not Timur 1968)</li>
+<li><code>MORRIS_BIGGS_OIL</code>: MORRIS_BIGGS_OIL - Wyllie-Rose oil constant, C=250 D=3</li>
+<li><code>MORRIS_BIGGS_GAS</code>: MORRIS_BIGGS_GAS - Wyllie-Rose gas constant, C=79 D=3</li>
+<li><code>TIXIER</code>: TIXIER - Wyllie-Rose oil constant again (not Tixier 1949)</li></ul></li>
 <li><b>Default:</b> <code>TIMUR</code></li></ul>
 <h2>Output curves</h2>
 <div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>PERM_WR</td><td>Permeability from Wyllie-Rose</td></tr>

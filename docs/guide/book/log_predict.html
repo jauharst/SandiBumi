@@ -612,7 +612,7 @@ GROUP BY b.value</pre>
     suite.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Facimage-style synthetic log: trains on the samples of THIS run where TARGET and every supplied predictor are present, then predicts TARGET everywhere the predictors exist by distance-weighted K-nearest-neighbour regression (predictors z-scored; training set decimated to ≤4000 points). OPT_COMBINE: SYNTHETIC writes the pure prediction; FILL_MISSING keeps the raw value where present; MAX_RAW takes max(raw, synthetic) — the washout rule for RHOB, since bad hole only pushes RHOB down. Output is named &lt;TARGET&gt;_SYN. Mask the run to good-hole intervals so bad samples never train the model.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>TARGET</td><td>Curve to predict</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>

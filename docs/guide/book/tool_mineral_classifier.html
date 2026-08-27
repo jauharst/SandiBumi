@@ -509,8 +509,8 @@
 
 <p>The Mineral Classifier is point counting turned into training data:
 you click on the plate and name what is under the pointer, a
-random-forest model is fitted to those clicks &ndash; colour plus local
-texture &ndash; and applied to the whole delivery. Nothing ships
+random-forest model is fitted to those clicks (colour plus local
+texture) and applied to the whole delivery. Nothing ships
 pre-trained, deliberately: a model trained on somebody else's sections
 under somebody else's lamp would produce numbers with the shape of a
 modal analysis and none of the content. Reach for it for mineral pairs a
@@ -522,8 +522,8 @@ fragments.</p>
 <figure>
   <img src="../img/guide-mineralclass.png"
        alt="The Mineral Classifier with the labeled plate, the held-out recall table and per-plate fractions" />
-  <figcaption>Sixteen clicks on one plate &ndash; eight quartz, eight
-    lithic &ndash; then trained and applied: held-out recall 1.00 and
+  <figcaption>Sixteen clicks on one plate, eight quartz and eight
+    lithic, then trained and applied: held-out recall 1.00 and
     0.99, fractions on every plate of the delivery, and the two
     green-cast plates reading twice their true lithic content because
     the lamp travelled into the model.</figcaption>
@@ -539,7 +539,7 @@ fragments.</p>
     where a stored model blob can be none of those.</li>
   <li><b>Two refusals fire before anything trains.</b> One class is not a
     classification, and a class that cannot have clicks held out cannot
-    be scored &ndash; both were driven on the example:</li>
+    be scored. Both were driven on the example:</li>
 </ul>
 
 <pre class="equations">the classifier needs at least two minerals labelled, and this run has one. A classifier
@@ -553,8 +553,8 @@ on clicks it has not seen</pre>
 <ol>
   <li>Open <b>Advance &#9656; Petrography &#9656; Mineral
     Classifier&hellip;</b>, type a mineral name, <b>Add mineral</b>,
-    repeat, then click examples of each on the plate &ndash; the way you
-    would move a stage and call what is under the crosshair.</li>
+    repeat, then click examples of each on the plate, the way you would
+    move a stage and call what is under the crosshair.</li>
   <li><b>Train and apply</b>, and read the held-out recalls before
     believing any fraction: cross-validation groups by click, so the
     score comes from clicks the model never saw.</li>
@@ -564,9 +564,9 @@ on clicks it has not seen</pre>
 
 <h2>Reading the result</h2>
 
-<p>The example separates cleanly where it should &ndash; recalls 1.00
-and 0.99 over 16 clicks, per-plate fractions from 384,000 evenly sampled
-pixels &ndash; and fails exactly where its own caveat says it must. The
+<p>The example separates cleanly where it should (recalls 1.00 and 0.99
+over 16 clicks, per-plate fractions from 384,000 evenly sampled pixels)
+and fails exactly where its own caveat says it must. The
 model was trained on one normally lit plate; on the two plates
 photographed under a green-cast lamp it calls half the rock lithic
 (53.6% and 50.0% against roughly 30% everywhere else), because under
@@ -578,9 +578,9 @@ part of what it learned, so it is not a model for a differently photographed del
 
 <p>Note the naming: these items are CLS_QUARTZ and CLS_LITHIC,
 deliberately distinct from the MIN_ items a published stain rule
-produces &ndash; a fraction from your clicks and a fraction from a
-documented stain identification are different claims, and one name would
-leave a report unable to say which it quoted.</p>
+produces. A fraction from your clicks and a fraction from a documented
+stain identification are different claims, and one name would leave a
+report unable to say which it quoted.</p>
 
 <h2>QC and pitfalls</h2>
 
@@ -591,7 +591,7 @@ leave a report unable to say which it quoted.</p>
     a percentage sign.</li>
   <li><b>Label across the lighting.</b> If a delivery spans lamps, click
     examples on plates from each session, or classify the sessions
-    separately &ndash; the example's cast plates show what happens
+    separately, since the example's cast plates show what happens
     otherwise.</li>
   <li><b>Saving supersedes.</b> A classifier delivery saved into the same
     dataset as an earlier petrography run becomes the live delivery of

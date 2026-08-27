@@ -628,7 +628,7 @@ a real quality axis looks like from two directions.</p>
     the ladder after any endpoint revision.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Log-domain rock-type class from a Vsh + PHIE cutoff ladder — the electrofacies half of the rock-typing tie-in. RT_LOG = 1 (best: Vsh ≤ VSH1 and PHIE ≥ PHI1), 2 (moderate: Vsh ≤ VSH2 and PHIE ≥ PHI2), else 3 (non-net). Requires VSH1 ≤ VSH2 and PHI1 ≥ PHI2. Feed the result to the confusion-matrix QC (Rock Typing ▸ Facies Tie-in) to validate it against a core-derived RT curve, then attach per-class phi-k / SHF laws. Samples with missing Vsh or PHIE stay MISSING.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>VSH</td><td>Shale volume</td><td><code>VSH</code></td><td>yes</td><td>accepts quantity kind: VSH</td></tr>
@@ -639,7 +639,7 @@ a real quality axis looks like from two directions.</p>
 <p>Vsh cutoff for RT1 (best)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 1 v/v</li>
-<li><b>Checked before the run:</b> <code>rt_cutoff.vsh_ladder_order</code> — The best class's shale cutoff must not exceed the moderate class's — equal is allowed, and separates the two on porosity alone.
+<li><b>Checked before the run:</b> <code>rt_cutoff.vsh_ladder_order</code>: The best class's shale cutoff must not exceed the moderate class's — equal is allowed, and separates the two on porosity alone.
     <div class="src">Source: docs/research_2026-07/ref_rocktyping_shf.md §Cutoff-based electrofacies tie-in, which writes the middle class as v1 &lt;= Vsh &lt; v2</div></li></ul>
 <h3>PHI1 <span class="src">(v/v)</span></h3>
 <p>PHIE cutoff for RT1 (best)</p>
@@ -653,7 +653,7 @@ a real quality axis looks like from two directions.</p>
 <p>PHIE cutoff for RT2 (moderate)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 1 v/v</li>
-<li><b>Checked before the run:</b> <code>rt_cutoff.phi_ladder_order</code> — The moderate class's porosity floor must not exceed the best class's — equal is allowed, and separates the two on shale volume alone.
+<li><b>Checked before the run:</b> <code>rt_cutoff.phi_ladder_order</code>: The moderate class's porosity floor must not exceed the best class's — equal is allowed, and separates the two on shale volume alone.
     <div class="src">Source: docs/research_2026-07/ref_rocktyping_shf.md §Cutoff-based electrofacies tie-in, which writes the middle class as p2 &lt;= PHIE &lt; p1</div></li></ul>
 <h2>Output curves</h2>
 <div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>RT_LOG</td><td>Cutoff rock-type class (1/2/3)</td></tr></table></div></div>

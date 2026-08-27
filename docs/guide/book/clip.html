@@ -601,7 +601,7 @@ FROM computed_curves WHERE curve_name = 'GR_C_CLP'</pre>
     conditioning step to keep.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Holds a curve inside a range. MIN and MAX are in the curve's own units and either may be left EMPTY, which is a statement that the curve is unbounded on that side rather than an omission.
 
 ACTION:
@@ -624,13 +624,13 @@ BLANK is the default because it is the one that cannot manufacture a measurement
 <h2>Options</h2>
 <h3>OPT_ACTION</h3>
 <p>What happens to a sample outside the range</p>
-<ul><li><b>Choices:</b><ul><li><code>BLANK</code> — outside the range becomes MISSING</li>
-<li><code>CLAMP</code> — outside the range is pulled to the bound</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>BLANK</code>: outside the range becomes MISSING</li>
+<li><code>CLAMP</code>: outside the range is pulled to the bound</li></ul></li>
 <li><b>Default:</b> <code>BLANK</code></li></ul>
 <h3>OPT_FLAG</h3>
 <p>Write a flag curve marking every sample outside the range</p>
-<ul><li><b>Choices:</b><ul><li><code>YES</code> — write the flag curve</li>
-<li><code>NO</code> — the conditioned curve only</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>YES</code>: write the flag curve</li>
+<li><code>NO</code>: the conditioned curve only</li></ul></li>
 <li><b>Default:</b> <code>YES</code></li></ul>
 <h2>Output curves</h2>
 <div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Conditioned curve</td></tr>

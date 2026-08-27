@@ -5,7 +5,7 @@
 
 <p>Formation tops are the skeleton every zoned answer hangs on: zones are
 built from them, zone parameters apply between them, and the pay summary
-reports by them. SandiBumi takes tops three ways &ndash; a delimited file
+reports by them. SandiBumi takes tops three ways: a delimited file
 through <b>Data &#9656; Import Tops&hellip;</b>, picks made by hand on the
 log itself, and <b>Autocorrelate Tops&hellip;</b>, which carries one
 well's markers to the rest of the field by matching log character. Reach
@@ -40,7 +40,7 @@ not.</p>
   <li><b>Autocorrelation is proposals, never writes.</b> The pane
     correlates the source well's log character around each marker against
     every other well in scope and returns a table of proposed depths with
-    correlation coefficients &ndash; nothing lands until <b>Apply</b>, and
+    correlation coefficients. Nothing lands until <b>Apply</b>, and
     every row keeps its checkbox.</li>
 </ul>
 
@@ -50,12 +50,12 @@ not.</p>
   <li><b>Import or pick.</b> Import Tops&hellip; takes a delimited file
     with well, top and depth columns and routes rows by well name (the
     example delivery wrote 3 tops onto 1 matched well). Or turn on the
-    &#127991; tool and click the depth where the log breaks &ndash; the
+    &#127991; tool and click the depth where the log breaks, and the
     dialog opens prefilled with the clicked depth, wanting only a name.</li>
   <li><b>Adjust by dragging.</b> With editing on, a drag moves a top live;
     on the example, dragging a marker from 1528.0 to 1530.4 wrote the new
     depth, and the Undo button's own tooltip named the operation ("Undo
-    move top LESTARI") &ndash; one click put 1528.0 back exactly.</li>
+    move top LESTARI"), and one click put 1528.0 back exactly.</li>
   <li><b>Autocorrelate.</b> Open <b>Data &#9656; Autocorrelate
     Tops&hellip;</b>, tick the markers to carry, pick the log (GR here)
     and the search window, and press Correlate. One marker uses a rigid
@@ -75,8 +75,8 @@ same log character as the source, structurally shifted +10&nbsp;m and
 1507.0&nbsp;/&nbsp;1522.9&nbsp;/&nbsp;1539.1&nbsp;m on the shallower one
 (r 0.91&ndash;0.99), and applying the six picks put every marker within
 0.13&nbsp;m of the staged truth. A single marker correlated alone, rigid
-shift, scored r 1.00 at exactly +10.0 and &minus;5.0 &ndash; the
-difference between the two runs is the elastic warp spending a little
+shift, scored r 1.00 at exactly +10.0 and &minus;5.0. The difference
+between the two runs is the elastic warp spending a little
 correlation to keep three markers mutually consistent. The Processing
 History records the whole event as one line: "Autocorrelated 6 marker(s)
 across 2 well(s)".</p>
@@ -93,6 +93,6 @@ across 2 well(s)".</p>
     invites a match on the wrong cycle.</li>
   <li><b>Every move is undoable, including an applied proposal.</b> The
     undo history names each operation, so an overwritten pick is one
-    Ctrl+Z away &ndash; check the Undo tooltip before assuming a top is
+    Ctrl+Z away; check the Undo tooltip before assuming a top is
     lost.</li>
 </ul>

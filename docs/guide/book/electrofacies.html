@@ -622,7 +622,7 @@ five-class census exactly.</p>
     clustering.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Unsupervised electrofacies: k-means clusters the samples of THIS well in the space of the supplied curves (each feature z-scored by default, so mixed units are comparable) into K facies. Any curve slot with no data is dropped; a sample missing any present curve gets FACIES = MISSING. Cluster labels are ordered by the mean of the first supplied curve (usually GR), so FACIES 0 is the cleanest class and the numbering is monotone in shaliness. Clustering is per well and deterministic for a given seed. Output: FACIES (integer 0..K-1).</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE1</td><td>Curve 1 (also orders the facies)</td><td><code>GR</code></td><td>yes</td><td>—</td></tr>

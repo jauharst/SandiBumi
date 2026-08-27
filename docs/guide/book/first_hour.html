@@ -510,52 +510,53 @@
 <p>This guide takes a petrophysicist from a fresh install to a finished one-well
 interpretation, following one path. It is not a reference manual: each chapter does one
 thing, in order, on the example dataset that ships in the repository
-(<code>dataset for test/examples/</code> — three synthetic wells, <b>SANDI-01/02/03</b>,
-one shared geology: a shale cap, a gas sand, a water sand, a base seal). Everything
+(<code>dataset for test/examples/</code>, which holds three synthetic wells,
+<b>SANDI-01/02/03</b>, on one shared geology: a shale cap, a gas sand, a water sand, a
+base seal). Everything
 photographed here is the real application driven through this exact flow.</p>
 
 <p><b>Setting up the machine is not this guide's job.</b> <code>CONTRIBUTING.md</code>
 §1–2 is the install checklist, and <code>docs/INSTALLATION_PREREQUISITES.md</code> lists
 exactly which capabilities need an optional Python package and what happens without it.
-The short version: the core application — projects, LAS import, log views, plots, every
-Rust petrophysics module, PDF/SVG export — needs <b>no Python at all</b>. Python (with
+The short version: the core application (projects, LAS import, log views, plots, every
+Rust petrophysics module, PDF/SVG export) needs <b>no Python at all</b>. Python (with
 numpy) adds user-written equations; <code>dlisio</code> adds DLIS import;
 <code>scikit-learn</code> adds the ML suite; Pillow adds picture imports beyond what the
 window itself can decode; <code>xlsxwriter</code> / <code>python-docx</code> /
 <code>python-pptx</code> add the Excel / Word / PowerPoint deliverables. A missing
 package fails only its own button, with a message naming the interpreter and the pip
-command — never the application.</p>
+command, never the application.</p>
 
 <h2>The path</h2>
 
 <ol>
-  <li><b>Before you start</b> — what SandiBumi is, what is optional, and the example
+  <li><b>Before you start</b>: what SandiBumi is, what is optional, and the example
     dataset.</li>
-  <li><b>First launch and your project</b> — the app opens straight into a workspace;
+  <li><b>First launch and your project</b>: the app opens straight into a workspace;
     the Project tab owns New / Open / Save Project As / Recent, and the dot that means
     unsaved work.</li>
-  <li><b>Import your first wells</b> — LAS import and the curve-set dialog: naming the
-    delivery, attach, declaring the sampling style, and reading the import
+  <li><b>Import your first wells</b>: LAS import and the curve-set dialog, covering the
+    delivery name, attach, declaring the sampling style, and reading the import
     warnings.</li>
-  <li><b>The Wells &amp; Tops pane runs the workspace</b> — clicking a well or a top
+  <li><b>The Wells &amp; Tops pane runs the workspace</b>: clicking a well or a top
     changes what every panel shows; the ▸ twisty lists each well's deliveries curve by
     curve.</li>
-  <li><b>Reading the log view</b> — layouts, depth scale, tracks, the neutron-density
+  <li><b>Reading the log view</b>: layouts, depth scale, tracks, the neutron-density
     crossover, and adding a track of your own.</li>
-  <li><b>Run your first module</b> — shale volume from gamma ray, and the four
+  <li><b>Run your first module</b>: shale volume from gamma ray, and the four
     mechanics every later run reuses.</li>
-  <li><b>Where results live</b> — the Curve Catalog, log-set versions, Ancestry, the
-    History — and why a module run is re-run, never undone.</li>
-  <li><b>Export something</b> — a LAS file that reports what it wrote, and a
+  <li><b>Where results live</b>: the Curve Catalog, log-set versions, Ancestry, the
+    History, and why a module run is re-run rather than undone.</li>
+  <li><b>Export something</b>: a LAS file that reports what it wrote, and a
     print-scale composite page.</li>
-  <li><b>Where to go next</b> — the Advance tab methods, per-panel Help, and the deeper
+  <li><b>Where to go next</b>: the Advance tab methods, per-panel Help, and the deeper
     documents in <code>docs/</code>.</li>
 </ol>
 
 <h2>1. Before you start</h2>
 
 <p>SandiBumi is a desktop application for petrophysical log analysis, built to hold a
-whole field — the well count it is engineered for is in the thousands — while staying
+whole field, with a well count in the thousands, while staying
 responsive on an ordinary field laptop. One <b>project is one file</b> (a
 <code>.duckdb</code> database): your wells, curves, tops, core data, computed results
 and their full history travel together, and backing a study up means copying one
@@ -563,8 +564,8 @@ file.</p>
 
 <p>This guide works on the example dataset in <code>dataset for test/examples/</code>.
 Its <code>README.md</code> is worth opening beside this guide: it describes each file,
-the ribbon path that imports it, and what to expect — and the same three wells are what
-the project's own automated tests parse, so if the app accepts a file there, it accepts
+the ribbon path that imports it, and what to expect. The same three wells are what the
+project's own automated tests parse, so if the app accepts a file there, it accepts
 your real file of the same shape. The wells are synthetic but internally consistent
 (the core porosities derive from the same density profile the LAS carries), so QC
 cross-checks behave like a clean real delivery rather than random noise.</p>
@@ -579,7 +580,7 @@ dialog is not photographed in this guide.)</i></p>
 Wells and Tops panes on the left, a log view and Inspector in the middle, status bar at
 the bottom. On the very first launch it opens (creating if necessary) a default
 <code>project.duckdb</code>; from then on it reopens whatever project you used last.
-Your window arrangement comes back too — closing the app and reopening it lands you
+Your window arrangement comes back too, so closing the app and reopening it lands you
 where you stopped.</p>
 
 <figure>
@@ -592,24 +593,24 @@ where you stopped.</p>
 <p>The <b>Project</b> ribbon tab owns the project's lifecycle:</p>
 
 <ul>
-  <li><b>New Project… / Open Project… / Recent ▾</b> — switch projects; the group's
+  <li><b>New Project… / Open Project… / Recent ▾</b>: switch projects; the group's
     caption shows which project is open now (here <i>SANDI-Field</i>). Start this guide
-    by pressing <b>New Project…</b> and naming the file — ours is
+    by pressing <b>New Project…</b> and naming the file; ours is
     <code>SANDI-Field.duckdb</code>.</li>
-  <li><b>Save Project As…</b> — a full copy of the project file to a new location. Note
+  <li><b>Save Project As…</b>: a full copy of the project file to a new location. Note
     what this is <i>not</i>: day-to-day saving. Imports, module runs and edits are
     written into the project as they happen; there is no "save your data" step to
     forget.</li>
-  <li><b>Save Session… / Open Session…</b> — a session is a named snapshot of the
+  <li><b>Save Session… / Open Session…</b>: a session is a named snapshot of the
     <i>workspace</i> (which panels are open, where, showing what), separate from the
-    data. The red dot that appears on the Project tab marks unsaved session state — the
-    arrangement, not your curves.</li>
-  <li><b>Undo / Redo</b> — for data and UI edits. Chapter 7 explains why module runs
+    data. The red dot that appears on the Project tab marks unsaved session state,
+    meaning the arrangement rather than your curves.</li>
+  <li><b>Undo / Redo</b>: for data and UI edits. Chapter 7 explains why module runs
     are deliberately not on this list.</li>
-  <li><b>Monitor group</b> (History / Processing / Performance / Diagnostics) — the
+  <li><b>Monitor group</b> (History / Processing / Performance / Diagnostics): the
     application's own record of what it has done. You will meet History and Processing
     in chapters 6–7.</li>
-  <li><b>Theme</b> and <b>Language</b> — the appearance and UI language selects live
+  <li><b>Theme</b> and <b>Language</b>: the appearance and UI language selects live
     here too. Technical terms stay in English in every language, by design.</li>
 </ul>
 
@@ -633,13 +634,13 @@ refuses to guess:</p>
 
 <ul>
   <li><b>Which well is this?</b> The file rail at the top shows how each file
-    identified itself — here the LAS header's own well name (<i>"container identity:
+    identified itself, here the LAS header's own well name (<i>"container identity:
     SANDI-01; filename not used"</i>). File names are never trusted as well names.</li>
-  <li><b>Set name.</b> A delivery lands as a named curve set — leave it blank for
+  <li><b>Set name.</b> A delivery lands as a named curve set; leave it blank for
     <b>RAW</b>, the primary set. Re-importing never overwrites: a name already used on
     a well is suffixed (<code>FPROOH</code> → <code>FPROOH_1</code>), so an import can
     never eat an earlier delivery.</li>
-  <li><b>Attach to existing wells</b> (on by default) — a file whose well already
+  <li><b>Attach to existing wells</b> (on by default): a file whose well already
     exists in the project lands as a new set on that well record, instead of creating a
     duplicate well.</li>
   <li><b>Sampling style is declared, never sniffed.</b> You state whether this delivery
@@ -647,32 +648,32 @@ refuses to guess:</p>
     tolerance within which the step must verify. The dialog's own words: SandiBumi
     <i>"stores both the declaration and its verified effective style; it never infers
     regularity from the samples."</i> The example wells are exactly regular (0.1524 m
-    step), so declare <b>Continuous regular</b> with any small tolerance — we used
+    step), so declare <b>Continuous regular</b> with any small tolerance; we used
     0.001 m. On a real delivery the tolerance is your statement of how much step wobble
     still counts as regular.</li>
 </ul>
 
-<p>Press <b>Import</b>. The <b>Processing</b> panel (bottom left) reports 3/3 done —
-with warnings, and the warnings are worth reading once because they show the import's
+<p>Press <b>Import</b>. The <b>Processing</b> panel (bottom left) reports 3/3 done with
+warnings, and the warnings are worth reading once because they show the import's
 honesty policy. On these files: <i>ILD</i> was recognised as the deep resistivity and
 aliased to the RES_DEEP family, and several curves were <b>left in their declared
 units</b> (SP in MV, ILD in OHMM, DT in US/F) because no reviewed conversion rule
-applies — stated per curve rather than silently converted.</p>
+applies, stated per curve rather than silently converted.</p>
 
 <p>Then import the tops the same way: <b>Import Data ▾ → Import Tops…</b>,
 <code>tops_multiwell.csv</code>. The file carries a WELL column, so its 9 tops route to
-all three wells by name in one import — no well selection needed, and the result says
-exactly where every row went.</p>
+all three wells by name in one import, with no well selection needed, and the result
+says exactly where every row went.</p>
 
 <p>Two details you would only notice later, surfaced now: each example well carries a
-deliberate 1-metre gap in NPHI and PEF (a simulated washout) — you can see it in the
-Curve Catalog as 388 of 395 valid samples — and the remaining example files (core,
+deliberate 1-metre gap in NPHI and PEF (a simulated washout), visible in the Curve
+Catalog as 388 of 395 valid samples, and the remaining example files (core,
 SCAL, deviation, XRD…) follow the same probe-confirm-commit pattern; the dataset
 README's table walks the full order when you want the complete little project.</p>
 
 <h2>4. The Wells &amp; Tops pane runs the workspace</h2>
 
-<p>The Wells pane is not a list — it is the steering wheel. <b>Clicking a well loads
+<p>The Wells pane is not a list. It is the steering wheel. <b>Clicking a well loads
 it everywhere at once</b>: the log view retitles to it, plots rebuild on it, and every
 module pane's <i>Selection</i> scope means it. Click <b>SANDI-01</b> and the status bar
 confirms <i>"Loaded well SANDI-01"</i>.</p>
@@ -689,7 +690,7 @@ status bar states the mechanic in one line: <i>"Windowed to top TOP_SAND_A
 (1520.0–1535.0) — plots and log views follow."</i> The interval runs from the clicked
 top down to the next one; log views scroll to it, and plots gain an auto-selected zone
 option for it. This is how you ask a histogram or crossplot about <i>one sand</i>
-instead of the whole well — select the top, and the plots follow.</p>
+instead of the whole well: select the top, and the plots follow.</p>
 
 <p>Three smaller controls on the Wells pane, for later:</p>
 
@@ -698,13 +699,13 @@ instead of the whole well — select the top, and the plots follow.</p>
     inside it each curve with its unit (SANDI-01 ▸ RAW (8) ▸ GR [GAPI]…). This is the
     browser for <i>imported</i> data; <i>computed</i> results appear in the Curve
     Catalog (chapter 7).</li>
-  <li>The <b>☆ star</b> pins wells into your working set — module panes can run on
+  <li>The <b>☆ star</b> pins wells into your working set, so module panes can run on
     exactly the starred wells (the <i>Pinned</i> scope you will see in chapter 6).</li>
   <li>The <b>📌 button</b> on the group bar locks the active well, so a stray click in
     the tree cannot switch every panel while you are mid-interpretation.</li>
   <li>The <b>well-group select</b> ("All wells") filters the whole application to a
-    named group of wells once you have one — useful from the tens of wells upward,
-    ignorable today.</li>
+    named group of wells once you have one, which is useful from the tens of wells
+    upward and ignorable today.</li>
 </ul>
 
 <h2>5. Reading the log view</h2>
@@ -716,8 +717,8 @@ instead of the whole well — select the top, and the plots follow.</p>
     pane, Inspector.</figcaption>
 </figure>
 
-<p>The log view's header states what you are looking at — well, field, depth
-coverage — and its toolbar owns the vertical presentation: the <b>depth scale</b>
+<p>The log view's header states what you are looking at (well, field, depth coverage),
+and its toolbar owns the vertical presentation: the <b>depth scale</b>
 select (1:2000 down to 1:200; the status bar confirms each change), depth-unit display,
 and track-width controls. <b>Ctrl + scroll wheel zooms at the cursor; plain scroll
 pans.</b> The view follows the selected well and the selected top, as chapter 4
@@ -725,15 +726,15 @@ showed.</p>
 
 <p>What the default <b>Standard Layout</b> draws is deliberately conventional: GR with
 a shading fill, deep resistivity on a log scale, and NPHI/RHOB together on compatible
-scales with <b>crossover shading</b> — the yellow fill between the curves where they
-cross is the classic gas-effect display, and you can see it light up inside SAND-A on
+scales with <b>crossover shading</b>, where the yellow fill between the curves is the
+classic gas-effect display, and you can see it light up inside SAND-A on
 these wells.</p>
 
 <p>A layout is a named thing, chosen in the <b>Plot</b> tab's <i>Layout</i> select, and
 edited through <b>Plot → Properties…</b>: tracks are added, reordered and removed
 there, and each track holds its curves with their scales, colours and fills. Chapter 6
 ends by adding a VSH track this way. One behaviour worth knowing before you invest
-effort: <b>Properties… edits live in that panel</b> — press <b>Save Layout…</b> to keep
+effort: <b>Properties… edits live in that panel</b>, so press <b>Save Layout…</b> to keep
 an arrangement as a named layout, or it stays with the panel it was made in (ours
 vanished when we restarted the app without saving, which is exactly what unsaved
 means).</p>
@@ -743,7 +744,7 @@ means).</p>
 <p>You have three wells with GR, resistivity, neutron and density, and tops splitting
 them into a shale cap, two sands and a base seal. The first interpretation step is the
 same as it would be on paper: a shale volume from gamma ray. This chapter runs it, and
-on the way meets the four mechanics every later module run reuses — where parameters
+on the way meets the four mechanics every later module run reuses: where parameters
 come from, who the run says it was run by, what "degraded" means, and where the output
 went.</p>
 
@@ -754,8 +755,8 @@ them yourself: Data Prep, Condition, Frame, VSH, Porosity, Lithology, Saturation
 Permeability, Facies, Rock Typing, and so on. Click <b>VSH ▾ → VSH from Gamma
 Ray</b>.</p>
 
-<p>It opens as a working pane docked beside your log view — not a popup — because you
-will tune it while looking at the log. Every module pane in SandiBumi is built the same
+<p>It opens as a working pane docked beside your log view rather than a popup, because
+you will tune it while looking at the log. Every module pane in SandiBumi is built the same
 way, generated from the module's own manifest, so once you can read this one you can
 read all of them.</p>
 
@@ -768,28 +769,28 @@ read all of them.</p>
 <p>Reading the pane top to bottom:</p>
 
 <ul>
-  <li><b>RUN ON</b> — who gets computed. It opens on <b>All</b> ("Running on every
+  <li><b>RUN ON</b>: who gets computed. It opens on <b>All</b> ("Running on every
     well in the project", here 3 wells). <b>Selection</b> is the well you clicked in
     the Wells pane; <b>Pinned</b> is the wells you starred; <b>Custom…</b> is an
-    explicit list. One run, many wells — that is the normal way to work, not a batch
+    explicit list. One run, many wells is the normal way to work here, not a batch
     afterthought.</li>
-  <li><b>OPT_GR</b> — the GR-index transform (LINEAR here; the dropdown holds the
+  <li><b>OPT_GR</b>: the GR-index transform (LINEAR here; the dropdown holds the
     nonlinear forms). Notice the text under it: every choice and every range check in
-    this pane cites where it came from — a spec section, a reference implementation,
-    line numbers. That is not decoration; it is the app telling you its defaults are
+    this pane cites where it came from, whether a spec section, a reference
+    implementation or line numbers. That is not decoration; it is the app telling you its defaults are
     sourced, not invented.</li>
   <li><b>GR_MA and GR_SH have no default.</b> The clean-sand and shale gamma-ray
     endpoints are a property of <i>your</i> basin, and a number that ships pre-filled
     would be somebody else's calibration silently applied to your field. The link under
-    each field — <i>"Shipped values elsewhere (3) — this number is not settled"</i> —
+    each field, <i>"Shipped values elsewhere (3) — this number is not settled"</i>,
     shows where other installed tools carry values, precisely so you can see they
     disagree. You will supply these two numbers yourself, next.</li>
-  <li><b>GR</b> input — "Auto — GR_COR → GR_EC → GR" is the preference order: if a
+  <li><b>GR input.</b> "Auto — GR_COR → GR_EC → GR" is the preference order: if a
     corrected gamma ray exists on the well it is used, otherwise the raw curve. You can
     pin a specific mnemonic instead.</li>
-  <li><b>MASK</b> — optionally name a flag curve (for example a bad-hole flag) and
+  <li><b>MASK</b>: optionally name a flag curve (for example a bad-hole flag) and
     every flagged sample becomes missing in the output.</li>
-  <li><b>INPUT / OUTPUT LOG SET</b> — the run reads "(current values)" and writes into
+  <li><b>INPUT / OUTPUT LOG SET</b>: the run reads "(current values)" and writes into
     a named output set, <b>INTERP</b> by default. Chapter 7 shows what that buys
     you.</li>
   <li>The green callout is worth memorising: <i>"Values here are the whole-well
@@ -800,7 +801,7 @@ read all of them.</p>
 
 <h3>Pick the endpoints from your own data</h3>
 
-<p>Where do GR_MA and GR_SH come from? From the histogram — the same place you would
+<p>Where do GR_MA and GR_SH come from? From the histogram, the same place you would
 pick them in any interpretation. Open <b>Plot → Histogram</b>; it builds for the
 selected well and opens on GR.</p>
 
@@ -810,7 +811,7 @@ selected well and opens on GR.</p>
   <figcaption>The GR histogram of SANDI-01, with P5 / P50 / P95 marked.</figcaption>
 </figure>
 
-<p>SANDI-01's gamma ray is cleanly bimodal — sands on the left, shales on the right —
+<p>SANDI-01's gamma ray is cleanly bimodal, sands on the left and shales on the right,
 and the stat chips above the plot do the reading for you: <b>P5 = 43.5,
 P95 = 111.8 gAPI</b>, drawn as dashed lines on the plot. We round to <b>GR_MA = 44</b>
 and <b>GR_SH = 112</b> and type them into the pane. Percentile endpoints (rather than
@@ -823,7 +824,7 @@ anywhere.</p>
 
 <h3>The run wants to know who and why</h3>
 
-<p>Press <b>Run VSH from Gamma Ray</b>. The first time, it refuses — in the pane, by
+<p>Press <b>Run VSH from Gamma Ray</b>. The first time, it refuses in the pane, by
 name:</p>
 
 <blockquote><p>Enter the session operator identity before computing.</p></blockquote>
@@ -835,13 +836,13 @@ name:</p>
 values.</p></blockquote>
 
 <p>You typed explicit numbers (44 and 112), so the run demands the reference that
-covers them — the same discipline a reviewed study applies to every parameter. Our
+covers them, the same discipline a reviewed study applies to every parameter. Our
 honest citation is simply where the picks came from: <code>GR histogram P5/P95 picks,
 SANDI-01 (43.5 / 111.8 gAPI, rounded)</code>. This text is stored with the run and
 follows the output curves; when someone asks in two years where 44 came from, the
 answer is attached to the curve, not lost in a notebook.</p>
 
-<h3>Read the outcome — "degraded" is the app being honest</h3>
+<h3>Reading the outcome: "degraded" is the app being honest</h3>
 
 <p>Run again. The pane reports into the <b>Processing</b> panel and summarises:</p>
 
@@ -862,34 +863,34 @@ range [0, 1] (46 occurrences)</p></blockquote>
 <p>This is the consequence of the P5/P95 pick, reported instead of hidden. SANDI-01's
 GR actually spans 41.5–115.2 gAPI; every sample cleaner than 44 or shalier than 112
 computes a GR index below 0 or above 1, and the limited output clamps it. About 46 of
-395 samples — the tails the percentile pick deliberately excluded. "Degraded" never
-means the run half-worked; it means the result carries a warning you should read once
-and then either accept (as here — clamping at the endpoints is exactly what percentile
-picks imply) or fix by re-running with different picks. A well that actually failed
+395 samples, which are the tails the percentile pick deliberately excluded. "Degraded"
+never means the run half-worked; it means the result carries a warning you should read
+once and then either accept (as here, since clamping at the endpoints is exactly what
+percentile picks imply) or fix by re-running with different picks. A well that actually failed
 says <b>failed</b>, and writes nothing.</p>
 
 <h3>Where the answer went</h3>
 
-<p>The run wrote three curves per well into the <b>INTERP</b> output set — open the
+<p>The run wrote three curves per well into the <b>INTERP</b> output set. Open the
 Inspector's <b>Curve Catalog</b> tab to see them listed with the RAW curves:</p>
 
 <ul>
-  <li><b>VSH</b> — the limited volume of shale, 0 to 1. This is the
+  <li><b>VSH</b>: the limited volume of shale, 0 to 1. This is the
     interpretation.</li>
-  <li><b>VSH_GR</b> — the <i>unlimited</i> GR index (here −0.04 to 1.05). The apparent
+  <li><b>VSH_GR</b>: the <i>unlimited</i> GR index (here −0.04 to 1.05). The apparent
     answer and the corrected answer get different names on purpose, so a report can
     never quote one as the other.</li>
-  <li><b>VSH_PROV</b> — a per-sample flag saying <i>why</i> each sample is what it is
-    (computed, input missing, masked, endpoint invalid). Categorical — a reason, never
+  <li><b>VSH_PROV</b>: a per-sample flag saying <i>why</i> each sample is what it is
+    (computed, input missing, masked, endpoint invalid), so it is a reason and never
     a mask.</li>
 </ul>
 
 <p>The catalog's log-set line states the storage rule in one breath: <b>every run is
-kept as a version — nothing is overwritten</b>. Re-running with better endpoints
+kept as a version (nothing is overwritten)</b>. Re-running with better endpoints
 writes INTERP v2; v1 stays. That is why a module run is <i>re-runnable, not
 undoable</i>: undo is for edits, while a run you disagree with is simply run again,
 and both versions remain comparable. Each computed curve also carries an
-<b>Ancestry</b> action — the recorded account of the module, inputs and parameters
+<b>Ancestry</b> action, the recorded account of the module, inputs and parameters
 that produced it. <i>(Named gap: the ancestry view itself is not yet walked through in
 this guide.)</i></p>
 
@@ -909,7 +910,7 @@ curve's mnemonic to <code>VSH</code> with a 0–1 scale, and OK.</p>
 near one in the shale cap and below TOP_SHALE_2, tracking the gamma ray it came from.
 The Curve Catalog beside it shows the three INTERP v1 curves; the Processing panel
 still holds the per-well report. If anything looks wrong, the pane you ran from is
-still open — change a number and run again. That loop — pane, run, look, adjust — is
+still open, so change a number and run again. That loop of pane, run, look, adjust is
 how every module in SandiBumi is meant to be worked.</p>
 
 <p>One more habit worth forming now: click any pane and press the <b>? Help</b> button
@@ -933,30 +934,31 @@ belongs to, <b>which module or import produced it and when</b>, how many samples
 valid out of how many, and min / max / mean. Two different kinds of row are visible
 after chapter 6: the RAW v1 rows from the LAS import, and the INTERP v1 rows stamped
 <code>vsh_gr</code> with their run timestamp. A computed curve's <b>Ancestry</b> action
-holds the recorded account of how it was made — module, inputs, parameters, and the
-reference you typed at run time.</p>
+holds the recorded account of how it was made: the module, the inputs, the parameters,
+and the reference you typed at run time.</p>
 
 <p>Below the table, the log-sets line makes the storage promise explicit: <b>"every
-run is kept as a version — nothing is overwritten."</b> Each re-run of a module writes
+run is kept as a version (nothing is overwritten)."</b> Each re-run of a module writes
 the next version of its output set; earlier versions stay, listed and restorable. This
 is the half of the mental model that replaces "undo": <b>Undo / Redo</b> (Project tab)
-reverses <i>edits</i> — a curve you hand-edited, a top you moved, a value you changed
-in the Database Inspector — while a module run you disagree with is not reversed but
+reverses <i>edits</i> (a curve you hand-edited, a top you moved, a value you changed
+in the Database Inspector), while a module run you disagree with is not reversed but
 <i>re-run</i>, and the versions sit side by side for comparison.</p>
 
 <p>Two panels complete the record:</p>
 
 <ul>
   <li><b>Processing</b> (Project → Monitor) shows live and recent jobs with per-well
-    ✓/⚠/✗ outcomes — this is where chapter 6's degraded report lived.</li>
+    ✓/⚠/✗ outcomes; this is where chapter 6's degraded report lived.</li>
   <li><b>History</b> is the permanent operations log, kept in the project itself:
-    imports, module runs ("Ran VSH from Gamma Ray on 3 wells"), project events, session
-    saves — with an Export… button when you need the record outside the app.</li>
+    imports, module runs ("Ran VSH from Gamma Ray on 3 wells"), project events and
+    session saves, with an Export… button when you need the record outside the
+    app.</li>
 </ul>
 
 <p>And when something goes wrong on a machine far from you, <b>Project →
 Diagnostics</b> builds a single plain-text file a user can read in full and then
-send — timings and operation records, no well names, no paths, no curve values.</p>
+send: timings and operation records, no well names, no paths, no curve values.</p>
 
 <h2>8. Export something</h2>
 
@@ -964,13 +966,13 @@ send — timings and operation records, no well names, no paths, no curve values
 cover the first hour; both live one click from the work.</p>
 
 <p><b>Export LAS</b> (Data tab, with a well selected) writes the well back out as LAS
-2.0 — standard curves and computed results together — and then tells you exactly what
+2.0, standard curves and computed results together, and then tells you exactly what
 it did. Exporting our SANDI-01 reports: 395 rows; 12 of 17 held curves written, the
 other 5 named individually with the reason (they were the RAW set's copies of curves
-already written from the standard set — deduplicated, not lost); a precision statement
+already written from the standard set, deduplicated rather than lost); a precision statement
 (727 values reduced going from f32 storage to fixed-decimal LAS text); and a
 self-check in which SandiBumi re-reads its own output before calling the export good.
-If a curve is missing from an export, the report says so by name — silence is not an
+If a curve is missing from an export, the report says so by name; silence is not an
 option it has.</p>
 
 <p><b>Composite Log</b> (Plot tab → Composite…) is the print deliverable: a log plot
@@ -984,15 +986,15 @@ laid out at a true printed scale, not a screenshot of the screen.</p>
 </figure>
 
 <p>Pick the layout, the print scale (1:500 here), the page size and optionally a depth
-window, then <b>Render</b> — the pane shows the paginated result ("SANDI-01: 1 page(s)
+window, then <b>Render</b>, and the pane shows the paginated result ("SANDI-01: 1 page(s)
 at 1:500") with the title block carrying the well, layout, scale and interval.
 <b>Save SVG…</b> writes vector graphics; <b>Save PDF…</b> writes a multi-page PDF with
 no external dependencies. At 1:500 on A4, a metre of section is two millimetres on
-paper — the scale means what it says.</p>
+paper, and the scale means what it says.</p>
 
-<p>The Plot tab's Deliverables group goes further — <b>Report…</b> (the full PDF study
-document), <b>Workbook…</b> (Excel), <b>Deck…</b> (PowerPoint) — but those belong to a
-later session; the office formats need their optional Python packages (chapter 1), and
+<p>The Plot tab's Deliverables group goes further, with <b>Report…</b> (the full PDF
+study document), <b>Workbook…</b> (Excel) and <b>Deck…</b> (PowerPoint), but those
+belong to a later session; the office formats need their optional Python packages (chapter 1), and
 the native PDF/SVG paths shown here never do.</p>
 
 <h2>9. Where to go next</h2>
@@ -1000,17 +1002,17 @@ the native PDF/SVG paths shown here never do.</p>
 <p>The first hour ran one module on one log. The application widens from here in three
 directions, and you have already learned the mechanics each one reuses.</p>
 
-<p><b>More of the same, deeper.</b> Every group in the Petrophysics tab — porosity,
-lithology, saturation, permeability, facies, rock typing, cutoffs and summaries —
+<p><b>More of the same, deeper.</b> Every group in the Petrophysics tab (porosity,
+lithology, saturation, permeability, facies, rock typing, cutoffs and summaries)
 works exactly like chapter 6: a manifest-generated pane, cited parameters, custody,
 versioned output. The module books of this guidebook (the <a href="index.html">Contents
 page</a>) carry one chapter per module, and each chapter's "What the application
-enforces" section is generated from the same manifests the panes are built from — its
+enforces" section is generated from the same manifests the panes are built from, so its
 descriptions, defaults, sources and pre-run checks are exactly what the running
 application enforces. The example dataset's README lists the import order for core,
 SCAL, deviation and the rest; with those loaded, the saturation-height tools and the
 QC crossplots have real input. Zones (Petrophysics → Zones…) is where per-interval
-parameters live — the green callout from chapter 6, made concrete.</p>
+parameters live, the green callout from chapter 6 made concrete.</p>
 
 <p><b>The Advance tab</b> holds the flagship in-house methods, promoted out of the
 generic dropdowns: the <b>SSC / SSPW</b> sand-silt-clay methods, <b>RtC</b> and
@@ -1024,7 +1026,7 @@ documented by its own pane's <b>? Help</b>; the method mathematics is banked in
 records).</p>
 
 <p><b>Many wells at once.</b> Everything you did on three wells was already
-multi-well — the RUN ON pill, the tops that routed by well name. When the well count
+multi-well, from the RUN ON pill to the tops that routed by well name. When the well count
 grows, the same pattern scales through the Petrophysics → Batch tools: workflow chains
 (an ordered module pipeline across the field), Monte Carlo uncertainty on top of a
 chain, and the Field Dashboard that rolls the pay summary up per zone across every
@@ -1033,7 +1035,7 @@ familiar.</p>
 
 <p>Wherever you are in the application: click the pane, press <b>? Help</b>. And when
 the answer is not there, the <code>docs/</code> folder of this repository is the
-deeper record — this guide is the front door, not the whole house.</p></div>
+deeper record. This guide is the front door, not the whole house.</p></div>
 </div>
 </main>
 </div>

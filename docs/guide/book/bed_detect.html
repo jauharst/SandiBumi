@@ -589,7 +589,7 @@ GROUP BY w.well_name</pre>
     cannot place.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Writes the bed number each sample falls in, found from the curve's own steps — the same segmentation Block's AUTO mode uses, exposed on its own so the beds can be LOOKED AT on a log before anything is averaged over them.
 
 That order matters: over-segmentation is what a step-finder gets wrong when it gets anything wrong, and a blocked curve computed from beds nobody checked looks perfectly reasonable. Put the bed curve in a track as class blocks, judge it against the log, then run Block with OPT_BEDS = CLASS pointing at it.

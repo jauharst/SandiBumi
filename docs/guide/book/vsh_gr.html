@@ -616,7 +616,7 @@ a geological argument and not a preference.</p>
     pair for the field.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>VSH_GR = (GR - GR_MA) / (GR_SH - GR_MA), with optional non-linear corrections (Stieber, Larionov, Clavier). VSH is the result limited to 0–1. The three Stieber forms and Clavier bound the gamma-ray INDEX just short of their own singularity (a pole, or a negative radicand) before transforming it, because past that point they return a negative shale volume or nothing at all; the run reports which branch bounded it. Larionov and the linear form have no singularity and bound nothing. VSH_GR itself stays unlimited either way.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>GR</td><td>Gamma ray log</td><td><code>GR_COR</code> → <code>GR_EC</code> → <code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
@@ -628,9 +628,9 @@ a geological argument and not a preference.</p>
 <li><b>Accepted range:</b> 0 to 200 gAPI</li>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>gr_clean_endpoint</code>); the pane lists them with sources at the point of choice.</li>
 <li><b>Guidance:</b> IP derives endpoints by pooling a Percentile Group, pre-clipping at 0%/98%, computing a selected percentile and linearly extrapolating. Its clay percentile is 130%; its clean percentile is unstated. Techlog offers 5%/95%; P3/P97 is an optional named house preset. Treat these as alternative procedures, not a generic endpoint value. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; IP clayparameters.htm (57, 59, 60); Techlog VSH single-log pages; docs/workflow_standards.md</div></li>
-<li><b>Checked before the run:</b> <code>vsh_gr.gr_ma_range</code> — The clean gamma-ray endpoint must remain inside the source manifest range. Range: 0–200 gAPI.
+<li><b>Checked before the run:</b> <code>vsh_gr.gr_ma_range</code>: The clean gamma-ray endpoint must remain inside the source manifest range. Range: 0–200 gAPI.
     <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.info L48-L49</div></li>
-<li><b>Checked before the run:</b> <code>vsh_gr.endpoint_order</code> — The clean gamma-ray endpoint must be strictly below the shale endpoint. Must be strictly below <code>GR_SH</code>.
+<li><b>Checked before the run:</b> <code>vsh_gr.endpoint_order</code>: The clean gamma-ray endpoint must be strictly below the shale endpoint. Must be strictly below <code>GR_SH</code>.
     <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.3 and SB-CLY-001; Geolog vsh_gr.lls L99-L102</div></li></ul>
 <h3>GR_SH <span class="src">(gAPI)</span></h3>
 <p>Gamma ray shale</p>
@@ -638,23 +638,23 @@ a geological argument and not a preference.</p>
 <li><b>Accepted range:</b> 0 to 1000 gAPI</li>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>gr_shale_endpoint</code>); the pane lists them with sources at the point of choice.</li>
 <li><b>Guidance:</b> IP derives endpoints by pooling a Percentile Group, pre-clipping at 0%/98%, computing a selected percentile and linearly extrapolating. Its clay percentile is 130%; its clean percentile is unstated. Techlog offers 5%/95%; P3/P97 is an optional named house preset. Treat these as alternative procedures, not a generic endpoint value. <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; IP clayparameters.htm (57, 59, 60); Techlog VSH single-log pages; docs/workflow_standards.md</div></li>
-<li><b>Checked before the run:</b> <code>vsh_gr.gr_sh_range</code> — The shale gamma-ray endpoint must remain inside the source manifest range. Range: 0–1000 gAPI.
+<li><b>Checked before the run:</b> <code>vsh_gr.gr_sh_range</code>: The shale gamma-ray endpoint must remain inside the source manifest range. Range: 0–1000 gAPI.
     <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.info L48-L49</div></li></ul>
 <h2>Options</h2>
 <h3>OPT_GR</h3>
 <p>VSH from gamma ray method</p>
-<ul><li><b>Choices:</b><ul><li><code>LINEAR</code> — VSH = IGR</li>
-<li><code>STIEBER1</code> — Stieber, IGR/(3−2·IGR)</li>
-<li><code>STIEBER2</code> — Stieber, IGR/(2−IGR)</li>
-<li><code>STIEBER3</code> — Stieber, IGR/(4−3·IGR)</li>
-<li><code>LARINOV1_NORM</code> — Larionov, Mesozoic and older (exact, reaches 1.0)</li>
-<li><code>LARINOV2_NORM</code> — Larionov, Tertiary / unconsolidated (exact, reaches 1.0)</li>
-<li><code>LARINOV1</code> — Larionov, Mesozoic and older (published 0.33 — parity only, 0.990 at IGR 1)</li>
-<li><code>LARINOV2</code> — Larionov, Tertiary / unconsolidated (published 0.083 — parity only, 0.996 at IGR 1)</li>
-<li><code>LARINOV3</code> — 0.127·(3.15^(2·IGR) − 1)</li>
-<li><code>CLAVIER</code> — Clavier et al.</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>LINEAR</code>: VSH = IGR</li>
+<li><code>STIEBER1</code>: Stieber, IGR/(3−2·IGR)</li>
+<li><code>STIEBER2</code>: Stieber, IGR/(2−IGR)</li>
+<li><code>STIEBER3</code>: Stieber, IGR/(4−3·IGR)</li>
+<li><code>LARINOV1_NORM</code>: Larionov, Mesozoic and older (exact, reaches 1.0)</li>
+<li><code>LARINOV2_NORM</code>: Larionov, Tertiary / unconsolidated (exact, reaches 1.0)</li>
+<li><code>LARINOV1</code>: Larionov, Mesozoic and older (published 0.33 — parity only, 0.990 at IGR 1)</li>
+<li><code>LARINOV2</code>: Larionov, Tertiary / unconsolidated (published 0.083 — parity only, 0.996 at IGR 1)</li>
+<li><code>LARINOV3</code>: 0.127·(3.15^(2·IGR) − 1)</li>
+<li><code>CLAVIER</code>: Clavier et al.</li></ul></li>
 <li><b>Default:</b> <code>LINEAR</code></li>
-<li><b>Checked before the run:</b> <code>vsh_gr.method_id</code> — The selected GR transform must be one of the method ids declared by the manifest.
+<li><b>Checked before the run:</b> <code>vsh_gr.method_id</code>: The selected GR transform must be one of the method ids declared by the manifest.
     <div class="src">Source: docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.lls L109-L139</div></li></ul>
 <h2>Output curves</h2>
 <div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>VSH_GR</td><td>VSH from gamma ray (unlimited)</td></tr>

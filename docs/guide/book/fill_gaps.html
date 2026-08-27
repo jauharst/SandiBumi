@@ -538,7 +538,7 @@ first live one below. Two rules carry the honesty:</p>
 <h2>The picks and why</h2>
 
 <p>On this dataset the porosity methods' bad-hole exclusion leaves PHIE far
-from continuous — 573 of its 1185 samples are finite — and most of the
+from continuous (573 of its 1185 samples are finite), and most of the
 missing stretches are wider than any limit worth entering, so they stay
 missing. One hole per well is different: 7 samples wide, from the masked
 washout, 1.22&nbsp;m live-to-live. That makes the limit's behaviour
@@ -606,7 +606,7 @@ FROM computed_curves WHERE curve_name = 'PHIE_C_FILL'</pre>
     extrapolation.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Fills holes in a curve that are no wider than MAX_GAP, and marks every sample it invented in &lt;OUT&gt;_FILL.
 
 A filled sample is not a measurement. That is the whole reason for the flag curve: without it a filled value is indistinguishable from a logged one in a crossplot, a histogram, a net count or a report, and the person reading the number is not the person who chose the limit. Mask on &lt;OUT&gt;_FILL to take them back out of any run.
@@ -629,13 +629,13 @@ MAX_GAP has no default: how far it is defensible to interpolate depends on why t
 <h2>Options</h2>
 <h3>OPT_METHOD</h3>
 <p>How the hole is filled</p>
-<ul><li><b>Choices:</b><ul><li><code>LINEAR</code> — straight line between the live samples either side</li>
-<li><code>HOLD</code> — carry the last live value down</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>LINEAR</code>: straight line between the live samples either side</li>
+<li><code>HOLD</code>: carry the last live value down</li></ul></li>
 <li><b>Default:</b> <code>LINEAR</code></li></ul>
 <h3>OPT_FLAG</h3>
 <p>Write a flag curve marking every invented sample</p>
-<ul><li><b>Choices:</b><ul><li><code>YES</code> — write the flag curve</li>
-<li><code>NO</code> — the conditioned curve only</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>YES</code>: write the flag curve</li>
+<li><code>NO</code>: the conditioned curve only</li></ul></li>
 <li><b>Default:</b> <code>YES</code></li></ul>
 <h2>Output curves</h2>
 <div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Conditioned curve</td></tr>

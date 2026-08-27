@@ -625,7 +625,7 @@ together. Restored to the total form, every number returns exactly.</p>
     source line should say where they came from.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Archie (1942) as two separately named methods (SB-SAT-002). archie_total: SWT = (A*Rw/(PHIT^M*RT))^(1/N) on total porosity, SWE by the back-out max((SWT-Swb)/(1-Swb), 0) with Swb = 1-PHIE/PHIT. archie_effective: SWE = (A*Rw/(PHIE^M*RT))^(1/N) directly on effective porosity, SWT lifted through the inverse SwT = Sw*(1-Swb)+Swb. On the dossier reference case the two differ by 25.0 saturation units - both are Archie, so the identity must be declared, never inferred.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>FTEMP</td><td>Formation temperature (precalc, for MEASURED/SALINITY)</td><td><code>FTEMP</code></td><td>no</td><td>resolved from computed curves only, never the RAW import store</td></tr>
@@ -659,25 +659,25 @@ together. Restored to the total form, every number returns exactly.</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>formation_water_resistivity</code>); the pane lists them with sources at the point of choice.</li>
-<li><b>Checked before the run:</b> <code>rw.required_when_constant</code> — RW is required when OPT_RW = CONSTANT. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>rw.required_when_constant</code>: RW is required when OPT_RW = CONSTANT. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
 <h3>RWS <span class="src">(ohmm)</span></h3>
 <p>Measured water sample resistivity</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
-<li><b>Checked before the run:</b> <code>rws.required_when_measured</code> — RWS is required when OPT_RW = MEASURED. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>rws.required_when_measured</code>: RWS is required when OPT_RW = MEASURED. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
 <h3>RWT <span class="src">(degC)</span></h3>
 <p>Temperature of RWS measurement</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 150 degC</li>
-<li><b>Checked before the run:</b> <code>rwt.required_when_measured</code> — RWT is required when OPT_RW = MEASURED. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>rwt.required_when_measured</code>: RWT is required when OPT_RW = MEASURED. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
 <h3>SALW <span class="src">(ppm)</span></h3>
 <p>Formation water salinity</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 100 to 300000 ppm</li>
-<li><b>Checked before the run:</b> <code>salw.required_when_salinity</code> — SALW is required when OPT_RW = SALINITY. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>salw.required_when_salinity</code>: SALW is required when OPT_RW = SALINITY. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/12_saturation.md §5 formation-water parameters</div></li></ul>
 <h2>Options</h2>
 <h3>OPT_EQN</h3>
