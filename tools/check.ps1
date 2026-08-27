@@ -49,6 +49,13 @@ function Fail([string]$stage, [int]$code) {
 
 $total = [System.Diagnostics.Stopwatch]::StartNew()
 
+# The MSVC pin serves stage 1 as well as stage 4: gate-2 hygiene runs `cargo check`, which on
+# a COLD target (fresh clone or fresh worktree) compiles bundled DuckDB's C++ - with the
+# reference machine's broken default toolset that fails before the real backend stage is ever
+# reached. On a warm target nothing compiles and the ambient environment was always enough,
+# which is why this stayed hidden until 2026-08-27.
+$vcvars = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+
 # --- Stage 1: repository gates -----------------------------------------------
 # AUDIT-2026-08-20 finding 59. These were twelve copy-pasted blocks and every one of them failed
 # as "GATE FAILED at takeover ledger" - so a broken unit registry or a stale chart derivation
@@ -61,7 +68,14 @@ $stage1Gates = @(
     @{ Name = "gate-2 program (tests)";       Run = { & npm run test:gate2-program } },
     @{ Name = "gate-2 program (check)";       Run = { & npm run check:gate2-program } },
     @{ Name = "gate-2 hygiene (tests)";       Run = { & npm run test:gate2-hygiene } },
-    @{ Name = "gate-2 hygiene (check)";       Run = { & npm run check:gate2-hygiene } },
+    @{ Name = "gate-2 hygiene (check)";       Run = {
+        # The one stage-1 gate that compiles Rust - pinned exactly like stage 4 below.
+        if (Test-Path $vcvars) {
+            cmd /c "call `"$vcvars`" -vcvars_ver=$VcVarsVer && cd /d `"$repo`" && npm run check:gate2-hygiene"
+        } else {
+            & npm run check:gate2-hygiene
+        }
+    } },
     @{ Name = "frontend exports (tests)";     Run = { & npm run test:frontend-exports } },
     @{ Name = "frontend exports (check)";     Run = { & npm run check:frontend-exports } },
     @{ Name = "unit registry (tests)";        Run = { & npm run test:unit-registry } },
@@ -123,7 +137,6 @@ if (-not $SkipFrontend) {
 if (-not $SkipRust) {
     Write-Host "[4/4] backend gate: cargo test..." -ForegroundColor Cyan
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $vcvars = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
     if (Test-Path $vcvars) {
         # cmd's own && chains inside the string; $LASTEXITCODE propagates from cmd /c.
         cmd /c "call `"$vcvars`" -vcvars_ver=$VcVarsVer && cd /d `"$repo\src-tauri`" && cargo test"
