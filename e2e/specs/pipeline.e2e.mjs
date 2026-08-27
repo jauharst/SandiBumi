@@ -50,7 +50,7 @@ describe('SandiBumi end-to-end', () => {
       `must be sandboxed, opened: ${current.path}`,
     )
 
-    const wells = await invokeOk('list_wells')
+    const wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     assert.equal(wells.length, 0, 'a fresh sandbox project must start with no wells')
   })
 
@@ -62,33 +62,51 @@ describe('SandiBumi end-to-end', () => {
       assert.ok(fs.existsSync(p), `example data missing: ${p}`)
     }
 
+    // The import refuses without a declared sampling style + step tolerance (see
+    // despike.e2e.mjs); 0.01 m is a test input for the synthetic examples, not a field value.
     const results = await invokeOk('import_las_files', {
       paths,
       setName: SET_NAME,
       attach: false,
+      samplingStyle: 'CONTINUOUS_REGULAR',
+      samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
     })
     assert.equal(results.length, 3, 'one result per file')
+    // A refused file is not an invoke error — the command succeeds and reports per file.
+    for (const r of results) {
+      assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+    }
 
-    const wells = await invokeOk('list_wells')
+    const wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     assert.equal(wells.length, 3, 'three wells after importing three files')
     const names = wells.map((w) => w.well_name).sort()
     assert.deepEqual(names, ['SANDI-01', 'SANDI-02', 'SANDI-03'])
   })
 
   it('runs a module and writes curves into the project', async () => {
-    const wells = await invokeOk('list_wells')
+    const wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     const wellIds = wells.map((w) => w.well_id)
 
     // vsh_gr is the cheapest real module with a real numeric output: it needs only GR, which
     // every example well carries.
+    // A run now declares its custody (operator + source note; AUTOMATED names the harness
+    // honestly) and resolves its wells from a backend scope selector.
     const results = await invokeOk('run_workflow_module', {
       req: {
         module: 'vsh_gr',
         well_ids: wellIds,
         log_inputs: {},
-        params: {},
+        // The GR endpoints ship with no default (provenance rule — an endpoint is basin-specific).
+        // 45/110 are the synthetic generator's own clean-sand and cap-shale GR means
+        // (tools/make_example_data.py ZONES), not a recommended field calibration.
+        params: { GR_MA: 45, GR_SH: 110 },
         opts: {},
+        custody: {
+          actor: { kind: 'AUTOMATED', identity: 'e2e-harness' },
+          source_note: 'e2e fixture run; manifest defaults, no explicit values',
+        },
       },
+      scope: { kind: 'explicit', well_ids: wellIds },
     })
     assert.equal(results.length, 3, 'one result per well')
     for (const r of results) {
@@ -106,7 +124,7 @@ describe('SandiBumi end-to-end', () => {
   })
 
   it('exports a LAS file that actually appears on disk', async () => {
-    const wells = await invokeOk('list_wells')
+    const wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     const well = wells[0]
     const dest = path.join(outDir, `${well.well_name}-export.las`)
 
@@ -115,7 +133,9 @@ describe('SandiBumi end-to-end', () => {
       destPath: dest,
     })
 
-    assert.ok(fs.existsSync(dest), `export_las reported ${written} but wrote no file at ${dest}`)
+    // export_las returns a full LasExportResult now; `rows` is the row count the old command
+    // returned bare.
+    assert.ok(fs.existsSync(dest), `export_las reported ${written.rows} rows but wrote no file at ${dest}`)
     const text = fs.readFileSync(dest, 'utf8')
 
     // The section headers as export.rs actually writes them ("~Version Information", not the
@@ -134,8 +154,8 @@ describe('SandiBumi end-to-end', () => {
     assert.ok(dataRows.length > 0, 'the exported LAS has a header but no data rows')
     assert.equal(
       dataRows.length,
-      written,
-      `export_las reported ${written} rows but the file holds ${dataRows.length}`,
+      written.rows,
+      `export_las reported ${written.rows} rows but the file holds ${dataRows.length}`,
     )
   })
 

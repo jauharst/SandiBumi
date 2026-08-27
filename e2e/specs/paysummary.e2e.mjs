@@ -67,25 +67,63 @@ describe('pay summary invariants (T-BATCH-07)', () => {
   let wells = []
 
   before(async () => {
-    const existing = await invokeOk('list_wells')
+    const existing = await invokeOk('list_wells', { scope: { kind: 'all' } })
     if (existing.length === 0) {
       const paths = ['SANDI-01.las', 'SANDI-02.las', 'SANDI-03.las'].map((f) =>
         path.join(examplesDir, f),
       )
-      await invokeOk('import_las_files', { paths, setName: 'E2E', attach: false })
+      // The import refuses without a declared sampling style + step tolerance (see
+      // despike.e2e.mjs); 0.01 m is a test input for the synthetic examples, not a field value.
+      const imported = await invokeOk('import_las_files', {
+        paths,
+        setName: 'E2E',
+        attach: false,
+        samplingStyle: 'CONTINUOUS_REGULAR',
+        samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
+      })
+      // A refused file is not an invoke error — the command succeeds and reports per file.
+      for (const r of imported) {
+        assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+      }
     }
-    wells = await invokeOk('list_wells')
+    wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     wells.sort((a, b) => a.well_name.localeCompare(b.well_name))
 
     // A summary needs VSH, PHIE and SWE to exist, or every row comes back uninterpreted and the
-    // invariants would hold vacuously. Run the standard three through their own modules — no
-    // parameters are passed, so each uses its manifest defaults rather than anything invented here.
+    // invariants would hold vacuously. Run the standard three through their own modules. The
+    // no-default parameters each module now requires are supplied from named sources, none of
+    // them a field calibration:
+    //  - GR_MA 45 / GR_SH 110 and RHO_SH 2.45: the synthetic generator's own clean-sand and
+    //    cap-shale means (tools/make_example_data.py ZONES).
+    //  - A=1, M=2, N=2: Archie (1942), the constants the module doc itself cites.
+    //  - SWT_IRR 0: no irreducible saturation declared for the synthetic fixture (the manifest's
+    //    own lower bound), so the term is the identity.
+    //  - RW 0.11 ohmm: back-computed from the generator's water sand with those same constants
+    //    (SAND-B: ILD 3.2, RHOB 2.34 -> phi_D = (2.65-2.34)/1.65 = 0.188; Rw = Rt*phi^2 = 0.113).
+    const MODULE_PARAMS = {
+      vsh_gr: { GR_MA: 45, GR_SH: 110 },
+      phi_den: { RHO_SH: 2.45 },
+      sw_arch: { A: 1, M: 2, N: 2, SWT_IRR: 0, RW: 0.11 },
+    }
     const ids = wells.map((w) => w.well_id)
     const catalog = await invokeOk('list_modules')
     for (const name of ['vsh_gr', 'phi_den', 'sw_arch']) {
       if (!catalog.some((m) => m.name === name)) continue
+      // A run now declares its custody (operator + source note; AUTOMATED names the harness
+      // honestly) and resolves its wells from a backend scope selector.
       await call('run_workflow_module', {
-        req: { module: name, well_ids: ids, log_inputs: {}, params: {}, opts: {} },
+        req: {
+          module: name,
+          well_ids: ids,
+          log_inputs: {},
+          params: MODULE_PARAMS[name],
+          opts: {},
+          custody: {
+            actor: { kind: 'AUTOMATED', identity: 'e2e-harness' },
+            source_note: 'e2e fixture run; manifest defaults, no explicit values',
+          },
+        },
+        scope: { kind: 'explicit', well_ids: ids },
       })
     }
 
@@ -96,6 +134,8 @@ describe('pay summary invariants (T-BATCH-07)', () => {
         zoneName: ZONE,
         topDepth: 1000,
         bottomDepth: 2000,
+        // MD is what the frontend's own zone paths send for log measured depths.
+        depthDatum: 'MD',
       })
     }
 
@@ -129,6 +169,33 @@ describe('pay summary invariants (T-BATCH-07)', () => {
       const pane = document.querySelector('.summary-pane')
       pane?.querySelector('.form-run-btn')?.click()
     })
+
+    // Compute Summary writes FLAG curves, so it asks for run custody in a modal before running.
+    // Answer it the way an operator would: identity, source note, then the action button.
+    await browser.waitUntil(
+      async () =>
+        await browser.execute(() => {
+          const root = document.querySelector('#modal-root')
+          const proceed = Array.from(root?.querySelectorAll('button') ?? []).find((b) =>
+            /compute and write pay flags/i.test((b.textContent ?? '').trim()),
+          )
+          if (!proceed) return false
+          const identity = root.querySelector('input.form-control')
+          const source = root.querySelector('textarea.form-control')
+          if (!identity || !source) return false
+          identity.value = 'e2e-harness'
+          identity.dispatchEvent(new Event('input', { bubbles: true }))
+          source.value = 'e2e fixture run over the synthetic examples'
+          source.dispatchEvent(new Event('input', { bubbles: true }))
+          proceed.click()
+          return true
+        }),
+      {
+        timeout: 20_000,
+        interval: 250,
+        timeoutMsg: 'the run-custody dialog never appeared after Compute Summary',
+      },
+    )
 
     await browser.waitUntil(async () => (await summaryRows()).length > 0, {
       timeout: 120_000,

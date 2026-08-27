@@ -63,8 +63,27 @@ const clickMenuItem = (title) =>
     return true
   }, title)
 
-const paneCount = () =>
-  browser.execute(() => document.querySelectorAll('.module-pane').length)
+/** How many panes are open FOR THIS MODULE, identified by its own declared outputs.
+ *
+ * Deliberately not the global `.module-pane` count. By the time this spec runs, several module
+ * panes are open, and dockview attaches and detaches them as the active tab changes — so a global
+ * count moves for reasons that have nothing to do with this module. It measured a 2 -> 3
+ * "duplicate" that was another spec's pane re-attaching, while the app was behaving correctly
+ * (verified against the running app: one tab, one pane, before and after the re-click). The
+ * singleton claim is about THIS module, so the count has to be too — the same identification rule
+ * wellgroupmanager.e2e.mjs settled on. */
+const paneCountFor = (outputs) =>
+  browser.execute(
+    (outs) =>
+      Array.from(document.querySelectorAll('.module-pane')).filter((p) => {
+        const declared = Array.from(p.querySelectorAll('.module-outputs .module-output-label'))
+          .map((l) => l.title ?? '')
+          .filter((t) => t.startsWith('Declared as '))
+          .map((t) => t.slice('Declared as '.length).split(';')[0])
+        return outs.every((o) => declared.includes(o))
+      }).length,
+    outputs,
+  )
 
 describe('rock typing ribbon group (T-RT-01)', () => {
   let rtModules = []
@@ -100,17 +119,21 @@ describe('rock typing ribbon group (T-RT-01)', () => {
 
   it('opens a pane per module, and never a second one for the same module', async () => {
     const target = rtModules[0]
+    const targetOutputs = (target.args ?? [])
+      .filter((a) => a.kind === 'log_out')
+      .map((a) => a.name)
 
     // Open it once.
     assert.ok(await openMenuContaining(target.title))
     assert.ok(await clickMenuItem(target.title), `could not click "${target.title}"`)
-    await browser.waitUntil(async () => (await paneCount()) > 0, {
+    await browser.waitUntil(async () => (await paneCountFor(targetOutputs)) > 0, {
       timeout: 30_000,
       interval: 500,
       timeoutMsg: `no module pane opened for "${target.title}"`,
     })
 
-    const after = await paneCount()
+    const after = await paneCountFor(targetOutputs)
+    assert.equal(after, 1, `"${target.title}" must open exactly one pane; found ${after}`)
 
     // Open it again — the count must not move. Step 5's singleton claim, and the reason it matters:
     // two panes for one module each carry their own scope and parameters, so editing one and
@@ -121,7 +144,7 @@ describe('rock typing ribbon group (T-RT-01)', () => {
     // Give a duplicate a chance to appear before concluding it did not.
     await browser.pause(1000)
     assert.equal(
-      await paneCount(),
+      await paneCountFor(targetOutputs),
       after,
       `re-clicking "${target.title}" must focus the existing pane, not open a second one`,
     )
@@ -139,24 +162,28 @@ describe('rock typing ribbon group (T-RT-01)', () => {
       if (!pane) return null
       return {
         hasScope: !!pane.querySelector('.well-scope'),
-        hasRun: !!pane.querySelector('.form-run-btn'),
-        outputsNote:
-          Array.from(pane.querySelectorAll('.modal-hint'))
-            .map((p) => p.textContent.trim())
-            .find((t) => t.startsWith('Outputs:')) ?? null,
+        // The pane's primary pill lives in its footer now (design 1d) — `.form-run-btn` is gone.
+        hasRun: !!pane.querySelector('.module-footer .btn'),
+        // The old "Outputs:" hint became the editable outputs section: each output-name label
+        // carries a title "Declared as <ARG>" (longer for porosity outputs, `;`-separated).
+        outputTitles: Array.from(pane.querySelectorAll('.module-outputs .module-output-label')).map(
+          (l) => l.title ?? '',
+        ),
       }
     })
     assert.ok(form, 'no module pane to inspect')
     assert.ok(form.hasScope, 'the pane must carry a well-scope control')
     assert.ok(form.hasRun, 'the pane must carry a Run button')
-    assert.ok(form.outputsNote, 'the pane must state which curves the run will write')
+    assert.ok(form.outputTitles.length > 0, 'the pane must state which curves the run will write')
 
-    // The note must name the manifest's OWN outputs. A stale note is worse than none: it tells the
-    // user which curves to expect, and they will go looking for the ones it named.
+    // The section must declare the manifest's OWN outputs. A stale list is worse than none: it
+    // tells the user which curves to expect, and they will go looking for the ones it named.
     for (const name of outputs) {
       assert.ok(
-        form.outputsNote.includes(name),
-        `the Outputs note must name ${name}; it reads: ${form.outputsNote}`,
+        form.outputTitles.some(
+          (t) => t === `Declared as ${name}` || t.startsWith(`Declared as ${name};`),
+        ),
+        `the outputs section must declare ${name}; it declares: ${form.outputTitles.join(' | ')}`,
       )
     }
   })

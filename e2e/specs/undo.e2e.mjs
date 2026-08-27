@@ -59,16 +59,31 @@ const ZONE = 'E2E-UNDO'
 
 describe('undo, redo and the dirty marker (T-SHELL-13, T-SHELL-12)', () => {
   let well = null
+  // The dirty state as it stood immediately BEFORE the data edit — see the last test for why the
+  // claim has to be a delta rather than an absolute.
+  let dirtyBeforeEdit = null
 
   before(async () => {
-    const existing = await invokeOk('list_wells')
+    const existing = await invokeOk('list_wells', { scope: { kind: 'all' } })
     if (existing.length === 0) {
       const paths = ['SANDI-01.las', 'SANDI-02.las', 'SANDI-03.las'].map((f) =>
         path.join(examplesDir, f),
       )
-      await invokeOk('import_las_files', { paths, setName: 'E2E', attach: false })
+      // The import refuses without a declared sampling style + step tolerance (see
+      // despike.e2e.mjs); 0.01 m is a test input for the synthetic examples, not a field value.
+      const imported = await invokeOk('import_las_files', {
+        paths,
+        setName: 'E2E',
+        attach: false,
+        samplingStyle: 'CONTINUOUS_REGULAR',
+        samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
+      })
+      // A refused file is not an invoke error — the command succeeds and reports per file.
+      for (const r of imported) {
+        assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+      }
     }
-    const wells = await invokeOk('list_wells')
+    const wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     wells.sort((a, b) => a.well_name.localeCompare(b.well_name))
     well = wells[0]
 
@@ -79,6 +94,18 @@ describe('undo, redo and the dirty marker (T-SHELL-13, T-SHELL-12)', () => {
       zoneName: ZONE,
       topDepth: 1500,
       bottomDepth: 1600,
+      // Zones declare their depth datum; MD is what the frontend's own zone paths send for
+      // log measured depths (highlightsOverlay.ts).
+      depthDatum: 'MD',
+    })
+
+    // The Inspector's edits are audited (SB-DBM-011): with no session operator a modal asks for
+    // one and the edit is cancelled when it goes unanswered. Seed the same sessionStorage the app
+    // itself remembers the operator in, so the edit under test proceeds the way a mid-session
+    // edit does.
+    await browser.execute(() => {
+      sessionStorage.setItem('sandibumi.sessionOperator', 'e2e-harness')
+      sessionStorage.setItem('sandibumi.sessionActorKind', 'AUTOMATED')
     })
   })
 
@@ -133,6 +160,10 @@ describe('undo, redo and the dirty marker (T-SHELL-13, T-SHELL-12)', () => {
       },
     )
     assert.ok(ready)
+
+    // The baseline for the dirty-marker claim, taken with the Inspector already open so the pane
+    // arrangement is settled — what the last test measures is the EDIT's effect, nothing else.
+    dirtyBeforeEdit = (await undoState()).projectDirty
 
     // Edit the zone's top depth: double-click the cell, type, Enter.
     const edited = await browser.execute((zoneName) => {
@@ -233,11 +264,18 @@ describe('undo, redo and the dirty marker (T-SHELL-13, T-SHELL-12)', () => {
     // The dot's placement rule is checked here too, because it holds either way: it must be a
     // CLASS, never a text prefix — a tabstrip that reflows when work goes dirty shifts every other
     // tab under the cursor.
+    //
+    // Asserted as a DELTA, not as `false`. The dot reports named-save freshness for the WORKSPACE,
+    // and every spec before this one opens panes — the flag is in fact already lit at launch,
+    // before any import, pane or edit (measured against the running app on 2026-08-27). An
+    // absolute `false` therefore does not test this contract at all; it tests whether anything
+    // had arranged a pane yet. What must hold is that the EDIT moved nothing.
     const st = await undoState()
+    assert.notEqual(dirtyBeforeEdit, null, 'the dirty baseline was never taken')
     assert.equal(
       st.projectDirty,
-      false,
-      'a data edit is already saved and must not be reported as unsaved work',
+      dirtyBeforeEdit,
+      'a data edit is already saved and must not change what the unsaved-work dot reports',
     )
 
     const tabText = await browser.execute(

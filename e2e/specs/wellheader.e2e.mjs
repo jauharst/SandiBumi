@@ -39,7 +39,7 @@ async function invokeOk(cmd, args) {
   return r.value
 }
 
-const wellById = async (id) => (await invokeOk('list_wells')).find((w) => w.well_id === id)
+const wellById = async (id) => (await invokeOk('list_wells', { scope: { kind: 'all' } })).find((w) => w.well_id === id)
 
 /** Open Well Header… from the Data ribbon's Tools menu, whichever entry carries that label. */
 const openWellHeader = () =>
@@ -87,14 +87,26 @@ describe('well header (T-AUX-03)', () => {
   let asFound = null
 
   before(async () => {
-    const existing = await invokeOk('list_wells')
+    const existing = await invokeOk('list_wells', { scope: { kind: 'all' } })
     if (existing.length === 0) {
       const paths = ['SANDI-01.las', 'SANDI-02.las', 'SANDI-03.las'].map((f) =>
         path.join(examplesDir, f),
       )
-      await invokeOk('import_las_files', { paths, setName: 'E2E', attach: false })
+      // The import refuses without a declared sampling style + step tolerance (see
+      // despike.e2e.mjs); 0.01 m is a test input for the synthetic examples, not a field value.
+      const imported = await invokeOk('import_las_files', {
+        paths,
+        setName: 'E2E',
+        attach: false,
+        samplingStyle: 'CONTINUOUS_REGULAR',
+        samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
+      })
+      // A refused file is not an invoke error — the command succeeds and reports per file.
+      for (const r of imported) {
+        assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+      }
     }
-    const wells = await invokeOk('list_wells')
+    const wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     wells.sort((a, b) => a.well_name.localeCompare(b.well_name))
     well = wells[0]
     asFound = { ...well }
@@ -123,7 +135,9 @@ describe('well header (T-AUX-03)', () => {
     // Step 1: set coordinates through the dialog itself, so the values under test arrived by the
     // same path a user would use.
     assert.ok(await openWellHeader(), 'no Well Header… entry in the Data ribbon')
-    await browser.waitUntil(async () => (await headerFields()) !== null, {
+    // `#modal-root` exists before the dialog renders its inputs, so wait for a FIELD, not just
+    // a non-null read — the empty-root read races the dialog build and reads every field null.
+    await browser.waitUntil(async () => ((await headerFields())?.td ?? null) !== null, {
       timeout: 20_000,
       interval: 250,
       timeoutMsg: 'the Well Header dialog never opened',
@@ -163,7 +177,7 @@ describe('well header (T-AUX-03)', () => {
     // coordinates — the dialog is rebuilt from `selectedWell`, which was snapshotted before the
     // save above and therefore still carries the OLD (null) location.
     assert.ok(await openWellHeader())
-    await browser.waitUntil(async () => (await headerFields()) !== null, {
+    await browser.waitUntil(async () => ((await headerFields())?.td ?? null) !== null, {
       timeout: 20_000,
       interval: 250,
       timeoutMsg: 'the Well Header dialog would not reopen',

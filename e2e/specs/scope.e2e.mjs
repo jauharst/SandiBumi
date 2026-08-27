@@ -112,14 +112,26 @@ describe('batch scope modes (T-WELL-03, T-AUX-15)', () => {
   let wells = []
 
   before(async () => {
-    const existing = await invokeOk('list_wells')
+    const existing = await invokeOk('list_wells', { scope: { kind: 'all' } })
     if (existing.length === 0) {
       const paths = ['SANDI-01.las', 'SANDI-02.las', 'SANDI-03.las'].map((f) =>
         path.join(examplesDir, f),
       )
-      await invokeOk('import_las_files', { paths, setName: 'E2E', attach: false })
+      // The import refuses without a declared sampling style + step tolerance (see
+      // despike.e2e.mjs); 0.01 m is a test input for the synthetic examples, not a field value.
+      const imported = await invokeOk('import_las_files', {
+        paths,
+        setName: 'E2E',
+        attach: false,
+        samplingStyle: 'CONTINUOUS_REGULAR',
+        samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
+      })
+      // A refused file is not an invoke error — the command succeeds and reports per file.
+      for (const r of imported) {
+        assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+      }
     }
-    wells = await invokeOk('list_wells')
+    wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     wells.sort((a, b) => a.well_name.localeCompare(b.well_name))
     assert.ok(wells.length >= 3, `need at least 3 wells, found ${wells.length}`)
 

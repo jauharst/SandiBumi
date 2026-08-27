@@ -56,28 +56,49 @@ describe('curve catalog (T-MLEQ-16)', () => {
   let well = null
 
   before(async () => {
-    const existing = await invokeOk('list_wells')
+    const existing = await invokeOk('list_wells', { scope: { kind: 'all' } })
     if (existing.length === 0) {
       const paths = ['SANDI-01.las', 'SANDI-02.las', 'SANDI-03.las'].map((f) =>
         path.join(examplesDir, f),
       )
-      await invokeOk('import_las_files', { paths, setName: 'E2E', attach: false })
+      // The import refuses without a declared sampling style + step tolerance (see
+      // despike.e2e.mjs); 0.01 m is a test input for the synthetic examples, not a field value.
+      const imported = await invokeOk('import_las_files', {
+        paths,
+        setName: 'E2E',
+        attach: false,
+        samplingStyle: 'CONTINUOUS_REGULAR',
+        samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
+      })
+      // A refused file is not an invoke error — the command succeeds and reports per file.
+      for (const r of imported) {
+        assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+      }
     }
-    const wells = await invokeOk('list_wells')
+    const wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     wells.sort((a, b) => a.well_name.localeCompare(b.well_name))
     well = wells[0]
 
     // Make sure the well has at least one COMPUTED curve, so the catalog has something with a set
     // and a version to show. Re-running is harmless — it versions rather than overwrites, which is
     // the contract this panel exists to display.
+    // A run now declares its custody (operator + source note; AUTOMATED names the harness
+    // honestly) and resolves its wells from a backend scope selector.
     await invokeOk('run_workflow_module', {
       req: {
         module: 'vsh_gr',
         well_ids: [well.well_id],
         log_inputs: {},
-        params: {},
+        // No-default GR endpoints: 45/110 are the synthetic generator's own clean-sand and
+        // cap-shale GR means (tools/make_example_data.py ZONES), not a field calibration.
+        params: { GR_MA: 45, GR_SH: 110 },
         opts: {},
+        custody: {
+          actor: { kind: 'AUTOMATED', identity: 'e2e-harness' },
+          source_note: 'e2e fixture run; manifest defaults, no explicit values',
+        },
       },
+      scope: { kind: 'explicit', well_ids: [well.well_id] },
     })
 
     // Open the panel FIRST, then select the well.
