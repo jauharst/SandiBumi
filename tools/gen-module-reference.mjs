@@ -209,7 +209,7 @@ function renderIndex(specs) {
     'One page per petrophysics module, generated from the same manifests the application ' +
       'builds its parameter panes from — descriptions, defaults, sources, ranges and ' +
       'pre-run checks here are exactly what the running application enforces. For the ' +
-      'workflow these modules live in, start with the [first hour guide](../first-hour.md).',
+      'workflow these modules live in, start with the [first hour guide](../book/first_hour.html).',
   );
   const categories = [...new Set(specs.map((m) => m.category))].sort();
   for (const cat of categories) {
