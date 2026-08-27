@@ -1,0 +1,83 @@
+<!-- Authored walkthrough for the Sessions & Layouts tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Two kinds of memory keep a workspace reproducible. A <b>layout</b>
+remembers how a log view is drawn &ndash; which tracks, which curves,
+scales, fills &ndash; under a name any log view can recall. A
+<b>session</b> remembers the workspace itself &ndash; which panes are
+open, how they are arranged, which well was live &ndash; so tomorrow
+morning starts where tonight stopped. Neither is Save Project As&hellip;,
+which copies the whole database; these are arrangements, saved inside the
+project and costing nothing. Reach for layouts when a display is worth
+repeating across wells, and for sessions at every natural stopping
+point.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-sessions.png"
+       alt="The Open Session dialog listing the saved session over the live workspace" />
+  <figcaption>Open Session&hellip; over the workspace it is about to
+    replace. The dialog is non-blocking &ndash; the log view behind stays
+    live &ndash; and each saved session is one click to reopen, with its
+    own delete control.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Layouts live on the Plot tab</b> (<b>Save Layout&hellip;</b>, and
+    the Active Layout picker beside it). Saving the current log view's
+    arrangement under a new name reported "Layout &quot;Guide
+    Workspace&quot; saved" and the name appeared in every log view's
+    layout menu at once.</li>
+  <li><b>Sessions live on the Project tab</b> (<b>Save
+    Session&hellip;</b> / <b>Open Session&hellip;</b>). The dialog states
+    its one consequence plainly:</li>
+</ul>
+
+<pre class="equations">Reopen a saved workspace. This replaces the current panes and visualizations with the
+session's arrangement and switches to its well.</pre>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Arrange the workspace &ndash; panes, log views, plots &ndash; the way
+    the task needs it.</li>
+  <li><b>Plot &#9656; Save Layout&hellip;</b> to name the log view's
+    arrangement; <b>Project &#9656; Save Session&hellip;</b> to name the
+    whole workspace.</li>
+  <li>To return, <b>Project &#9656; Open Session&hellip;</b> and click the
+    session's name. On the example, a workspace was saved with the
+    Inspector open, the Inspector was closed, and reopening the session
+    brought it back in place.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>What a session carries, measured on the round trip: the pane
+arrangement, each pane's identity, the selected well (set before the
+layout is applied, so every recreated pane initializes on it), and each
+log view's chosen named layout. What it deliberately does not carry: a
+pane's transient contents. The Equation Editor reopened on its blank
+new-equation state rather than the draft that was on screen when the
+session was saved, and the log view's zoom scale came back at its layout
+default &ndash; a session is an arrangement of tools, not a snapshot of
+half-finished work inside them. Anything that must survive belongs in the
+project: saved equations, saved layouts, written curves.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Opening a session replaces, it does not merge.</b> Panes open now
+    that the session does not include are closed. Save the current state
+    first if it is worth anything.</li>
+  <li><b>Layouts are project documents.</b> They travel with the
+    .duckdb, so a project handed to a colleague carries its layouts
+    &ndash; and fourteen layouts named for this guidebook's chapters came
+    along in the example project for exactly that reason.</li>
+  <li><b>The unsaved-state dot on the Project tab is the tell.</b> Work
+    that would be lost with the window shows as the dot on the tab
+    itself; Save Session&hellip; is the cheap way to clear it at a
+    stopping point.</li>
+</ul>

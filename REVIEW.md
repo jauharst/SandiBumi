@@ -1,5 +1,64 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-27 — Second pass, increment 13: the Workspace & Project tool book — Zones, Tops & Autocorrelation, Equation Editor, Sessions & Layouts, Processing History, Composite Log, Report & Deliverables, Diagnostics
+
+- [ ] **Eight Workspace & Project chapters written** (tool_zones, tool_tops_editor,
+      tool_equation_editor, tool_sessions_layouts, tool_processing_history,
+      tool_composite, tool_report, tool_diagnostics) with eight composed-layout figures
+      (`ls docs/guide/chapters/tool_{zones,tops_editor,equation_editor,sessions_layouts,processing_history,composite,report,diagnostics}.html` — 8 files).
+      Book regenerated: 98 pages (`node tools\gen-guidebook.mjs` — "wrote 98 page(s)"),
+      163 unique image refs, 0 missing (Select-String sweep over book/*.html).
+- [ ] **Tops driven end to end on camera**: a 3-marker CSV imported onto SANDI-01
+      (import_tops_csv: 3 written, 1 well matched), the 🏷 editor's drag moved LESTARI
+      1528.0 → 1530.41 and the Undo tooltip named the operation ("Undo move top
+      LESTARI") before restoring 1528.0 exactly; multi-marker autocorrelation on GR
+      proposed 6 picks at r 0.91–0.99 ("Correlate 3 tops → 2 wells") and applying them
+      recovered the staged +10 m / −5 m structure to within 0.13 m (tops table:
+      1522.04/1537.87/1554.01 and 1507.03/1522.87/1539.08).
+- [ ] **Zones built from tops on all three wells** (each on its own autocorrelated
+      depths), the per-zone override table shown carrying the increment-5 RtC
+      calibration as its four well-wide '*' rows, and one demonstration override
+      (M = 2 on LESTARI — deliberately the Archie default, so the mechanism carries no
+      physics claim) written through the run-custody prompt and recorded in History.
+- [ ] **Equation Editor with both refusals live**: "Save the equation before running
+      it." on an unsaved Run, then the custody prompt refusing an empty source
+      ("Enter the source/reference covering this run's explicit values."); the
+      gamma-ray-index script (endpoints from np.nanmin/np.nanmax, no invented
+      constants) ran "1/1 well(s) succeeded, 395 rows written." then "3/3 well(s)
+      succeeded, 1185 rows written.", IGR spanning exactly 0–1 per well; the header's
+      probe line naming the interpreter and scipy 1.18.0 quoted in the chapter.
+- [ ] **Sessions & Layouts round-trip verified**: layout "Guide Workspace" saved, session
+      "Equation session" saved, the Inspector closed, and opening the session restored
+      it; the chapter states what the snapshot deliberately does not carry (a pane's
+      transient fields, the view's zoom), measured on the same round trip.
+- [ ] **Processing History figure shows the project narrating itself**: 395 records at
+      capture (pane header), seven kind tags on one page (SESSION/EQUATION/ZONE/TOPS/
+      PROJECT/QC/EDIT), the boot note "DuckDB memory capped at 512MB" landing as a
+      PROJECT entry, beside the live Processing job cards.
+- [ ] **Composite pagination measured**: "SANDI-01: 1 page(s) at 1:500." and
+      "SANDI-01: 2 page(s) at 1:200." with page 1 covering 1500.0–1546.6 m — the
+      46.6 m being exactly what A4 holds at 1:200 after the header; figure shows the
+      rendered page with title block and tops.
+- [ ] **Report chapter written around the custody moment**: the render prompt's own
+      title ("render the report and compute its pay-summary flags") is the figure, the
+      unsettled-cutoff chips are quoted verbatim, and the render completed 1/1 in
+      Processing. NOTE, not in the book: the render's preview is currently erased by
+      the pane's own dataVersion rebuild a microtask after it draws (reportDialog.ts
+      bumps, wellPane followData rebuilds) — filed as chip task_cd6056ec; the chapter
+      describes Render → Save without promising the on-screen preview.
+- [ ] **Diagnostics chapter measures its own redaction**: report built at 1,033,198
+      chars, 253 WELL-n occurrences and zero raw well names from the redactor's own
+      mapping; the one survivor is an operator-typed run-source citation, quoted in the
+      chapter as exactly the case the read-before-send step exists for. Second defect
+      found while checking "saved equations 0": the diagnostics count AND the
+      opened-project code notice (lib.rs project_code_notice) read documents
+      doc_type='equation' while the editor writes the equations table — filed as chip
+      task_40dda07d.
+- [ ] **Sandbox additions this increment, deliberate**: tops (9 rows), zones (9), the
+      LESTARI M override, equation GR_INDEX + IGR curves (3×395 rows), layout "Guide
+      Workspace", session "Equation session", and recomputed FLAG curves from the two
+      report renders.
+
 ## 2026-08-27 — Second pass, increment 12: the Core & Petrography tool book — Register Core Depth, Condition Core Photos, Photo Log, Condition Plates, Plate Details, Pore Area, Mineral Classifier and Plug QC
 
 - [ ] **Eight Core & Petrography chapters written** (tool_depth_reg, tool_core_photos,
