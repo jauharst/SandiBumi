@@ -167,7 +167,9 @@ describe('the application shell', () => {
         document.querySelectorAll('#advance-modules .ribbon-btn .ribbon-label'),
       ).map((s) => (s.textContent ?? '').trim()),
       // The hand-written buttons in the same panel.
-      byId: ['multimin-btn', 'rtc-fit-btn', 'sfactor-fit-btn', 'ml-btn'].filter((id) =>
+      // sandimin-btn since the 2026-08-20 rename: only the retired module id and workspace
+      // component id are frozen for saved chains/sessions; the ribbon button id moved with it.
+      byId: ['sandimin-btn', 'rtc-fit-btn', 'sfactor-fit-btn', 'ml-btn'].filter((id) =>
         document.querySelector(`#${id}`),
       ),
     }))
@@ -181,7 +183,7 @@ describe('the application shell', () => {
     )
     assert.deepEqual(
       advance.byId,
-      ['multimin-btn', 'rtc-fit-btn', 'sfactor-fit-btn', 'ml-btn'],
+      ['sandimin-btn', 'rtc-fit-btn', 'sfactor-fit-btn', 'ml-btn'],
       'SandiMin, both calibration tools and ML Models must all be on the Advance tab',
     )
   })

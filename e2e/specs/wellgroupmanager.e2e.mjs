@@ -85,14 +85,26 @@ describe('well group manager and scoping (T-WELL-04, T-WELL-05, T-WELL-06)', () 
   let wells = []
 
   before(async () => {
-    const existing = await invokeOk('list_wells')
+    const existing = await invokeOk('list_wells', { scope: { kind: 'all' } })
     if (existing.length === 0) {
       const paths = ['SANDI-01.las', 'SANDI-02.las', 'SANDI-03.las'].map((f) =>
         path.join(examplesDir, f),
       )
-      await invokeOk('import_las_files', { paths, setName: 'E2E', attach: false })
+      // The import refuses without a declared sampling style + step tolerance (see
+      // despike.e2e.mjs); 0.01 m is a test input for the synthetic examples, not a field value.
+      const imported = await invokeOk('import_las_files', {
+        paths,
+        setName: 'E2E',
+        attach: false,
+        samplingStyle: 'CONTINUOUS_REGULAR',
+        samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
+      })
+      // A refused file is not an invoke error — the command succeeds and reports per file.
+      for (const r of imported) {
+        assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+      }
     }
-    wells = await invokeOk('list_wells')
+    wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     wells.sort((a, b) => a.well_name.localeCompare(b.well_name))
     assert.ok(wells.length >= 3, `need at least 3 wells, found ${wells.length}`)
 
@@ -285,28 +297,37 @@ describe('well group manager and scoping (T-WELL-04, T-WELL-05, T-WELL-06)', () 
         .forEach((m) => m.setAttribute('hidden', ''))
     }, spec.title)
 
-    await browser.waitUntil(
-      async () =>
-        await browser.execute(() => !!document.querySelector('.module-pane .well-scope-count')),
-      { timeout: 30_000, interval: 500, timeoutMsg: 'the module pane never showed a scope count' },
-    )
-
     // Identify the pane by its OWN manifest outputs rather than taking "the last .module-pane".
     // Two reasons that shortcut is wrong: several module panes can be open at once, and dockview
     // DETACHES inactive tabs from the DOM, so which panes are present at all depends on what other
     // specs left focused. Reading the wrong pane made this test report a 3-well scope for a 2-well
-    // group — a failure that says nothing about the feature.
+    // group — a failure that says nothing about the feature. The WAIT must run on the identified
+    // pane too: a generic `.well-scope-count` wait is satisfied by any earlier spec's pane while
+    // this one is still building its outputs grid.
     const outputs = (spec.args ?? []).filter((a) => a.kind === 'log_out').map((a) => a.name)
-    const count = await browser.execute((outs) => {
+    const readCount = (outs) => {
       const panes = Array.from(document.querySelectorAll('.module-pane'))
+      // The outputs section's labels carry "Declared as <ARG>" titles — the manifest identity
+      // the old "Outputs:" hint used to state.
       const mine = panes.find((p) => {
-        const note = Array.from(p.querySelectorAll('.modal-hint'))
-          .map((h) => h.textContent.trim())
-          .find((t) => t.startsWith('Outputs:'))
-        return note && outs.every((o) => note.includes(o))
+        const titles = Array.from(p.querySelectorAll('.module-outputs .module-output-label')).map(
+          (l) => l.title ?? '',
+        )
+        return outs.every((o) =>
+          titles.some((t) => t === `Declared as ${o}` || t.startsWith(`Declared as ${o};`)),
+        )
       })
       return mine?.querySelector('.well-scope-count')?.textContent?.trim() ?? '(pane not found)'
-    }, outputs)
+    }
+    await browser.waitUntil(
+      async () => (await browser.execute(readCount, outputs)) !== '(pane not found)',
+      {
+        timeout: 30_000,
+        interval: 500,
+        timeoutMsg: `the ${spec.name} pane never built its outputs section`,
+      },
+    )
+    const count = await browser.execute(readCount, outputs)
 
     assert.match(
       count,
@@ -382,7 +403,7 @@ describe('well group manager and scoping (T-WELL-04, T-WELL-05, T-WELL-06)', () 
 
     // The wells must still be there. A group is a view over wells, not a container of them —
     // deleting one must never take its members with it.
-    const stillThere = await invokeOk('list_wells')
+    const stillThere = await invokeOk('list_wells', { scope: { kind: 'all' } })
     assert.ok(
       stillThere.length >= 3,
       `deleting a group must not delete its wells; ${stillThere.length} remain`,

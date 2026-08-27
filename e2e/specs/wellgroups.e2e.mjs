@@ -85,14 +85,26 @@ describe('well-group scoping (T-INT-09)', () => {
     // This spec owns its own wells so it does not depend on another spec having run first —
     // wdio gives no ordering guarantee across files, and a spec that silently passes because it
     // found no wells to run on is worse than one that fails.
-    const existing = await invokeOk('list_wells')
+    const existing = await invokeOk('list_wells', { scope: { kind: 'all' } })
     if (existing.length === 0) {
       const paths = ['SANDI-01.las', 'SANDI-02.las', 'SANDI-03.las'].map((f) =>
         path.join(examplesDir, f),
       )
-      await invokeOk('import_las_files', { paths, setName: 'E2E', attach: false })
+      // The import refuses without a declared sampling style + step tolerance (see
+      // despike.e2e.mjs); 0.01 m is a test input for the synthetic examples, not a field value.
+      const imported = await invokeOk('import_las_files', {
+        paths,
+        setName: 'E2E',
+        attach: false,
+        samplingStyle: 'CONTINUOUS_REGULAR',
+        samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
+      })
+      // A refused file is not an invoke error — the command succeeds and reports per file.
+      for (const r of imported) {
+        assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+      }
     }
-    wells = await invokeOk('list_wells')
+    wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     assert.ok(wells.length >= 3, `need at least 3 wells, found ${wells.length}`)
     wells.sort((a, b) => a.well_name.localeCompare(b.well_name))
     members = wells.slice(0, 2)
@@ -172,14 +184,24 @@ describe('well-group scoping (T-INT-09)', () => {
     // means the backend wrote outside the well list it was given, which would be far worse.
     const before = await computedFingerprint(outsider.well_id)
 
+    // A run now declares its custody (operator + source note; AUTOMATED names the harness
+    // honestly) and resolves its wells from a backend scope selector — still passed explicitly
+    // here, for the reason the comment above states.
     const results = await invokeOk('run_workflow_module', {
       req: {
         module: 'vsh_gr',
         well_ids: members.map((w) => w.well_id),
         log_inputs: {},
-        params: {},
+        // No-default GR endpoints: 45/110 are the synthetic generator's own clean-sand and
+        // cap-shale GR means (tools/make_example_data.py ZONES), not a field calibration.
+        params: { GR_MA: 45, GR_SH: 110 },
         opts: {},
+        custody: {
+          actor: { kind: 'AUTOMATED', identity: 'e2e-harness' },
+          source_note: 'e2e fixture run; manifest defaults, no explicit values',
+        },
       },
+      scope: { kind: 'explicit', well_ids: members.map((w) => w.well_id) },
     })
     assert.equal(results.length, 2, 'one result per member, and no result for the outsider')
     for (const r of results) {

@@ -53,13 +53,17 @@ describe('despike live contamination ceiling (SB-ENV-031)', () => {
       // and, for CONTINUOUS_REGULAR, a declared step tolerance (it belongs to the logging tool,
       // so no default ships). The SANDI examples are synthetic regular-step files; 0.01 m is a
       // test input for them, not a recommended field value.
-      await invokeOk('import_las_files', {
+      const imported = await invokeOk('import_las_files', {
         paths,
         setName: 'E2E',
         attach: false,
         samplingStyle: 'CONTINUOUS_REGULAR',
         samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
       })
+      // A refused file is not an invoke error — the command succeeds and reports per file.
+      for (const r of imported) {
+        assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+      }
     }
 
     // Seeding through `invoke` tells the frontend nothing (see the harness doc): the scope

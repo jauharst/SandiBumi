@@ -68,9 +68,10 @@ describe('ML pane (T-MLEQ-01, T-MLEQ-14)', () => {
     const labels = await mlLabels()
     assert.ok(labels.length > 0, 'the ML pane must build a form')
 
-    // Task and Algorithm are the two that drive everything else in this pane — the algorithm list
-    // and the output name both follow the task — so their absence is not a cosmetic loss.
-    for (const want of [/task/i, /algorithm/i]) {
+    // The task choice and the Algorithm picker drive everything else in this pane. The task is
+    // no longer a labelled "Task" row: the 2026-08 redesign folded it into the "Predicting"
+    // segmented row (Continuous/Discrete) beside the grouped Algorithm picker.
+    for (const want of [/predicting/i, /algorithm/i]) {
       assert.ok(
         labels.some((l) => want.test(l)),
         `the ML form must carry a ${want} control; it has: ${labels.slice(0, 12).join(' | ')}`,
@@ -106,10 +107,12 @@ describe('ML pane (T-MLEQ-01, T-MLEQ-14)', () => {
     await browser.execute(() => {
       const anchor = document.querySelector('input[placeholder="leave blank to not keep the model"]')
       const pane = anchor?.closest('.mc-dialog')
-      pane?.querySelectorAll('input[type="checkbox"]').forEach((c) => {
-        if (c.checked) {
-          c.checked = false
-          c.dispatchEvent(new Event('change', { bubbles: true }))
+      // Input curves are slot SELECTS now, not checkboxes — clearing a slot empties the
+      // feature list `selectedFeatures()` actually reads.
+      pane?.querySelectorAll('.ml-slot-sel').forEach((sel) => {
+        if (sel.value) {
+          sel.value = ''
+          sel.dispatchEvent(new Event('change', { bubbles: true }))
         }
       })
       const run = Array.from(pane?.querySelectorAll('button') ?? []).find((b) =>

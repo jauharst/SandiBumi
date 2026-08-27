@@ -96,7 +96,7 @@ describe('panels that open and report (T-REP-17, T-AUX-01, T-AUX-02)', () => {
     )
   })
 
-  it('refuses a write, and still refuses a SELECT that opens with a comment', async () => {
+  it('refuses a write, and runs a SELECT that carries comments', async () => {
     // The read-only rule itself is pinned in Rust
     // (`readonly_query_refuses_every_write_shape_including_a_cte_prefix`). What is checked here is
     // that the refusal really reaches this path, and — the reason this test exists — how the guard
@@ -106,45 +106,23 @@ describe('panels that open and report (T-REP-17, T-AUX-01, T-AUX-02)', () => {
       limit: 10,
     })
     assert.ok(!write.ok, 'a DELETE through the query command must be refused, not executed')
-    assert.ok((await call('list_wells')).ok, 'the project must still be readable after the refusal')
+    assert.ok((await call('list_wells', { scope: { kind: 'all' } })).ok, 'the project must still be readable after the refusal')
 
-    // PINNED AS-IS, NOT ENDORSED — finding 23, both halves. An ordinary SQL comment breaks this
-    // console in two different ways depending on where it sits, and neither is the user's fault.
-    //
-    // LEADING: `run_readonly_query` tests the FIRST KEYWORD of the trimmed text, so a `--` line in
-    // front makes a valid SELECT fail with "only SELECT queries are allowed here". This is what
-    // shipped the panel's own starter broken — the first thing a new user clicked was refused with
-    // a message saying their SELECT was not a SELECT.
+    // Finding 23, BOTH halves fixed in `run_readonly_query` and pinned here from the fixed side:
+    // the keyword guard skips leading `--` lines (the token it inspects is the one DuckDB will
+    // execute), and the wrapper's closing suffix sits on its own line so a trailing comment
+    // cannot swallow it. An ordinary SQL comment must never break a valid SELECT.
     const leading = await call('run_query', {
       sql: '-- a perfectly ordinary comment\nSELECT COUNT(*) AS n FROM wells',
       limit: 10,
     })
-    assert.ok(!leading.ok, 'current behaviour: a leading comment hides the SELECT from the guard')
-    assert.match(
-      String(leading.error),
-      /only SELECT queries are allowed/i,
-      'and it is the read-only guard that refuses, not a SQL parser error',
-    )
+    assert.ok(leading.ok, `a SELECT behind a leading comment must run; it was refused: ${leading.error}`)
 
-    // TRAILING: the query is executed WRAPPED as `SELECT * FROM ({sql}) __sandibumi_q LIMIT n`, so
-    // a `--` at the end swallows the closing paren and the limit. DuckDB then reports a syntax
-    // error against the user's own query, which is the more confusing of the two — the query is
-    // valid, and nothing on screen says it was rewritten before being run.
     const trailing = await call('run_query', {
       sql: 'SELECT COUNT(*) AS n FROM wells -- how many wells',
       limit: 10,
     })
-    assert.ok(!trailing.ok, 'current behaviour: a trailing comment swallows the wrapper')
-    assert.match(
-      String(trailing.error),
-      /syntax error/i,
-      'and it surfaces as a parser error about a query that is perfectly valid on its own',
-    )
-
-    // The starter is fixed (a closed block comment, safe in both directions). The GUARD is not,
-    // because both fixes touch a write-discipline path and rule 6 puts that in Jauhar's hands.
-    // If either assertion above starts failing, finding 23 has been fixed — delete that half
-    // rather than restoring it.
+    assert.ok(trailing.ok, `a SELECT with a trailing comment must run; it was refused: ${trailing.error}`)
   })
 
   it('opens the performance monitor with live gauges', async () => {

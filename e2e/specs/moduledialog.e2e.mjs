@@ -62,12 +62,24 @@ const resultText = () =>
 
 describe('module pane and its refusals (T-PREP-01, T-PETRO-03, T-INT-06)', () => {
   before(async () => {
-    const existing = await invokeOk('list_wells')
+    const existing = await invokeOk('list_wells', { scope: { kind: 'all' } })
     if (existing.length === 0) {
       const paths = ['SANDI-01.las', 'SANDI-02.las', 'SANDI-03.las'].map((f) =>
         path.join(examplesDir, f),
       )
-      await invokeOk('import_las_files', { paths, setName: 'E2E', attach: false })
+      // The import refuses without a declared sampling style + step tolerance (see
+      // despike.e2e.mjs); 0.01 m is a test input for the synthetic examples, not a field value.
+      const imported = await invokeOk('import_las_files', {
+        paths,
+        setName: 'E2E',
+        attach: false,
+        samplingStyle: 'CONTINUOUS_REGULAR',
+        samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
+      })
+      // A refused file is not an invoke error — the command succeeds and reports per file.
+      for (const r of imported) {
+        assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+      }
     }
 
     // Open a module pane the way a user does: the Petrophysics tab, a ribbon dropdown, an item.
@@ -117,7 +129,8 @@ describe('module pane and its refusals (T-PREP-01, T-PETRO-03, T-INT-06)', () =>
     assert.ok(opened)
 
     await browser.waitUntil(
-      async () => await browser.execute(() => !!document.querySelector('.module-pane .form-run-btn')),
+      async () =>
+        await browser.execute(() => !!document.querySelector('.module-pane .module-footer .btn')),
       {
         timeout: 30_000,
         interval: 500,
@@ -154,12 +167,12 @@ describe('module pane and its refusals (T-PREP-01, T-PETRO-03, T-INT-06)', () =>
       const selects = Array.from(pane.querySelectorAll('select'))
       return {
         hasScope: !!pane.querySelector('.well-scope'),
-        hasRun: !!pane.querySelector('.form-run-btn'),
+        // The pane's primary pill lives in its footer now (design 1d) — `.form-run-btn` is gone.
+        hasRun: !!pane.querySelector('.module-footer .btn'),
         numberInputs: pane.querySelectorAll('input[type="number"]').length,
-        outputsNote:
-          Array.from(pane.querySelectorAll('.modal-hint'))
-            .map((p) => p.textContent.trim())
-            .find((t) => t.startsWith('Outputs:')) ?? null,
+        // The old "Outputs:" hint became the editable outputs section: one labelled name input
+        // per declared output, each label titled "Declared as <ARG>".
+        declaredOutputs: pane.querySelectorAll('.module-outputs .module-output-label').length,
         // Curve pickers lead with "(none)" so a run can leave an optional input unbound. A picker
         // that lost it would silently bind the first curve in the list instead — the module would
         // run, on a curve nobody chose.
@@ -173,9 +186,9 @@ describe('module pane and its refusals (T-PREP-01, T-PETRO-03, T-INT-06)', () =>
     assert.ok(form.hasRun, 'the pane must carry a Run button')
     assert.ok(form.numberInputs > 0, 'a vsh_gr form must expose its numeric parameters')
     assert.ok(
-      form.outputsNote,
-      'the pane must state which curves the run writes — that note is the only place a user is ' +
-        'told before pressing Run',
+      form.declaredOutputs > 0,
+      'the pane must state which curves the run writes — the outputs section is the only place a ' +
+        'user is told before pressing Run',
     )
     assert.ok(
       form.curveSelectsWithNone > 0,
@@ -191,7 +204,7 @@ describe('module pane and its refusals (T-PREP-01, T-PETRO-03, T-INT-06)', () =>
       if (!input) return null
       input.value = '999999'
       input.dispatchEvent(new Event('input', { bubbles: true }))
-      document.querySelector('.module-pane .form-run-btn').click()
+      document.querySelector('.module-pane .module-footer .btn').click()
       return true
     })
     assert.ok(set, 'no numeric parameter input in the module pane')
@@ -245,7 +258,7 @@ describe('module pane and its refusals (T-PREP-01, T-PETRO-03, T-INT-06)', () =>
         input.value = '10'
         input.dispatchEvent(new Event('input', { bubbles: true }))
       }
-      document.querySelector('.module-pane .form-run-btn').click()
+      document.querySelector('.module-pane .module-footer .btn').click()
     })
 
     await browser.waitUntil(async () => /no wells in scope/i.test(await resultText()), {

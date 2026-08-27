@@ -45,17 +45,28 @@ const historyRows = () =>
     ),
   )
 
-/** The module pane's result line. */
+// Each helper re-finds the vsh_gr pane by its own declared output — "the last .module-pane" can
+// be another spec's pane, since several stay attached at once. The finder is inlined per helper
+// because each function is serialized into the page separately.
+
+/** The vsh_gr pane's result line. */
 const resultText = () =>
   browser.execute(() => {
-    const els = document.querySelectorAll('.module-pane .modal-result')
-    return els.length ? els[els.length - 1].textContent.trim() : ''
+    const pane = Array.from(document.querySelectorAll('.module-pane')).find((p) =>
+      Array.from(p.querySelectorAll('.module-output-label')).some(
+        (l) => (l.title ?? '') === 'Declared as VSH_GR',
+      ),
+    )
+    return pane?.querySelector('.modal-result')?.textContent?.trim() ?? ''
   })
 
 const setMode = (label) =>
   browser.execute((t) => {
-    const panes = document.querySelectorAll('.module-pane')
-    const pane = panes[panes.length - 1]
+    const pane = Array.from(document.querySelectorAll('.module-pane')).find((p) =>
+      Array.from(p.querySelectorAll('.module-output-label')).some(
+        (l) => (l.title ?? '') === 'Declared as VSH_GR',
+      ),
+    )
     const btn = Array.from(pane?.querySelectorAll('.well-scope-mode') ?? []).find(
       (b) => (b.textContent ?? '').trim() === t,
     )
@@ -64,25 +75,42 @@ const setMode = (label) =>
     return true
   }, label)
 
+// The pane's primary pill in its footer (design 1d) — the module pane no longer uses
+// `.form-run-btn`.
 const runModule = () =>
   browser.execute(() => {
-    const panes = document.querySelectorAll('.module-pane')
-    const pane = panes[panes.length - 1]
-    pane?.querySelector('.form-run-btn')?.click()
+    const pane = Array.from(document.querySelectorAll('.module-pane')).find((p) =>
+      Array.from(p.querySelectorAll('.module-output-label')).some(
+        (l) => (l.title ?? '') === 'Declared as VSH_GR',
+      ),
+    )
+    pane?.querySelector('.module-footer .btn')?.click()
   })
 
 describe('history attribution (T-SHELL-15)', () => {
   let wells = []
 
   before(async () => {
-    const existing = await invokeOk('list_wells')
+    const existing = await invokeOk('list_wells', { scope: { kind: 'all' } })
     if (existing.length === 0) {
       const paths = ['SANDI-01.las', 'SANDI-02.las', 'SANDI-03.las'].map((f) =>
         path.join(examplesDir, f),
       )
-      await invokeOk('import_las_files', { paths, setName: 'E2E', attach: false })
+      // The import refuses without a declared sampling style + step tolerance (see
+      // despike.e2e.mjs); 0.01 m is a test input for the synthetic examples, not a field value.
+      const imported = await invokeOk('import_las_files', {
+        paths,
+        setName: 'E2E',
+        attach: false,
+        samplingStyle: 'CONTINUOUS_REGULAR',
+        samplingStyleVerifyTolerance: { value: 0.01, unit: 'M' },
+      })
+      // A refused file is not an invoke error — the command succeeds and reports per file.
+      for (const r of imported) {
+        assert.ok(r.well_id != null, `import failed for ${r.path}: ${r.error}`)
+      }
     }
-    wells = await invokeOk('list_wells')
+    wells = await invokeOk('list_wells', { scope: { kind: 'all' } })
     wells.sort((a, b) => a.well_name.localeCompare(b.well_name))
     assert.ok(wells.length >= 3, `need at least 3 wells, found ${wells.length}`)
 
@@ -127,9 +155,57 @@ describe('history attribution (T-SHELL-15)', () => {
     }, spec.title)
 
     await browser.waitUntil(
-      async () => await browser.execute(() => !!document.querySelector('.module-pane .form-run-btn')),
+      async () =>
+        await browser.execute(() => {
+          const pane = Array.from(document.querySelectorAll('.module-pane')).find((p) =>
+            Array.from(p.querySelectorAll('.module-output-label')).some(
+              (l) => (l.title ?? '') === 'Declared as VSH_GR',
+            ),
+          )
+          return !!pane?.querySelector('.module-footer .btn')
+        }),
       { timeout: 30_000, interval: 500, timeoutMsg: 'no module pane to run from' },
     )
+
+    // A run needs the no-default GR endpoints and its custody rows filled through the pane's own
+    // controls (labels carry the arg name / custody caption; formRow links label -> control via
+    // htmlFor, the despike.e2e.mjs pattern). 45/110 are the synthetic generator's own clean-sand
+    // and cap-shale GR means (tools/make_example_data.py ZONES), not a field calibration.
+    const wired = await browser.execute(() => {
+      const pane = Array.from(document.querySelectorAll('.module-pane')).find((p) =>
+        Array.from(p.querySelectorAll('.module-output-label')).some(
+          (l) => (l.title ?? '') === 'Declared as VSH_GR',
+        ),
+      )
+      if (!pane) return { ok: false, why: 'no pane' }
+      const control = (labelText) => {
+        const label = Array.from(pane.querySelectorAll('label')).find(
+          (l) => (l.textContent ?? '').trim() === labelText,
+        )
+        if (!label) return null
+        return label.htmlFor
+          ? document.getElementById(label.htmlFor)
+          : label.parentElement?.querySelector('input, select, textarea') ?? null
+      }
+      const fill = (labelText, value) => {
+        const el = control(labelText)
+        if (!el) return false
+        el.value = value
+        el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }))
+        return true
+      }
+      for (const [label, value] of [
+        ['GR_MA', '45'],
+        ['GR_SH', '110'],
+        ['Actor kind', 'AUTOMATED'],
+        ['Session operator', 'e2e-harness'],
+        ['Run source / reference', 'e2e fixture endpoints from tools/make_example_data.py ZONES'],
+      ]) {
+        if (!fill(label, value)) return { ok: false, why: `no "${label}" control` }
+      }
+      return { ok: true }
+    })
+    assert.ok(wired.ok, `could not fill the vsh_gr form: ${wired.why}`)
   })
 
   after(async () => {
@@ -162,15 +238,20 @@ describe('history attribution (T-SHELL-15)', () => {
       async () =>
         /\b1\b/.test(
           await browser.execute(() => {
-            const els = document.querySelectorAll('.module-pane .well-scope-count')
-            return els.length ? els[els.length - 1].textContent.trim() : ''
+            const pane = Array.from(document.querySelectorAll('.module-pane')).find((p) =>
+              Array.from(p.querySelectorAll('.module-output-label')).some(
+                (l) => (l.title ?? '') === 'Declared as VSH_GR',
+              ),
+            )
+            return pane?.querySelector('.well-scope-count')?.textContent?.trim() ?? ''
           }),
         ),
       { timeout: 15_000, interval: 250, timeoutMsg: 'the scope never resolved to the single well' },
     )
 
     await runModule()
-    await browser.waitUntil(async () => /computed/i.test(await resultText()), {
+    // The pane's outcome line now reads "N clean · N degraded · N failed".
+    await browser.waitUntil(async () => /\bclean\b/i.test(await resultText()), {
       timeout: 60_000,
       interval: 500,
       timeoutMsg: `the run never reported; the pane says: ${await resultText()}`,
@@ -195,7 +276,7 @@ describe('history attribution (T-SHELL-15)', () => {
   it('attributes a multi-well batch to no single well, and says how many', async () => {
     assert.ok(await setMode('All'))
     await runModule()
-    await browser.waitUntil(async () => /computed/i.test(await resultText()), {
+    await browser.waitUntil(async () => /\bclean\b/i.test(await resultText()), {
       timeout: 60_000,
       interval: 500,
       timeoutMsg: `the batch run never reported; the pane says: ${await resultText()}`,

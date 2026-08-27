@@ -5374,7 +5374,9 @@ fn table_specs() -> Vec<TableSpec> {
         },
         TableSpec {
             table: "zones",
-            columns: vec!["zone_name", "top_depth", "bottom_depth"],
+            // depth_datum must be on the page: the Inspector's zone edit re-reads the row's own
+            // datum to re-declare it on write, so a page without the column refuses every edit.
+            columns: vec!["zone_name", "top_depth", "bottom_depth", "depth_datum"],
             well_scoped: true,
             order: "top_depth",
         },
