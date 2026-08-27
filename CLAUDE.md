@@ -421,9 +421,15 @@ same plate twice.
 field: a thin section is cut from one plug and has no thickness, so it is ANCHORED at its
 depth rather than stretched over a guessed interval. A core photograph delivered with a base
 depth spans it for real. That distinction is what `ImageStyle.mode` selects (`anchor` /
-`depth`), and where two plates would overlap at the current scale **the deeper one is SKIPPED,
-never nudged** — a plate moved to make room is a plate attributed to the wrong sand — leaving
-a depth tick, and zooming in reveals it. Aspect ratio is NEVER distorted: `fit` is
+`depth`). **Touching is not overlap** (2026-08-27): adjacent core-strip boxes share an edge
+EXACTLY at every scale, so both renderers fire their collision handling only when a box
+genuinely starts above the previous one's base — pinned by
+`touching_is_not_overlap_so_adjacent_core_strips_all_print_in_place`. Where two plates DO
+overlap at the current scale, **the screen SKIPS the deeper one, never nudges it** — a plate
+moved to make room is a plate attributed to the wrong sand — leaving a depth tick, and zooming
+in reveals it; the print, since DEC-090, slides it clear and draws a leader callout back to its
+true depth, degrading to the same skip only when the page is full. Aspect ratio is NEVER
+distorted: `fit` is
 `contain` or `cover` (crop), and there is deliberately no stretch, because a squashed thin
 section misstates grain shape, which is the one thing the plate is there to show.
 

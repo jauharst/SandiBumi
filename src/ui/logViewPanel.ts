@@ -1067,7 +1067,12 @@ export class LogViewPanel {
         for (const info of entries) {
           const sampleDepth = info.depth_base == null ? info.depth_top : (info.depth_top + info.depth_base) / 2;
           const box = imageBox(style, info, left, span, yOf);
-          if (box.y < lastBottom + 2) {
+          // Touching is not overlap: build_core_strips delivers adjacent barrels whose depth
+          // boxes share an edge EXACTLY, at every scale, so a guard firing at equality would
+          // condemn the middle barrel of every core delivery — and zooming could never reveal
+          // it. Only a box that genuinely starts above the previous one's base (beyond half a
+          // pixel of float slack) collides. Mirrors draw_image_series in composite.rs.
+          if (box.y < lastBottom - 0.5) {
             // Skipped, never nudged: a thin section moved to make room is a thin section
             // attributed to the wrong sand. A tick keeps its true depth visible.
             if (sampleDepth >= top && sampleDepth <= bottom) {
