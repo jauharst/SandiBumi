@@ -42,7 +42,7 @@
 
 use crate::modules::{
     log_in, log_out_as, log_out_flag_as, opt_labelled, param, param_open, param_open_when,
-    FlagCurve, FlagKind, FlagValue, ModuleContext, ModuleOutputs, ModuleSpec,
+    refuses, FlagCurve, FlagKind, FlagValue, ModuleContext, ModuleOutputs, ModuleSpec,
     PROJECT_DEPTH_UNIT_TOKEN,
 };
 use serde::Serialize;
@@ -1207,6 +1207,16 @@ pub fn flip(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 // NORMALIZE
 // ---------------------------------------------------------------------------
 
+/// The one refusal for a missing reference pair, worded once. The manifest carries it
+/// (`refuses`), so the precondition layer — which fires before [`normalize`] ever runs on the
+/// public runner path — refuses in this voice rather than the schema's; the backstop inside
+/// [`normalize`] returns the same constant for callers that reach the function without those
+/// preconditions. Two wordings for one absence is two places for the reasoning to drift.
+pub(crate) const REF_PAIR_REFUSAL: &str =
+    "REF_LOW and REF_HIGH must both be set - the reference pair IS the normalization, and \
+     there is no value that is right in two fields. Take it from this field's own multi-well \
+     distribution, or from a reference well, and use the same pair for every well.";
+
 /// Normalization for ANY curve, and deliberately the ONLY one.
 ///
 /// Jauhar, 2026-08-05: *"dont dupilcates, normalize tools here should be universal for all logs"*.
@@ -1288,15 +1298,21 @@ pub fn normalize_spec() -> ModuleSpec {
                 ),
                 crate::param_sources::PERCENTILE_REFERENCE_HIGH,
             ),
-            param_open_when(
-                "REF_LOW", "TWO_POINT / RANGE: reference value at the low end", "", -1e9, 1e9,
-                &[("OPT_METHOD", "TWO_POINT"), ("OPT_METHOD", "RANGE")],
-                "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+            refuses(
+                param_open_when(
+                    "REF_LOW", "TWO_POINT / RANGE: reference value at the low end", "", -1e9, 1e9,
+                    &[("OPT_METHOD", "TWO_POINT"), ("OPT_METHOD", "RANGE")],
+                    "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+                ),
+                REF_PAIR_REFUSAL,
             ),
-            param_open_when(
-                "REF_HIGH", "TWO_POINT / RANGE: reference value at the high end", "", -1e9, 1e9,
-                &[("OPT_METHOD", "TWO_POINT"), ("OPT_METHOD", "RANGE")],
-                "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+            refuses(
+                param_open_when(
+                    "REF_HIGH", "TWO_POINT / RANGE: reference value at the high end", "", -1e9, 1e9,
+                    &[("OPT_METHOD", "TWO_POINT"), ("OPT_METHOD", "RANGE")],
+                    "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+                ),
+                REF_PAIR_REFUSAL,
             ),
             // A plain z-score IS the generic answer here, unlike the reference pair — mean 0,
             // spread 1 is a definition rather than somebody's field calibration.
@@ -1362,11 +1378,9 @@ pub fn normalize(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         _ => {
             let (lo_ref, hi_ref) = (constant(ctx, "REF_LOW"), constant(ctx, "REF_HIGH"));
             if !lo_ref.is_finite() || !hi_ref.is_finite() {
-                return Err("REF_LOW and REF_HIGH must both be set — the reference pair IS the \
-                            normalization, and there is no value that is right in two fields. \
-                            Take it from this field's own multi-well distribution, or from a \
-                            reference well, and use the same pair for every well."
-                    .into());
+                // Backstop only: the public runner's preconditions carry this same constant and
+                // refuse first, so this arm answers callers that reach the function directly.
+                return Err(REF_PAIR_REFUSAL.into());
             }
             if (hi_ref - lo_ref).abs() < 1e-12 {
                 return Err("REF_LOW and REF_HIGH are the same value, which would map every \

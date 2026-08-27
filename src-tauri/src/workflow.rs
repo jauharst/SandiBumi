@@ -4311,12 +4311,14 @@ mod tests")
             id: "synthetic.mud_type".into(),
             statement: "The branch selector must name a declared branch.".into(),
             source: "docs/PRD_v2/20_envcorr-qc.md section 6.1 T01/T03".into(),
+            refusal: String::new(),
             rule: modules::ValidityRule::Enumeration,
         };
         let normal_range = modules::ValidityCondition {
             id: "synthetic.normal_mud_range".into(),
             statement: "The normal-mud verification branch uses its own stated range.".into(),
             source: "Geolog unc_tnph.lls:340 - NON-ADOPTABLE verification fixture".into(),
+            refusal: String::new(),
             rule: modules::ValidityRule::NumericRange {
                 min: Some(8.0),
                 max: Some(13.0),
@@ -4331,6 +4333,7 @@ mod tests")
             id: "synthetic.barite_mud_range".into(),
             statement: "The barite verification branch uses its own stated range.".into(),
             source: "Geolog unc_tnph.lls:346 - NON-ADOPTABLE verification fixture".into(),
+            refusal: String::new(),
             rule: modules::ValidityRule::NumericRange {
                 min: Some(8.0),
                 max: Some(18.0),
@@ -4346,6 +4349,7 @@ mod tests")
             statement: "This synthetic correction cannot be evaluated without a caliper input."
                 .into(),
             source: "docs/PRD_v2/20_envcorr-qc.md SB-ENV-001(d) and SB-ENV-016".into(),
+            refusal: String::new(),
             rule: modules::ValidityRule::RequiredCompanion {
                 any_of: vec!["CALIPER".into()],
                 when: None,
@@ -4442,6 +4446,7 @@ mod tests")
                 id: "synthetic.mud_type".into(),
                 statement: "The branch selector must name a declared branch.".into(),
                 source: "docs/PRD_v2/20_envcorr-qc.md section 6.1 T01/T03".into(),
+                refusal: String::new(),
                 rule: modules::ValidityRule::Enumeration,
             }]
         );

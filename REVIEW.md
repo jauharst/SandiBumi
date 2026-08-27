@@ -20334,3 +20334,32 @@ means the dot is never off, so it cannot warn you about anything.
 - [ ] **Open the SQL Query panel and run a SELECT with a comment on the line above it**, and one
       with a trailing `-- comment`. Both must run. Neither should come back saying only SELECT
       queries are allowed, or reporting a syntax error in a query that is perfectly valid.
+
+## Condition ▸ Normalize: a missing reference pair is refused in the module's own words (2026-08-27)
+
+Running Normalize on TWO_POINT with the reference pair left empty used to refuse with a schema
+line — *"precondition 'ref_low.required_when_two_point' on 'REF_LOW' failed before normalize
+ran: the selected method branch requires a finite interpreter value at sample 0, got NaN…"* —
+true, and useless to anyone standing at the pane. The module has always carried the right words
+for this ("the reference pair IS the normalization…"), but the pre-run check fires first and
+spoke over them in its own voice.
+
+Now the pre-run check speaks the module's words. The refusal leads with what did not run and
+which field is empty, then the module's own reasoning and what to do, and only then the record
+(which rule fired, and its source) — the same house pattern as the petrography refusals. The
+wording exists once in the code: the pre-run check and the module's own backstop read the same
+constant, so the two can never drift apart. Parameters that are required only on one method
+branch but carry no special wording of their own (phi_son's RHG80 matrix density, despike's ABS
+threshold, and the rest) now get a plain-worded version that names the exact pane field to fill
+in, instead of the schema line. An empty field and a zone override that misses samples are told
+apart: the first says the parameter is not set for this run, the second names the sample where
+the hole is. A test pins both sides — the module's wording must be spoken verbatim, and the
+generic wording must name the field.
+
+- [ ] **Run Normalize (TWO_POINT) with REF_LOW and REF_HIGH empty.** The refusal must start
+      "normalize did not run: REF_LOW is not set for this run" and carry the reference-pair
+      reasoning — not the old "precondition … failed before normalize ran" line.
+- [ ] **Run phi_son on RHG80 with the matrix density empty.** The refusal must name the
+      'Matrix density (RHG80 suspension segment)' field to fill in.
+- [ ] **The guidebook's Normalize chapter** quotes the refusal — the quoted text must match
+      what the app actually says.
