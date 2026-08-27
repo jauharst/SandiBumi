@@ -20047,3 +20047,28 @@ same way the editor does and fails if either count misses it.
 - [ ] **Open a project you did not create on this machine** that has at least one saved equation
       (copy one of your own projects to a new name to simulate this) — the one-time notice about
       the project carrying saved code must appear.
+
+## The Report pane stops destroying its own preview (2026-08-27)
+
+Pressing **Render** in the Report pane did the work — Processing showed the render DONE — but the
+pane itself came back empty: no preview, no page count, Save PDF/PNG greyed out, every field back
+to its default. The render had succeeded and then wiped its own result.
+
+Why: rendering a report writes the FLAG curves in place, so the pane announces "data changed" to
+refresh any open log views and plots showing those flags. But the Report pane is itself one of the
+panes that rebuilds on that announcement — so its own success tore it down, one instant after the
+preview appeared. The same thing happened after **Save PDF** and after a **Batch** PDF export.
+
+The fix: right before the pane makes that announcement, it marks it as its own. The pane skips
+exactly that one rebuild and keeps what it just drew; every other open panel still refreshes as
+before, because the flag curves really did change. A foreign change (a module run, an import, an
+undo) still rebuilds the Report pane exactly as it always has.
+
+- [ ] **Render a report.** The preview must appear and STAY, with the page count in the status
+      line and Save PDF / Save PNG enabled. Page through a multi-page report.
+- [ ] **Save PDF from the pane.** After the export the preview and your form entries (title,
+      cutoffs, methodology) must still be there.
+- [ ] **Leave a log view open showing FLAG_PAY while you render.** It must still refresh — the
+      fix keeps the Report pane, it must not stop the flags reaching other panels.
+- [ ] **Run any module while the Report pane is open.** The pane should still rebuild on that —
+      only its OWN render/export is kept, not the world's.

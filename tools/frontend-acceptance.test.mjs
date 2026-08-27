@@ -2931,6 +2931,96 @@ test("a_doc_block_stays_on_the_thing_it_describes_instead_of_merging_onto_its_ne
   );
 });
 
+/** Every `bumpDataVersion()` call site whose nearest preceding code line does not arm the
+ *  wellPane self-bump latch (`suppressNextDataRebuild`). Comment-only and blank lines are
+ *  skipped, so the arm may carry its own explanation. Returns 1-based line numbers. */
+function unsuppressedSelfBumps(source) {
+  const lines = source.split("\n");
+  const offenders = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!/\bbumpDataVersion\(\)/.test(lines[i])) continue;
+    if (lines[i].includes("suppressNextDataRebuild")) continue; // armed on the same line
+    let j = i - 1;
+    while (j >= 0 && (lines[j].trim() === "" || /^\s*(\/\/|\/\*|\*)/.test(lines[j]))) j--;
+    if (j < 0 || !lines[j].includes("suppressNextDataRebuild")) offenders.push(i + 1);
+  }
+  return offenders;
+}
+
+test("the_report_pane_keeps_the_preview_its_own_render_just_drew", async () => {
+  // CORRECTNESS — reported live 2026-08-27. The report pane's Render writes FLAG curves in
+  // place, so it bumps dataVersion for every other open panel; but the pane itself is a
+  // followData wellPane, so its own bump rebuilt its own content one microtask later — the
+  // preview, the page count and the enabled Save buttons were destroyed by the very render
+  // that produced them, and the form reset to defaults. The fix is a one-shot latch the
+  // dialog arms immediately before each of its own bumps; wellPane consumes it and skips
+  // exactly that rebuild. Pinned from BOTH sides, because each half passes alone under a
+  // lazier implementation: a dialog that stops bumping (the composite-Render shape) keeps
+  // its preview but starves every other panel of the refresh, and a latch nobody honours
+  // keeps the bug while the dialog claims to prevent it.
+
+  // Side 1 — the dialog: every self-bump is armed, and the bumps still exist.
+  const dialog = await readFile("src/ui/reportDialog.ts", "utf8");
+  assert.deepEqual(
+    unsuppressedSelfBumps(dialog),
+    [],
+    "a report-pane bumpDataVersion() without suppressNextDataRebuild armed on the line before it rebuilds the pane and destroys its own preview",
+  );
+  assert.ok(
+    /\bbumpDataVersion\(\)/.test(dialog),
+    "the report pane must still bump dataVersion — its pay-summary pass writes FLAG curves in place, and other open panels rely on the refresh",
+  );
+  assert.ok(
+    dialog.includes("suppressNextDataRebuild"),
+    "the report pane never arms the latch, so its own bump tears the pane down",
+  );
+
+  // Side 2 — the pane host: the builder receives the latch, and the dataVersion
+  // subscription consumes it BEFORE queueing the rebuild (deferring alone was the
+  // original defect: it reorders the teardown, it does not prevent it).
+  const ws = await readFile("src/ui/workspace.ts", "utf8");
+  assert.ok(
+    ws.includes("build(well, setStatus, paneCtx)"),
+    "wellPane no longer hands its builder the pane context, so the dialog's latch is armed into nothing",
+  );
+  const sub = ws.slice(ws.indexOf("let dataPrimed = false"));
+  const consume = sub.indexOf("selfBumpAt === generation");
+  const queue = sub.indexOf("queueMicrotask");
+  assert.ok(
+    consume >= 0 && queue >= 0 && consume < queue,
+    "wellPane's dataVersion subscription must consume the self-bump latch before it queues the rebuild",
+  );
+
+  // The latch's timing contract: the Observable notifies synchronously inside set(), so a
+  // latch armed on the statement before the bump is consumed in the same call stack — no
+  // window for a foreign bump to interleave. If notification ever becomes deferred, the
+  // arm-then-bump adjacency stops being sufficient and the latch needs a token instead.
+  const { appState, bumpDataVersion } = await load("/src/state.ts");
+  let fired = false;
+  const unsub = appState.dataVersion.subscribe(() => {
+    fired = true;
+  });
+  fired = false; // subscribe fires immediately with the current value
+  bumpDataVersion();
+  assert.equal(fired, true, "dataVersion subscribers must be notified synchronously inside the bump");
+  unsub();
+
+  // And the scan cannot pass by not looking: fed an unarmed bump it must say so, and an
+  // armed one (with an explaining comment between) must pass.
+  assert.deepEqual(
+    unsuppressedSelfBumps(["doWork();", "bumpDataVersion();"].join("\n")),
+    [2],
+    "the scan must flag a bump with no latch armed before it",
+  );
+  assert.deepEqual(
+    unsuppressedSelfBumps(
+      ["pane?.suppressNextDataRebuild();", "// keep this pane", "", "bumpDataVersion();"].join("\n"),
+    ),
+    [],
+    "an armed bump is not an offence, comments and blanks between notwithstanding",
+  );
+});
+
 test("a_box_track_bins_the_same_plugs_on_screen_as_it_does_on_paper", async () => {
   // AUDIT-2026-08-20 finding 40. Twin of distribution.rs's
   // a_box_track_with_no_declared_bin_height_takes_it_from_the_core_not_from_the_display -
