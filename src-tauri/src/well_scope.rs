@@ -42,6 +42,8 @@ pub const WELL_SCOPE_OPERATIONS: &[WellScopeOperation] = &[
     WellScopeOperation { function: "run_equation", operation: "equation run", policy: WellIterationPolicy::BackendScoped, iterates_wells: true },
     WellScopeOperation { function: "resolve_plot_bindings", operation: "multi-well plot binding", policy: WellIterationPolicy::BackendScoped, iterates_wells: true },
     WellScopeOperation { function: "resolve_well_scope", operation: "well-scope preview", policy: WellIterationPolicy::BackendScoped, iterates_wells: true },
+    WellScopeOperation { function: "module_input_availability", operation: "module input preflight", policy: WellIterationPolicy::BackendScoped, iterates_wells: true },
+    WellScopeOperation { function: "despike_contamination_preview", operation: "despike contamination preview", policy: WellIterationPolicy::BackendScoped, iterates_wells: true },
     WellScopeOperation { function: "run_workflow_module", operation: "module run", policy: WellIterationPolicy::BackendScoped, iterates_wells: true },
     WellScopeOperation { function: "stats_curve_summary", operation: "curve statistics", policy: WellIterationPolicy::BackendScoped, iterates_wells: true },
     WellScopeOperation { function: "stats_pair_summary", operation: "pair statistics", policy: WellIterationPolicy::BackendScoped, iterates_wells: true },
@@ -560,5 +562,40 @@ mod tests {
         let disclosed = project_wide_disclosure(&conn, "referential-integrity check").unwrap();
         assert_eq!(disclosed.scope, WellIterationPolicy::ProjectWide);
         assert_eq!(disclosed.wells_touched, 540, "the exhaustive side must name the cited full-project row count");
+    }
+
+    /// CORRECTNESS — the other side of the registry pin. The inventory tests above walk
+    /// registry -> source, so a command that resolves an operation string the registry never
+    /// heard of passes every one of them and fails only in the running app - which is exactly
+    /// how the two module-dialog preflight commands shipped dead ("unregistered backend
+    /// well-scope operation" on every invocation). This walks source -> registry.
+    #[test]
+    fn every_operation_string_a_command_resolves_is_registered() {
+        let lib = include_str!("lib.rs");
+        let registered: std::collections::HashSet<&str> =
+            WELL_SCOPE_OPERATIONS.iter().map(|entry| entry.operation).collect();
+        let mut found = 0_usize;
+        for needle in [
+            "well_scope::resolve_well_scope(",
+            "well_scope::project_wide_disclosure(",
+            "well_scope::declare_project_wide(",
+        ] {
+            let mut rest = lib;
+            while let Some(call) = rest.find(needle) {
+                let after = &rest[call + needle.len()..];
+                let open = after
+                    .find('"')
+                    .expect("a well-scope call must name its operation as a string literal");
+                let close = open + 1 + after[open + 1..].find('"').expect("unterminated operation literal");
+                let operation = &after[open + 1..close];
+                assert!(
+                    registered.contains(operation),
+                    "lib.rs resolves operation '{operation}', which WELL_SCOPE_OPERATIONS does not register - every invocation of that command fails"
+                );
+                found += 1;
+                rest = after;
+            }
+        }
+        assert!(found >= 40, "the call-site scan must actually see the lib.rs call sites (found {found})");
     }
 }

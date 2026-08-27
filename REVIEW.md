@@ -20158,3 +20158,25 @@ neither half can quietly go soft.
 - [ ] **Open a named session the normal way.** It must still reopen exactly as saved — and if you
       re-ran a module since saving it, it must still refuse, now with the recovery instruction in
       the message.
+
+## Condition ▸ Despike: the live contamination ceiling evaluates again (2026-08-27)
+
+The "Live contamination ceiling" card in the Despike pane had never worked: whatever you did, it
+said *"Cannot evaluate the live ceiling: unregistered backend well-scope operation 'despike
+contamination preview'"*. The cause was bookkeeping, not the estimator: every scoped backend
+operation must be registered in one inventory (that inventory is what guarantees a batch tool
+touches only the wells you scoped it to), and this preview shipped without its registry row — so
+the backend refused it before ever looking at a curve. The module pane's input-availability
+preflight (the check that marks an input curve unusable before you press Run) was missing its row
+too, and both are now registered. A new test walks every command's operation name back against the
+registry, so a future preview cannot ship half-registered like this again — the old tests only
+walked the registry forward, which is exactly how these two slipped through. Verified live on the
+SANDI example wells: with GR, WINDOW 5 m and K 3, the card reports the True MAD branch at 50.00%
+over 1,185 evaluated sample windows across 3 wells.
+
+- [ ] **Open Petrophysics ▸ Condition ▸ Despike with wells in scope, pick a curve, set WINDOW and
+      K.** The card must show an estimator branch with its ceiling percentage and window count —
+      never the "unregistered backend well-scope operation" refusal.
+- [ ] **Change WINDOW, K or the curve.** The card should re-evaluate and the numbers follow.
+- [ ] **Switch METHOD away from HAMPEL.** The card should say that method does not use K — the
+      ceiling is a HAMPEL statement, and the card must say so rather than compute one anyway.
