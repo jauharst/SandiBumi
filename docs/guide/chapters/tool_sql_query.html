@@ -14,9 +14,9 @@ mnemonic arrive in", and no panel happens to ask it for you.</p>
 <figure>
   <img src="../img/guide-sql-select.png"
        alt="A SELECT with a join counting computed-curve rows per well" />
-  <figcaption>A join over computed curves and wells: each example well
-    carries 74,260 rows across 188 distinct curve names, counted by the
-    query itself.</figcaption>
+  <figcaption>A join over computed curves and wells: SANDI-01 carries
+    87,295 rows across 221 distinct curve names, its neighbours 86,110
+    across 218, counted by the query itself.</figcaption>
 </figure>
 
 <p>Queries are ordinary SQL (DuckDB dialect): joins, GROUP BY, CTEs. The
@@ -57,9 +57,9 @@ of that contract by refusing anything but a query.</p>
     does not apply the RAW-priority resolution or the active-set filters
     the application's own readers use. For "what would a module see", ask
     the Curve Catalog; for "what is physically stored", ask here.</li>
-  <li><b>Counted claims beat browsed ones.</b> "Each well has 74,260 rows"
-    is worth stating because a query counted it; the same claim from
-    scrolling a grid is a guess.</li>
+  <li><b>Counted claims beat browsed ones.</b> "SANDI-01 has 87,295
+    computed rows" is worth stating because a query counted it; the same
+    claim from scrolling a grid is a guess.</li>
   <li><b>Aggregates over versioned tables need care.</b> Averaging a curve
     across every stored version double-counts history; filter to the set
     and version you mean.</li>

@@ -1,5 +1,40 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-27 — Second pass, increment 15: the Data & Sets figures lose the leftover crossplot, and wide screens get the launch card
+
+Your two calls in one increment. The "unrelated layout views" were exactly nine figures —
+the whole Data & Sets tool book (Intake, Statistics, Reframe, Data Sets, SQL ×2,
+DB Inspector, Curve Catalog, Versions) — all shot in one increment-9 session whose
+keep-list preserved a Crossplot panel as the active middle pane. Every other book was
+already clean. The nine were re-driven on the composed workspace (SANDI-01 Standard
+Layout at 1:500 beside the pane, crossplot closed), and the blank right margin of the
+guidebook on wide screens now carries the launch-card identity: the boot overlay's
+strata artwork, logo mark, wordmark and edition/version line, as a fixed aside that
+only appears past 1600 px so it never crowds the reading column.
+
+- [ ] **Open any Data & Sets chapter** (Help ▸ Guidebook ▸ e.g. Statistics, Reframe,
+      SQL Query) — the figures now show the log view beside the tool pane, no crossplot.
+- [ ] **Widen the guidebook window past ~1600 px** — the launch card appears at the
+      right margin; below that width it disappears entirely.
+- [ ] **Five chapters' quoted numbers were re-measured against today's sandbox**, not
+      recycled: SQL now counts 87,295 rows / 221 names on SANDI-01 (86,110 / 218 on the
+      neighbours; was 74,260/188 project-wide before increments 10–14 grew the archive);
+      DB Inspector pages 1–200 of 87,295 with the same "7 classes, 0 findings" verdict;
+      the Curve Catalog caption cites v374 badhole / v303 gip; Statistics' accounting
+      story moved from PHIE (now full-coverage) to SWE, which inherits NPHI's 7-sample
+      washout mask; Data Sets' caption acknowledges the three-station vertical survey
+      imported during the deviation chapter work.
+- [ ] **The project-code notice appeared on camera and was handled as a user would** —
+      the sandbox project carries one saved equation, so a fresh open of the relaunched
+      app showed the increment-froze notice over every first-pass shot. The re-shoot
+      dismisses it via Continue (recording the sandbox as trusted on this machine) and
+      no figure ships with the dialog in frame.
+- [ ] One session incident to know about: the relaunched debug exe resumed the most
+      recent project from machine recents, which was a real client project — the stray
+      probe screenshot was deleted immediately, nothing was driven or captured against
+      it, and the sandbox was reopened and is now top-of-recents. No client identifier
+      reached the repo, the figures, or this file.
+
 ## 2026-08-27 — Second pass, increment 14: every module chapter's figures re-shot on a layout composed for that module's own workflow
 
 This is the screenshot instruction applied to the whole back catalogue: the 36 module
