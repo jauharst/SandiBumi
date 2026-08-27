@@ -1,0 +1,82 @@
+<!-- Authored walkthrough for the Processing History tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Two panes watch the work from the Project tab's Monitor group, and
+they answer different questions. <b>Processing</b> answers "what is
+running right now" &ndash; live progress per job, the well being worked,
+per-well &#10003;/&#10007; outcomes, a Cancel button. <b>History</b>
+answers "what has been done to this project" &ndash; a durable,
+timestamped record of every meaningful operation, persisted inside the
+project itself and reloaded on every open. Reach for Processing while a
+chain runs; reach for History when a number needs its story &ndash;
+which run made this curve, when did that delivery arrive, what changed
+yesterday.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-history.png"
+       alt="The Processing History pane with kind-tagged, timestamped entries beside the live Processing jobs pane and the log view" />
+  <figcaption>The example project's record &ndash; 395 entries by the time
+    of this chapter &ndash; reading like a lab notebook: sessions saved,
+    equations run, zones built, markers autocorrelated, deliveries
+    conditioned, each line tagged by kind and stamped with its well.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Every entry is kind-tagged.</b> The example page alone shows
+    SESSION, EQUATION, ZONE, TOPS, PROJECT, QC and EDIT entries &ndash; so
+    the record filters by eye: all the zone work, all the QC passes, all
+    the imports.</li>
+  <li><b>Boot events land here too.</b> "DuckDB memory capped at 512MB"
+    is a PROJECT entry in the figure &ndash; one-time events from startup
+    (migrations, memory caps, recoveries) are recorded where they can be
+    found later, not printed to a console a built app does not have.</li>
+  <li><b>Export&hellip; and Clear activity</b> sit at the top; the header
+    counts the record ("395 records &middot; 0 durable curve edits").</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Project &#9656; History</b> for the durable record, or
+    <b>Project &#9656; Processing</b> for live jobs (the Processing pane
+    also opens itself when a chain starts).</li>
+  <li>Scroll or export. The record is newest-first; every entry carries
+    its time, kind, and the well it touched where one applies.</li>
+  <li>For a long batch, watch Processing: each job card shows progress,
+    completed wells over total, and expands per-well outcomes under
+    "details".</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The figure's page tells the session's whole story without the person
+who drove it: tops were imported and autocorrelated ("Autocorrelated 6
+marker(s) across 2 well(s)"), zones were built from them on all three
+wells, one zone parameter was set ("Set M = 2 on zone LESTARI"), an
+equation ran twice (once on one well, then field-wide), and a session was
+saved and reopened. That is what this pane is for &ndash; the project
+carries its own narrative, so "how did this project get to this state"
+is a scroll, not an interview. Entries are recorded by the operations
+themselves as they commit, which is why the record and the project never
+disagree.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>History records operations, not keystrokes.</b> A parameter typed
+    into a dialog but never run leaves no trace; the entry appears when
+    the operation commits. Absence of an entry means the operation did
+    not happen &ndash; not that it happened quietly.</li>
+  <li><b>Clear activity erases the narrative, not the data.</b> Curves and
+    versions survive a clear; the story of how they came to be does not.
+    Export first if the record matters &ndash; and for a client project it
+    usually does.</li>
+  <li><b>The Processing pane's per-well details are the triage view.</b> A
+    chain that reports 98/100 wells names the two failures and the reason
+    in its details expansion &ndash; read those before re-running the
+    whole chain.</li>
+</ul>

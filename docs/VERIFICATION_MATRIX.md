@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **186** of 732,
+Review sections counted toward no capability: **186** of 733,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -38,11 +38,11 @@ this table, so every figure above reads low by whatever those sections cover.
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 20 | — | 4 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 58 | — | 10 |
 | `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 12 | — | 5 |
-| `unconventional` | Unconventional interpretation | Not exercised | 0 / 18 | — | 11 |
+| `unconventional` | Unconventional interpretation | Not exercised | 0 / 28 | — | 12 |
 | `sandimin` | SandiMin mineral solver | Not exercised | 0 / 53 | — | 23 |
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 69 | 2026-07-18 | 13 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 206 | 2026-07-19 | 35 |
-| `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 23 | 2026-08-13 | 7 |
+| `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 33 | 2026-08-13 | 8 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 73 | — | 13 |
 | `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 46 | 2026-07-18 | 13 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 30 | — | 8 |
@@ -52,17 +52,17 @@ this table, so every figure above reads low by whatever those sections cover.
 | `histogram` | Histogram | Partially exercised | 5 / 48 | 2026-07-20 | 11 |
 | `crossplot` | Crossplot | Partially exercised | 6 / 48 | 2026-07-20 | 13 |
 | `pickett` | Pickett plot | Not exercised | 0 / 30 | — | 8 |
-| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 70 | — | 18 |
+| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 80 | — | 19 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 85 | 2026-07-20 | 22 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 22 | — | 12 |
 | `results-qc` | Results QC | Not exercised | 0 / 18 | — | 8 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
-| `composite` | Composite log plots | Not exercised | 0 / 24 | — | 7 |
-| `report` | Report deliverables | Partially exercised | 8 / 116 | 2026-08-14 | 27 |
+| `composite` | Composite log plots | Not exercised | 0 / 34 | — | 8 |
+| `report` | Report deliverables | Partially exercised | 8 / 126 | 2026-08-14 | 28 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
-| `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 182 | — | 32 |
-| `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 28 | 2026-07-19 | 8 |
+| `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 192 | — | 33 |
+| `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 38 | 2026-07-19 | 9 |
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 13 | — | 4 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 83 | 2026-07-19 | 19 |

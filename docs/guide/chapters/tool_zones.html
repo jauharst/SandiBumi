@@ -1,0 +1,91 @@
+<!-- Authored walkthrough for the Zones tool chapter. Numbers captured live
+     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>Zones turn tops into intervals, and intervals into the address a
+parameter lives at. The Zones pane (<b>Petrophysics &#9656;
+Zones&hellip;</b>) manages both halves: the zone table itself, and the
+per-zone parameter overrides that let one well carry a different
+cementation exponent above and below a boundary without touching any
+module dialog. Reach for it right after tops land, and again whenever a
+parameter should stop being one number for the whole well.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-zones.png"
+       alt="The Zones pane with three zones built from tops and the per-zone parameter override table, beside the log view" />
+  <figcaption>The example well after <b>From Tops</b>: three zones spanning
+    top-to-next-top, the accepted calibration constants sitting as
+    well-wide ('*') overrides, and one per-zone row (M on the middle
+    zone) added through the form below the table.</figcaption>
+</figure>
+
+<ul>
+  <li><b>From Tops is one click per well.</b> Each interval runs from a
+    top down to the next; the last runs to TD. On the example well that
+    made MENTARI 1512.0&ndash;1528.0, LESTARI 1528.0&ndash;1544.0 and
+    PURNAMA 1544.0&ndash;1560.0, and the same click on the other two wells
+    built their zones on their own autocorrelated tops &ndash; same names,
+    each well's own depths.</li>
+  <li><b>The override table is the precedence rule made visible.</b> The
+    pane states it in one sentence:</li>
+</ul>
+
+<pre class="equations">Any module parameter (GR_MA, GR_SH, RW, M, N, RT_SH, …) can vary per zone. Zone '*'
+applies well-wide. Overrides beat the value typed in a module dialog.</pre>
+
+<ul>
+  <li><b>Calibrations land here too.</b> The four well-wide rows in the
+    figure (A_CAP, B_QV, C0, RSF) were not typed in this pane &ndash; they
+    are what the resistivity-conductivity calibration wrote when its fit
+    was accepted, arriving as one batch. The Zones pane is where every
+    such acceptance becomes inspectable.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Petrophysics &#9656; Zones&hellip;</b> with the well
+    selected, and press <b>From Tops</b> (or type a name and depths into
+    the Add / Update Zone row for an interval no top defines).</li>
+  <li>To scope a parameter, fill the bottom row &ndash; zone name (or
+    <code>*</code> for well-wide), parameter name, value &ndash; and press
+    <b>Set</b>. The write goes through the run-custody prompt like any
+    other change that reaches a deliverable: who set it, and on what
+    source.</li>
+  <li>Repeat per well, or manage many wells' values at once in the
+    per-well parameter grid (Petrophysics &#9656; Batch).</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>The demonstration row sets M&nbsp;=&nbsp;2 on the middle zone &ndash;
+deliberately the same value the Archie dialog already defaults to, so the
+mechanism is visible without smuggling in a physics claim. What matters is
+the plumbing it proves: on the next saturation run, samples inside
+LESTARI read their M from this table, samples outside it read the module
+dialog, and the Processing History records the change as its own entry
+("Set M = 2 on zone LESTARI") with the custody it was made under. A real
+study puts a fitted or referenced value here, and cites it in the custody
+prompt's source field.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>Removing an override is a deletion, not a zero.</b> The &#10005;
+    on a row deletes it, and the run falls back to the module value. A
+    parameter row pinned to 0 would keep computing with zero &ndash; which
+    is why clearing a fitted parameter goes through the delete, never
+    through typing 0.</li>
+  <li><b>Zone names must match across wells to aggregate.</b> The pay
+    summary and dashboard group by name; a well whose middle zone is
+    spelled differently reports as a different zone. Building all wells'
+    zones from autocorrelated tops keeps the names aligned by
+    construction.</li>
+  <li><b>The override wins silently, so audit the table before quoting a
+    run.</b> A forgotten test row beats the carefully chosen value in the
+    module dialog &ndash; this pane is where to look when a zone's answer
+    refuses to change with the dialog.</li>
+</ul>

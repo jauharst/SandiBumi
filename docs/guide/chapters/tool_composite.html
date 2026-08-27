@@ -1,0 +1,79 @@
+<!-- Authored walkthrough for the Composite Log tool chapter. Numbers captured
+     live from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+
+<h2>What this is and when to reach for it</h2>
+
+<p>The Composite Log (<b>Plot &#9656; Composite&hellip;</b>) is the print
+deliverable: the log plot laid out at a true printed scale &ndash; 1:200
+means one metre of rock per five millimetres of paper, exactly &ndash;
+rather than a screenshot of whatever the screen happened to show. It
+renders any saved layout, paginates it onto a chosen paper size, and
+exports vector SVG or a multi-page PDF with nothing lost to
+rasterization. Reach for it whenever a log plot leaves the application:
+a report figure, a wall print, a file for the client.</p>
+
+<h2>The pane</h2>
+
+<figure>
+  <img src="../img/guide-compositelog.png"
+       alt="The Composite Log pane with layout, print scale and page size controls and the rendered A4 page preview" />
+  <figcaption>The example well rendered onto A4: the title block carries
+    the well, the layout, the scale and the interval, the three formation
+    tops draw across the tracks, and the pane reports the pagination
+    ("SANDI-01: 1 page(s) at 1:500.").</figcaption>
+</figure>
+
+<ul>
+  <li><b>Layout picks what is drawn</b> &ndash; the same named layouts the
+    log views use (Standard, Interpretation, Facies, Core, or any you
+    saved), so the print is the screen's arrangement, not a separate
+    definition that can drift.</li>
+  <li><b>Scale and page size pick the pagination.</b> The pane does the
+    arithmetic and says so: the example well's 60&nbsp;m spans one A4
+    page at 1:500 and two at 1:200, the first page covering
+    1500.0&ndash;1546.6&nbsp;m &ndash; 46.6&nbsp;m of rock being exactly
+    what an A4 page holds at 1:200 after the header.</li>
+  <li><b>The depth window is optional.</b> Left at "full" it prints the
+    well's coverage; a top/bottom pair prints just the interval a chapter
+    or a client asked for.</li>
+</ul>
+
+<h2>Step by step</h2>
+
+<ol>
+  <li>Open <b>Plot &#9656; Composite&hellip;</b> with the well selected;
+    pick layout, print scale and page size.</li>
+  <li><b>Render.</b> The pane reports the page count and shows each page;
+    &#9664; and &#9654; walk a multi-page result.</li>
+  <li><b>Save SVG&hellip;</b> for a single vector page, or <b>Save
+    PDF&hellip;</b> for the whole document in one file.</li>
+</ol>
+
+<h2>Reading the result</h2>
+
+<p>Check the title block first &ndash; it states well, layout, scale and
+interval, which is what makes the sheet self-describing when it is far
+from the software. Then check the pagination line against expectation:
+pages &times; usable page height &times; scale should equal the printed
+interval, and on the example it does (two pages at 1:200 for 60&nbsp;m,
+the first ending at 1546.6). Everything the screen draws prints the same
+way &ndash; tops, crossover fills, class blocks, point tracks, image
+strips &ndash; because the screen renderer and the print renderer
+implement the same drawing contracts; a difference between the two is a
+defect, not a setting.</p>
+
+<h2>QC and pitfalls</h2>
+
+<ul>
+  <li><b>The scale is only true on paper printed at 100%.</b> A PDF viewed
+    with "fit to page" or printed with scaling on is no longer 1:200.
+    The title block's scale statement is the promise; the print dialog
+    can silently break it.</li>
+  <li><b>Pick the scale for the question, not the page count.</b> 1:500
+    fits the example well on one page but compresses thin beds; 1:200
+    doubles the paper and shows them. The pagination line makes the cost
+    visible before anything is saved.</li>
+  <li><b>SVG saves one page.</b> A multi-page result wants the PDF; saving
+    SVG on page 1 of 2 delivers exactly what the preview shows, which is
+    half the well.</li>
+</ul>
