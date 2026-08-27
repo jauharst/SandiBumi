@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **188** of 744,
+Review sections counted toward no capability: **188** of 745,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -63,7 +63,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 196 | — | 34 |
 | `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 38 | 2026-07-19 | 9 |
-| `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 13 | — | 4 |
+| `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 17 | — | 5 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 83 | 2026-07-19 | 19 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |
