@@ -13,7 +13,7 @@ const DENSITY = ["RHOB", "RHOZ", "DEN", "ROBB"];
 const PEF = ["PEF", "PE", "PEFZ"];
 
 // Matrix rma candidate sets: the artwork sometimes uses a different rma than the
-// textbook value (Por-11/12 dolomite is drawn at 2.85) â€” score candidates by how
+// textbook value (Por-11/12 dolomite is drawn at 2.85) — score candidates by how
 // well long dashes land on 5-multiples and graduation estimates on integers.
 const QTZ = { name: "Quartz sandstone", rmaCands: [2.65] };
 const CAL = { name: "Calcite (limestone)", rmaCands: [2.71] };
@@ -128,7 +128,7 @@ for (const cfg of CHARTS) {
       const medLen = lens[Math.floor(lens.length / 2)] || 3;
       const bottom = chainExtreme(m.chain, "minY");
       // entries sorted bottom-up; the path tip IS the lowest graduation (drawn
-      // into the path) â€” drop a separate dash that duplicates it.
+      // into the path) — drop a separate dash that duplicates it.
       const entries = [{ x: toX(bottom[0]), r: toRhob(bottom[1]), len: 0, fromPath: true }];
       for (const t of tips) {
         const x = toX(t.tip[0]), r = toRhob(t.tip[1]);
@@ -179,7 +179,7 @@ for (const cfg of CHARTS) {
         }
       }
       // fill interior gaps by interpolation (a dropped/undetected dash between
-      // valid neighbors â€” accurate to ~0.05 units at 1-graduation spacing)
+      // valid neighbors — accurate to ~0.05 units at 1-graduation spacing)
       const filledTab = [];
       for (let i = 0; i < tab.length; i++) {
         filledTab.push(tab[i]);
