@@ -1077,13 +1077,23 @@ What the foundation established, and the rules that keep it coherent:
 - **Shape is theme-INDEPENDENT** (client skins recolor, never reshape): pills
   (`--r-pill`) for buttons, ribbon tabs, segments and chips; 12px (`--r-lg`) panel cards;
   16px (`--r-xl`) dialogs; `--r-sm`/`--r-md` for dense inline controls unchanged.
-- **Type**: Caprasimo (weight 400 ALWAYS) on exactly four surfaces — brand wordmark,
-  screen/dialog titles, KPI numerals, start-screen wordmark — never data cells, axis
-  labels or track headers. Figtree is the body/UI face (`--font-body`, and first in
-  `--font-canvas`). **Fonts are BUNDLED** in `public/fonts/` (`figtree-var.woff2` is the
-  variable font, 300–900, so the app's base weight 500 renders true) — never a runtime
-  @import: field machines are offline, and the fallback would land on exactly the
-  machines client work happens on.
+- **Type**: `--font-heading` on exactly four surfaces — brand wordmark, screen/dialog
+  titles, KPI numerals, start-screen wordmark — never data cells, axis labels or track
+  headers. Figtree is the body/UI face (`--font-body`, and first in `--font-canvas`).
+  **Fonts are BUNDLED** in `public/fonts/` (`figtree-var.woff2` is the variable font,
+  300–900, so the app's base weight 500 renders true) — never a runtime @import: field
+  machines are offline, and the fallback would land on exactly the machines client work
+  happens on.
+  **The display FACE changed 2026-08-28** (Jauhar: *"change ALL this kind of font with
+  more natural and professional font"*): Caprasimo is retired and its woff2 deleted, and
+  `--font-heading` now resolves to Figtree — emphasis comes from **weight**
+  (`--fw-heading` 700, `--fw-wordmark` 800) rather than from a face that only ever had
+  one. The token stays separate even though both now name one family: it is the seam
+  that keeps the application's voice one edit wide, and the four-surface list plus the
+  ban on display type in data are unchanged. `docs/design_organic/README.md` records the
+  ruling; the Caprasimo mentions still in that file and in the `.dc.html` mockups are the
+  2026-08-01 handoff AS DELIVERED and are deliberately not rewritten — read the face from
+  `organic-tokens.css`.
 - **Interaction**: hover is a TINT from the accent ramp (`--accent-soft`), never grey;
   pressed is one ramp step darker (mix toward `--accent-dim`, so client skins get their
   step for free); focus is a 2px accent outline at offset 2, and since 2026-08-22 that one

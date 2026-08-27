@@ -257,31 +257,46 @@
     .hdr-search { display: none; }
   }
 
-  /* ── the launch card, echoed in the wide-screen margin ──
+  /* ── the launch screen, echoed in the wide-screen margin ──
      On a wide monitor the 900px reading column leaves a bare cream field to its
-     right. Rather than leave it empty, the margin carries the same identity card
-     the application shows while a project opens: the strata artwork, the mark,
-     the wordmark, the edition. Decorative only (aria-hidden, no pointer events),
-     fixed so it never enters the reading flow, and shown only when the viewport
-     is wide enough that it cannot crowd the column. */
+     right. The margin carries the application's own launch-screen identity, and
+     it fills the field the way the launch screen fills its window: strata waves
+     at the top, the mark and wordmark centered, mirrored waves and the edition
+     line at the bottom — a full-height column, not a floating island. Decorative
+     only (aria-hidden, no pointer events), fixed so it never enters the reading
+     flow, and shown only from 1600px up.
+
+     The column alone is not the fix: a left-anchored reading column with a strip
+     pinned to the far right leaves the void BETWEEN them, which is the shape that
+     reads as broken. So above 1600px the main column also RESERVES the strip's
+     width and centres the measure in what is left — 1900px gives 1900 − 256 rail
+     − 264 strip = 1380 for a 900px measure, so the leftover falls as two equal
+     margins instead of one lopsided field. */
   .launch-aside {
-    display: none; position: fixed; right: 32px; top: 50%;
-    transform: translateY(-50%); width: 236px; pointer-events: none;
-    background: var(--color-card); border: 1px solid rgba(32, 30, 29, .16);
-    border-radius: 14px; overflow: hidden;
+    display: none; position: fixed; right: 0; top: 0; bottom: 0; width: 264px;
+    pointer-events: none; background: var(--color-card);
+    border-left: 1px solid rgba(32, 30, 29, .16);
+    flex-direction: column; overflow: hidden;
   }
-  @media (min-width: 1600px) { .launch-aside { display: block; } }
+  @media (min-width: 1600px) {
+    .launch-aside { display: flex; }
+    .main { padding-right: 284px; }
+    .main-inner { margin-inline: auto; }
+  }
+  .launch-art { flex: 0 0 auto; }
   .launch-art svg { display: block; width: 100%; height: auto; }
-  .launch-body { padding: 16px 18px 18px; text-align: center; }
-  .launch-body img { width: 44px; height: 44px; margin: 0 auto 8px; display: block; }
+  .launch-art--flip svg { transform: scaleY(-1); }
+  .launch-body { margin: auto 0; padding: 24px 18px; text-align: center; }
+  .launch-body img { width: 52px; height: 52px; margin: 0 auto 10px; display: block; }
   .launch-word {
-    font: 700 19px/1.2 var(--font-body); letter-spacing: -.02em;
+    font: 700 22px/1.2 var(--font-body); letter-spacing: -.02em;
     color: var(--color-accent-700);
   }
-  .launch-desc { font: 400 11.5px/1.5 var(--font-body); color: var(--color-neutral-800); margin-top: 3px; }
+  .launch-desc { font: 400 12px/1.5 var(--font-body); color: var(--color-neutral-800); margin-top: 4px; }
   .launch-foot {
+    flex: 0 0 auto; text-align: center;
     font: 400 10.5px/1.6 var(--font-body); color: var(--color-neutral-700);
-    margin-top: 12px; border-top: 1px solid var(--row-line); padding-top: 10px;
+    border-top: 1px solid var(--row-line); padding: 10px 18px 14px;
   }
 </style>
 </head>
@@ -653,8 +668,20 @@ MAX_GAP has no default: how far it is defensible to interpolate depends on why t
     <img src="../img/logo-mark.svg" alt="" width="44" height="44" />
     <div class="launch-word">SandiBumi</div>
     <div class="launch-desc">Multi-well petrophysical log analysis</div>
-    <div class="launch-foot">SandiBumi 2026 &middot; v0.1.0<br />&copy; 2026 SandiBumi. All rights reserved.</div>
   </div>
+  <div class="launch-art launch-art--flip">
+    <svg viewBox="0 0 320 240" preserveAspectRatio="xMidYMid slice">
+      <rect width="320" height="240" fill="url(#bg-strata)"/>
+      <g fill="none" stroke-linecap="round">
+        <path d="M-10 62 Q 80 30 160 58 T 330 44" stroke="#c67139" stroke-width="26" opacity=".85"/>
+        <path d="M-10 104 Q 90 74 165 100 T 330 86" stroke="#7a8a5e" stroke-width="18" opacity=".8"/>
+        <path d="M-10 138 Q 70 116 158 140 T 330 126" stroke="#c67139" stroke-width="10" opacity=".55"/>
+        <path d="M-10 168 Q 100 148 170 172 T 330 158" stroke="#7a8a5e" stroke-width="22" opacity=".55"/>
+        <path d="M-10 206 Q 80 186 160 208 T 330 196" stroke="#c67139" stroke-width="16" opacity=".35"/>
+      </g>
+    </svg>
+  </div>
+  <div class="launch-foot">SandiBumi 2026 &middot; v0.1.0<br />&copy; 2026 SandiBumi. All rights reserved.</div>
 </aside>
 <script>
   (function () {

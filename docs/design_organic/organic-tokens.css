@@ -1,5 +1,5 @@
 /* Organic — design-system tokens and component classes. This file is the source of truth for the system's look; retune it here and see readme.md. */
-@import url('https://fonts.googleapis.com/css2?family=Caprasimo:wght@400&family=Figtree:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700;800&display=swap');
 
 :root {
   --color-bg: #f5ead8;
@@ -41,8 +41,11 @@
   --color-accent-2-800: #3d472b;
   --color-accent-2-900: #272e1b;
 
-  --font-heading: "Caprasimo", system-ui, sans-serif;
-  --font-heading-weight: 400;
+  /* Display face retired 2026-08-28 on Jauhar's call: the heading face is now the
+     body family carried at a heavier weight. See README.md "Type" for the ruling. */
+  --font-heading: "Figtree", system-ui, sans-serif;
+  --font-heading-weight: 700;
+  --font-wordmark-weight: 800;
   --font-body: "Figtree", system-ui, sans-serif;
 
   --space-1: 4.4px;

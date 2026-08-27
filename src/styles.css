@@ -10,20 +10,17 @@
 }
 
 /* --------------------------------------------------------------------------
-   Bundled display + body faces ("Organic" redesign, 2026-08-01).
+   Bundled body face ("Organic" redesign, 2026-08-01; display face retired
+   2026-08-28 on Jauhar's call — "change ALL this kind of font with more natural
+   and professional font").
    Self-hosted, never fetched at runtime: a field machine can be offline, so a
    Google Fonts @import would silently fall back to Segoe on exactly the
    machines client work happens on. figtree-var.woff2 is the VARIABLE font
-   (one file serves 300–900); Caprasimo ships in its only weight, 400.
+   (one file serves 300–900), which is why retiring the display face costs no
+   download and no second request: the heading weights come out of the same file
+   the body text already loads.
    -------------------------------------------------------------------------- */
 
-@font-face {
-  font-family: "Caprasimo";
-  src: url("/fonts/caprasimo-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
 @font-face {
   font-family: "Figtree";
   src: url("/fonts/figtree-var.woff2") format("woff2");
@@ -120,10 +117,18 @@
   /* Typography tokens (theme-independent unless a branded skin overrides them): every
      canvas ctx.font and mono field derives from these, never from per-file literals.
      Organic redesign: Figtree is the body/UI face (Segoe stays as the fallback until
-     the woff2 is parsed); Caprasimo is the DISPLAY face and is reserved for the brand
-     wordmark, screen/dialog titles and KPI numerals — never data cells, axis labels
-     or track headers (design handoff rule). */
-  --font-heading: "Caprasimo", "Segoe UI", system-ui, sans-serif;
+     the woff2 is parsed). --font-heading stays a SEPARATE token even though it now
+     resolves to the same family: it names the four display surfaces (brand wordmark,
+     screen/dialog titles, KPI numerals, start-screen wordmark), so changing the face
+     of the application's voice is still one edit rather than eight. What changed on
+     2026-08-28 is the face itself — the chunky display serif read as decorative
+     rather than professional, and a heading in it sat oddly against a pane of
+     petrophysical numbers. Emphasis now comes from WEIGHT (--fw-heading), which the
+     variable body font already carries, instead of from a face that only ever had
+     one weight. Still never used in data cells, axis labels or track headers. */
+  --font-heading: "Figtree", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --fw-heading: 700;
+  --fw-wordmark: 800;
   --font-body: "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-canvas: "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Code", Consolas, monospace;
@@ -159,7 +164,7 @@
   --s-6: 16px;
 
   /* Type scale — no half-pixel steps. 2xl is the Organic screen-title size
-     (Caprasimo surfaces); the handoff's 11.5px table cells land on --fs-sm,
+     (display surfaces); the handoff's 11.5px table cells land on --fs-sm,
      inside its stated 11–12.5px data-grid range. */
   --fs-2xs: 9px;
   --fs-xs: 10px;
@@ -543,7 +548,7 @@ body {
 }
 .start-wordmark {
   font-family: var(--font-heading);
-  font-weight: 400;
+  font-weight: var(--fw-wordmark);
   font-size: 34px;
   line-height: 1.1;
   letter-spacing: -0.015em;
@@ -751,15 +756,17 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  /* The wordmark is one of the four sanctioned Caprasimo surfaces (brand,
-     screen/dialog titles, KPI numerals) — weight 400 always, the face carries
-     the emphasis itself. */
+  /* The wordmark is one of the four display surfaces (brand, screen/dialog
+     titles, KPI numerals, start-screen wordmark). The emphasis is carried by
+     weight now that the face is the body family; the tracking goes slightly
+     NEGATIVE for the same reason, because a bold sans set at a positive track
+     reads as spaced-out lettering rather than as a mark. */
   font-family: var(--font-heading);
-  font-weight: 400;
+  font-weight: var(--fw-wordmark);
   font-size: var(--fs-lg);
   color: var(--brand);
   padding: 0 14px 0 4px;
-  letter-spacing: 0.2px;
+  letter-spacing: -0.01em;
 }
 
 .ribbon-logo {
@@ -2675,10 +2682,9 @@ textarea {
 
 .modal-head h3 {
   margin: 0;
-  /* Dialog titles are a sanctioned Caprasimo surface (Organic type rule):
-     display face, weight 400 always — the face carries the emphasis. */
+  /* Dialog titles are a sanctioned display surface (Organic type rule). */
   font-family: var(--font-heading);
-  font-weight: 400;
+  font-weight: var(--fw-heading);
   font-size: var(--fs-xl);
   letter-spacing: -0.01em;
   color: var(--text);
@@ -3126,7 +3132,7 @@ textarea {
   min-height: 0;
 }
 
-/* Header row (design 1b): Caprasimo title + scope tag, actions right-aligned. */
+/* Header row (design 1b): display title + scope tag, actions right-aligned. */
 .dashboard-header {
   display: flex;
   align-items: center;
@@ -3136,7 +3142,7 @@ textarea {
 }
 .dashboard-title {
   font-family: var(--font-heading);
-  font-weight: 400;
+  font-weight: var(--fw-heading);
   font-size: var(--fs-2xl);
   letter-spacing: -0.01em;
 }
@@ -3225,7 +3231,7 @@ textarea {
 }
 
 /* KPI cards (design 1b): tinted rounded cards, small-caps label, the value in
-   the display face. Caprasimo numerals are one of its four sanctioned uses. */
+   the display face — KPI numerals are one of its four sanctioned surfaces. */
 .dash-kpis {
   display: flex;
   gap: 10px;
@@ -3246,7 +3252,7 @@ textarea {
 }
 .kpi-value {
   font-family: var(--font-heading);
-  font-weight: 400;
+  font-weight: var(--fw-heading);
   font-size: 27px;
   line-height: 1.15;
   color: var(--text);
@@ -7313,12 +7319,12 @@ input[type="number"].num-editing:focus {
   background: var(--accent-soft);
   color: var(--accent-dim);
   font-family: var(--font-heading);
-  font-weight: 400;
+  font-weight: var(--fw-heading);
   font-size: var(--fs-xl);
 }
 .module-title {
   font-family: var(--font-heading);
-  font-weight: 400;
+  font-weight: var(--fw-heading);
   font-size: var(--fs-2xl);
   letter-spacing: -0.01em;
   min-width: 0;
@@ -8053,7 +8059,7 @@ input[type="number"].num-editing:focus {
 
 .boot-title {
   font-family: var(--font-heading);
-  font-weight: 400;
+  font-weight: var(--fw-wordmark);
   font-size: 30px;
   line-height: 1.1;
   letter-spacing: -0.015em;

@@ -1,5 +1,55 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-28 — Second pass, increment 18: the last stale figures, the wide margin stops being a void, and the display font goes
+
+Three of your calls. **The figure sweep is finished**: every tool-book figure has now
+been opened and looked at, not sampled. 50 figures are referenced by the 45 tool
+chapters (`grep -ho 'src="\.\./img/[^"]*"' docs/guide/chapters/tool_*.html | sort -u | wc -l`),
+and four were wrong. Composite Log and Report & Deliverables had the same defect the
+crossplot had: both were shot right after the Processing History chapter in one
+session, so the History panel was still docked as the middle pane. Processing History
+and Diagnostics were wrong for the reason you gave — the log view beside them is
+furniture, because neither tool drives it — so both are re-shot with it closed, and
+the pane now has the whole width. **The margin fix**: the increment-15 card was an
+island, and a card pinned to the far right left the void BETWEEN it and the text,
+which is the shape that reads as broken. The margin is now a full-height column AND
+the reading measure reserves its width and centres, so the leftover falls as two equal
+margins. **The display face is retired**: Caprasimo is gone, `--font-heading` resolves
+to Figtree, and emphasis comes from weight instead.
+
+- [ ] **Look at any dialog title, the ribbon wordmark, the launch screen and the Field
+      Dashboard KPI numbers** — all four display surfaces now read in Figtree
+      (titles 700, wordmarks 800) instead of the chunky display serif. Measured live in
+      the running app, not assumed: `.ribbon-brand` computes Figtree/800,
+      `.modal-head h3` Figtree/700/16px, `.kpi-value` Figtree/700/27px, and the only
+      font family the app loads is Figtree. The run-custody title you photographed now
+      fits on one line, so that dialog is shorter too.
+- [ ] **The four surfaces are unchanged as a list, and so is the ban on display type in
+      data cells, axis labels and track headers.** `--font-heading` stays a separate
+      token even though it now names the body family: it is the seam that keeps the
+      application's voice one edit wide. `caprasimo-400.woff2` is deleted, so the
+      bundle is 20 KB lighter and nothing fetches a font at runtime.
+- [ ] **Open Composite Log and Report & Deliverables in the guidebook** — the middle
+      pane is the log view, not the leftover history panel. Composite shows the A4 page
+      it rendered with all three tops drawn and the pane's own pagination line
+      ("SANDI-01: 1 page(s) at 1:500."); Report shows the run-custody prompt that
+      Render opens, filled in as a human operator. That render was deliberately left
+      unsubmitted, so nothing was written to the sandbox to take the picture.
+- [ ] **Open Processing History and Diagnostics** — no log view. History fills the pane
+      and the figure now shows a saturation-model stretch of the record where MODULE,
+      FIT, PARAMETERS and PROJECT lines sit together, which teaches "tagged by kind"
+      far better than a screen of one kind. Its two quoted numbers were re-measured
+      (465 records, not 395), as were the diagnostic report's (259,515 computed
+      samples over 221 curves, not 258,330 over 220).
+- [ ] **Widen the guidebook past ~1600 px** — the launch identity is a full-height
+      column at the right edge, and the text sits centred between the navigation rail
+      and that column instead of hugging the left with a bare field beside it.
+- [ ] Known and deliberate: every OTHER guidebook figure still shows the retired
+      display face in its dialog and pane titles, because a figure is a dated capture
+      and re-shooting all 175 of them
+      (`ls docs/guide/img/*.png | wc -l`) is not this increment. The four shipped here
+      were re-shot after the font change so none of them is stale on the day it lands.
+
 ## 2026-08-27 — Second pass, increment 17: the first-hour guide becomes book 01 of the guidebook
 
 The first-hour walkthrough was the one piece of the guide a guidebook reader could not
