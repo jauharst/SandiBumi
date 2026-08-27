@@ -48,9 +48,9 @@ inventory. The plots answer "what does it look like"; this pane answers
 
 <p>Each row carries n, Missing, Min, Max, Mean, Geom, Harm, Std and the
 declared percentiles. On the example wells the accounting is the story: GR
-has 395 samples with 0 missing, NPHI 388 with 7 (the washout), and PHIE 191
-with 204 missing, because porosity exists only where the porosity module
-answered. Two cells are deliberately empty: SWE's geometric and harmonic
+has 395 samples with 0 missing, NPHI 388 with 7 (the washout), and SWE
+carries the same 7, because a saturation computed from a masked input is
+masked with it. Two cells are deliberately empty: SWE's geometric and harmonic
 means, because the curve contains zeros and a geometric or harmonic mean of
 data containing zero is undefined. The pane leaves the cell blank rather
 than inventing a number, the same blank-is-not-zero rule the workbook export
@@ -59,8 +59,8 @@ follows.</p>
 <h2>QC and pitfalls</h2>
 
 <ul>
-  <li><b>Quote n with every statistic.</b> PHIE's mean of 0.202 is a
-    191-sample statement about the interpreted interval, not a whole-well
+  <li><b>Quote n with every statistic.</b> SWE's mean of 0.273 is a
+    388-sample statement that excludes the washout, not a whole-well
     average; the Missing column is what makes that visible.</li>
   <li><b>Pick the mean for the physics.</b> Arithmetic, geometric and
     harmonic means answer different questions (harmonic for series flow,
