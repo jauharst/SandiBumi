@@ -546,13 +546,15 @@ multi-well study the endpoints below assume one calibrated GR scale. This
 dataset carries no GRN, and the run refuses per well before the module
 executes:</p>
 
-<pre class="equations">3 well(s) failed — precondition 'GR' failed before ssc ran: none of the
-required input role [GR] has a finite sample. Select a populated curve
-before running the module.</pre>
+<pre class="equations">3 well(s) failed — ssc did not run: GR is unpopulated - none of the required
+input role [GR] has a finite sample. A curve with no finite sample carries no
+measurement to read, and the app will not stand one in for it. Select a
+populated curve in the module pane's 'Gamma ray (normalized)' field.</pre>
 
-<p>The fix is stated in the message: point the GR input at the populated
-curve (here the raw GR, since the three SANDI wells share one vintage). On
-a real field, run GR normalization first and keep the default.</p>
+<p>The fix is stated in the message, and it names the field: point the GR
+input at the populated curve (here the raw GR, since the three SANDI wells
+share one vintage). On a real field, run GR normalization first and keep the
+default.</p>
 
 <h2>The picks and why</h2>
 

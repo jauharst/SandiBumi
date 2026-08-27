@@ -525,8 +525,9 @@ it.</p>
 <p>C has no default for exactly that reason. With porosity and the
 irreducible pick entered and the constant left empty:</p>
 
-<pre class="equations">precondition 'CONST_COATES' failed before perm_coates ran: value NaN
-at sample 0 is not finite. Fix the supplied value or its zone override.</pre>
+<pre class="equations">perm_coates did not run: CONST_COATES is not set for this run. It ships
+ABSENT - the parameter has no defensible generic default, so the app cannot
+fill it in. Enter a value in the module pane's 'Coates constant' field.</pre>
 
 <h2>The picks and why</h2>
 

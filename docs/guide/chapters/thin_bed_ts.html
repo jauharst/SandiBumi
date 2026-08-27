@@ -28,8 +28,10 @@ which is why they refuse to default.</p>
 
 <h2>The refusal comes first</h2>
 
-<pre class="equations">precondition 'PHI_SD_MAX' failed before thin_bed_ts ran: value NaN v/v
-at sample 0 is not finite. Fix the supplied value or its zone override.</pre>
+<pre class="equations">thin_bed_ts did not run: PHI_SD_MAX is not set for this run. It ships
+ABSENT - the parameter has no defensible generic default, so the app cannot
+fill it in. Enter a value in the module pane's 'Clean sand porosity
+(endpoint)' field.</pre>
 
 <p>Both corners of the triangle are field statements: the porosity of the
 cleanest sand this section can deliver, and the porosity of its shale.
