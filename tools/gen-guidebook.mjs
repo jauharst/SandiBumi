@@ -523,7 +523,18 @@ const TOOL_BOOKS = [
     ['tool_diagnostics', 'Diagnostics'],
   ]},
 ];
-const TOOL_NAMES = new Set(TOOL_BOOKS.flatMap((b) => b.tools.map(([name]) => name)));
+// The front book: the first-hour walkthrough, ahead of every module book because
+// it is the path the module chapters assume you have walked. Rendered exactly
+// like a tool chapter (hand-authored, no manifest), with its own chip text.
+const FRONT_BOOKS = [
+  { cat: 'Getting Started', chip: 'walkthrough', tools: [
+    ['first_hour', 'Your First Hour'],
+  ]},
+];
+
+const TOOL_NAMES = new Set(
+  [...FRONT_BOOKS, ...TOOL_BOOKS].flatMap((b) => b.tools.map(([name]) => name)),
+);
 
 function orderedCategories(specs) {
   const present = [...new Set(specs.map((m) => m.category))];
@@ -537,26 +548,31 @@ function orderedCategories(specs) {
  *  book.chapter. A tool chapter's `m` is a synthesized minimal spec (name, title,
  *  category, isTool) so the nav and index render it exactly like a module row. */
 function bookModel(specs, hasChapter) {
-  const moduleBooks = orderedCategories(specs).map((cat, i) => ({
+  const handBook = (b, i) => ({
     num: String(i + 1).padStart(2, '0'),
     tint: `b-t${i % 3}`,
-    cat,
-    chapters: specs
-      .filter((s) => s.category === cat)
-      .map((m, j) => ({ no: `${i + 1}.${j + 1}`, m, written: hasChapter.has(m.name) })),
-  }));
-  const base = moduleBooks.length;
-  const toolBooks = TOOL_BOOKS.map((b, i) => ({
-    num: String(base + i + 1).padStart(2, '0'),
-    tint: `b-t${(base + i) % 3}`,
     cat: b.cat,
     chapters: b.tools.map(([name, title], j) => ({
-      no: `${base + i + 1}.${j + 1}`,
-      m: { name, title, category: b.cat, isTool: true },
+      no: `${i + 1}.${j + 1}`,
+      m: { name, title, category: b.cat, isTool: true, chip: b.chip },
       written: hasChapter.has(name),
     })),
-  }));
-  return [...moduleBooks, ...toolBooks];
+  });
+  const front = FRONT_BOOKS.map((b, i) => handBook(b, i));
+  const moduleBooks = orderedCategories(specs).map((cat, k) => {
+    const i = front.length + k;
+    return {
+      num: String(i + 1).padStart(2, '0'),
+      tint: `b-t${i % 3}`,
+      cat,
+      chapters: specs
+        .filter((s) => s.category === cat)
+        .map((m, j) => ({ no: `${i + 1}.${j + 1}`, m, written: hasChapter.has(m.name) })),
+    };
+  });
+  const base = front.length + moduleBooks.length;
+  const toolBooks = TOOL_BOOKS.map((b, i) => handBook(b, base + i));
+  return [...front, ...moduleBooks, ...toolBooks];
 }
 
 const CHEV =
@@ -798,7 +814,7 @@ function renderToolChapter(t, chapterNo, walkthrough, nav) {
   );
   parts.push(
     `<div class="titlerow"><h1>${esc(t.title)}</h1>` +
-      `<span class="chip">${chapterNo} · pane</span></div>`,
+      `<span class="chip">${chapterNo} · ${esc(t.chip ?? 'pane')}</span></div>`,
   );
   parts.push(`<div class="page">${walkthrough.trim()}</div>`);
   return shell(t.title, nav, parts.join('\n'));
@@ -818,14 +834,14 @@ function renderIndex(books, nav) {
       'references, a step-by-step walkthrough with screenshots, and everything the running ' +
       'application enforces for that module — followed by the tool books: the plot panels, ' +
       'data tools, batch machinery and working panes the modules are driven from. For the ' +
-      'workflow these all live in, start with the first-hour guide ' +
-      '(<code>docs/guide/first-hour.md</code>).</p>',
+      'workflow these all live in, start with ' +
+      '<a href="first_hour.html">Your First Hour</a> — book 01.</p>',
   );
   for (const b of books) {
     parts.push(`<section class="toc-book" id="b${b.num}">`);
     parts.push(
       `<div class="toc-bhead"><span class="toc-bnum ${b.tint}">${b.num}</span>` +
-        `<h2>${esc(b.cat)}</h2><span class="bcount">${b.chapters.length} chapters</span></div>`,
+        `<h2>${esc(b.cat)}</h2><span class="bcount">${b.chapters.length} chapter${b.chapters.length === 1 ? '' : 's'}</span></div>`,
     );
     const rows = b.chapters.map((c) =>
       c.written

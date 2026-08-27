@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-27 — Second pass, increment 17: the first-hour guide becomes book 01 of the guidebook
+
+The first-hour walkthrough was the one piece of the guide a guidebook reader could not
+reach — the Contents page named it as a repository file path (`docs/guide/first-hour.md`)
+instead of linking a page. It is now **book 01 · Getting Started · Your First Hour**:
+the approved narrative converted into a book chapter, every other book renumbered one
+up behind it, and the Contents lead links it as a page. Its ten figures were each
+re-verified against the narration before the chapter joined the book (they were
+purpose-shot for this text in the first pass and all still match — no re-shoot was
+needed; the chapter shows the TOP_SAND_A-era tops its own text narrates, which is the
+per-chapter honesty rule, not a defect). To keep one living copy, `first-hour.md` is
+now a short pointer at the chapter — the AGENTS.md drift lesson applied — and the
+module reference's "start with the first hour guide" link points at the book page.
+
+- [ ] **Open the guidebook Contents** — book 01 is Getting Started with "Your First
+      Hour"; the lead paragraph links it; the module books now start at 02.
+- [ ] **Open Your First Hour** — the nine-section walkthrough reads as before, with
+      its ten figures inline; the chip reads "1.1 · walkthrough", not "pane".
+- [ ] **`docs/guide/first-hour.md`** is a pointer to the chapter, no longer a second
+      copy of the content.
+
 ## 2026-08-27 — Second pass, increment 15: the Data & Sets figures lose the leftover crossplot, and wide screens get the launch card
 
 Your two calls in one increment. The "unrelated layout views" were exactly nine figures —

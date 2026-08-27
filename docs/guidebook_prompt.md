@@ -23,7 +23,9 @@ WHAT IS THERE NOW — build on it, do not duplicate it
   per panel kind; a module pane currently shows its manifest's `doc` raw. The modal
   promises "Illustrated help for each panel will open here in a later release." This
   work fulfils that promise.
-- docs/guide/first-hour.md — the narrative guide (voice already approved).
+- docs/guide/chapters/first_hour.html — the narrative guide (voice already approved;
+  authored as the book's Getting Started chapter since 2026-08-27 — first-hour.md is
+  now a pointer, not a second copy).
 - docs/guide/reference/ — pages GENERATED from docs/generated/module_manifests.json
   (the committed dump of modules::list_modules(), drift-gated by
   manifest_reference_test.rs and check:module-reference). tools/gen-module-reference.mjs
