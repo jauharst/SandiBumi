@@ -66,7 +66,7 @@
     {
       "id": "image-data",
       "title": "Depth-registered image data",
-      "review_section_patterns": ["Pictures in their own track", "image track", "Import plates", "core plate"]
+      "review_section_patterns": ["Pictures in their own track", "image track", "Import plates", "core plate", "Touching core boxes"]
     },
     {
       "id": "core-depth-registration",

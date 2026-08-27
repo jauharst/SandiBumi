@@ -1586,7 +1586,14 @@ fn draw_image_series(
         // thickness at all - so sliding it costs nothing a reader can misread once the leader
         // states where the plug is.
         let want_y = b.y;
-        let lo = grid_top.max(last_bottom + 0.4);
+        // Touching is not overlap: build_core_strips delivers adjacent barrels whose depth
+        // boxes share an edge EXACTLY, at every scale, so a floor at last_bottom + 0.4 would
+        // slide the middle barrel of every core delivery and hang a leader on it. The 0.4
+        // breathing gap applies only to a plate being moved off a genuine collision; one
+        // already clear of its neighbour keeps last_bottom itself as its floor, which still
+        // stops a page-bottom clamp from pushing it up over the plate before it.
+        let floor = if want_y < last_bottom - 0.01 { last_bottom + 0.4 } else { last_bottom };
+        let lo = grid_top.max(floor);
         let hi = grid_bot - b.h;
         if b.h > (grid_bot - grid_top) + 0.01 || lo > hi + 0.01 {
             // Taller than a whole page, or this page is already full: there is nothing to slide
@@ -1594,7 +1601,10 @@ fn draw_image_series(
             tick(ops);
             continue;
         }
-        b.y = b.y.clamp(lo, hi);
+        // max/min, not `clamp`: the guard above tolerates lo past hi by a hundredth of a
+        // millimetre, and f64::clamp PANICS on min > max - which a shipped build (panic =
+        // "abort") turns into a closed window. Here the page bottom wins by that hair.
+        b.y = b.y.max(lo).min(hi);
         if (b.y - want_y).abs() > 0.01 {
             // Moved to fit, so it is a CALLOUT now: the tick stays at the true depth and a leader
             // runs down the margin to the plate's own centre. The centre, not the nearest edge -
@@ -3499,6 +3509,105 @@ mod tests {
         let im = images(&ops);
         assert_eq!(im.len(), 1, "the second plate is skipped, not nudged");
         assert!((im[0].1 + im[0].3 / 2.0 - 1005.0).abs() < 1e-6, "the survivor keeps its true depth");
+    }
+
+    /// Touching is not overlap. `coreimage::build_core_strips` delivers adjacent barrels -
+    /// 1528-1533 / 1533-1538 / 1538-1543 - whose depth-mode boxes share an edge EXACTLY, at
+    /// every scale, so a guard that fires at equality condemns the middle barrel of every
+    /// core delivery: the screen skipped it outright, and this path slid it 0.4 mm and drew
+    /// a callout leader it never earned. Only a box that genuinely starts above the previous
+    /// one's base collides.
+    ///
+    /// Pinned from both sides: a depth strip that genuinely OVERLAPS its neighbour must
+    /// still go through DEC-090's callout, or "depth mode never collides" would pass the
+    /// first half and print two pictures over each other.
+    #[test]
+    fn touching_is_not_overlap_so_adjacent_core_strips_all_print_in_place() {
+        let st = image_style(
+            serde_json::json!({ "dataset": "CORE PHOTO", "mode": "depth", "fit": "cover", "size": 0.9 }),
+        );
+        let y = |d: f32| (d - 1500.0) as f64;
+        // The callout leader is the only VERTICAL line this path draws; depth leaders are
+        // horizontal (size 0.9 keeps b.x off the track edge, so none degenerates to a point).
+        let vertical_leaders = |ops: &[DrawOp]| {
+            ops.iter()
+                .filter(|o| matches!(o, DrawOp::Line { x1, x2, .. } if (x1 - x2).abs() < 1e-9))
+                .count()
+        };
+
+        let mut ops = Vec::new();
+        draw_image_series(
+            &mut ops,
+            &st,
+            &[
+                plate(0, "BOX-1", 1528.0, Some(1533.0), JPEG),
+                plate(1, "BOX-2", 1533.0, Some(1538.0), JPEG),
+                plate(2, "BOX-3", 1538.0, Some(1543.0), JPEG),
+            ],
+            0.0,
+            40.0,
+            1520.0,
+            1560.0,
+            &y,
+        );
+        let im = images(&ops);
+        assert_eq!(im.len(), 3, "adjacent barrels all print");
+        for (i, (_x, y0, _w, h, _c)) in im.iter().enumerate() {
+            let top = 1528.0 + 5.0 * i as f64;
+            assert!((y0 - (top - 1500.0)).abs() < 1e-6, "barrel {i} sits at its own interval: {y0}");
+            assert!((h - 5.0).abs() < 1e-6, "and spans exactly its own 5 m: {h}");
+        }
+        assert_eq!(vertical_leaders(&ops), 0, "nothing moved, so nothing is called out");
+
+        // The other side: a strip that genuinely overlaps still earns the DEC-090 callout.
+        let mut ops = Vec::new();
+        draw_image_series(
+            &mut ops,
+            &st,
+            &[plate(0, "BOX-1", 1528.0, Some(1533.0), JPEG), plate(1, "BOX-2", 1531.0, Some(1536.0), JPEG)],
+            0.0,
+            40.0,
+            1520.0,
+            1560.0,
+            &y,
+        );
+        let im = images(&ops);
+        assert_eq!(im.len(), 2, "an overlapping strip is slid, not dropped, while the page has room");
+        assert!(
+            im[1].1 >= im[0].1 + im[0].3 - 1e-6,
+            "and lands clear of its neighbour, never over it: {} vs {}",
+            im[1].1,
+            im[0].1 + im[0].3
+        );
+        assert_eq!(vertical_leaders(&ops), 1, "a moved strip admits it moved");
+    }
+
+    /// The fit guard passes `lo <= hi + 0.01`, so `lo` can exceed `hi` by up to a hundredth
+    /// of a millimetre when it reaches the clamp - and `f64::clamp` PANICS on min > max,
+    /// which a shipped build turns into a closed window (panic = "abort"). A plate in that
+    /// hairline band is drawn at the page-bottom limit instead; the overlap it accepts is at
+    /// most the same hundredth of a millimetre the guard already tolerates.
+    #[test]
+    fn a_plate_that_misfits_by_a_hairline_is_drawn_clamped_never_a_panic() {
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let y = |d: f32| d as f64;
+        // 20 x 10 boxes on a 1000..1040 page: hi = 1030. The first plate's base puts the
+        // floor for the second at 1029.605 + 0.4 = 1030.005 - inside (hi, hi + 0.01].
+        let mut ops = Vec::new();
+        draw_image_series(
+            &mut ops,
+            &st,
+            &[plate(0, "TS-1", 1024.605, None, JPEG), plate(1, "TS-2", 1028.0, None, JPEG)],
+            0.0,
+            40.0,
+            1000.0,
+            1040.0,
+            &y,
+        );
+        let im = images(&ops);
+        assert_eq!(im.len(), 2, "the hairline misfit prints");
+        let (_x, y0, _w, h, _c) = im[1];
+        assert!(y0 + h <= 1040.0 + 1e-6, "held inside the page: {}..{}", y0, y0 + h);
     }
 
     /// AUDIT-2026-08-20 finding 42. "Not embeddable" is a statement about ONE back-end. The PDF

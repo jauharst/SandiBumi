@@ -20072,3 +20072,33 @@ undo) still rebuilds the Report pane exactly as it always has.
       fix keeps the Report pane, it must not stop the flags reaching other panels.
 - [ ] **Run any module while the Report pane is open.** The pane should still rebuild on that —
       only its OWN render/export is kept, not the world's.
+
+## Touching core boxes no longer lose their middle strip (2026-08-27)
+
+You found this one on the guide sandbox: with core photograph strips delivered as touching
+barrels — 1528–1533, 1533–1538, 1538–1543 — the log view drew the first and third and dropped
+the middle one to a bare depth tick, and zooming in never brought it back, because the boxes
+touch exactly at every scale. The overlap rule was reading "touches its neighbour" as
+"collides with its neighbour".
+
+The print had a quieter version of the same mistake. Since the callout change, a touching
+strip was not dropped — but it was slid down by less than half a millimetre and given a
+leader line pointing back at where it "really" belongs, a callout it never earned, on the
+middle barrel of every core delivery, and each barrel below drifted a little further.
+
+Both sides now agree: **touching is not overlap.** Strips that share an edge draw exactly
+where they lie, on screen and in print. Pictures that genuinely overlap behave exactly as
+before — the screen skips the deeper one and leaves its depth tick, the print slides it
+clear and draws the callout leader.
+
+While in that code I also fixed a crash nobody had reported: a plate that misses fitting on
+a page by less than a hundredth of a millimetre would have closed the whole application
+during an export. It now prints at the page-bottom limit instead.
+
+- [ ] **Open a well carrying touching core-photo barrels in the log view.** Every barrel must
+      show, none replaced by a tick, at any zoom level.
+- [ ] **Export a composite over the same interval.** Every barrel in its own place, and no
+      leader lines on barrels that never moved.
+- [ ] **Find two pictures that genuinely overlap** (two thin sections close together, zoomed
+      out). The screen must still skip the deeper one with a tick, and the print must still
+      slide it clear with its leader — that behaviour is unchanged.
