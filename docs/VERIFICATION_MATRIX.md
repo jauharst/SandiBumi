@@ -67,5 +67,5 @@ this table, so every figure above reads low by whatever those sections cover.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 83 | 2026-07-19 | 19 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 278 | 2026-08-13 | 74 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 280 | 2026-08-13 | 75 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 227 | 2026-08-13 | 60 |

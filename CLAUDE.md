@@ -1219,10 +1219,14 @@ produced, and decides whether it goes anywhere. Do not add a scheduler, an uploa
 
 ## A project file is not inert (2026-08-22)
 
-`SECURITY-REVIEW-2026-08-22.md` finding F1. A `.duckdb` carries **saved equations** (`documents`
-doc_type `equation`) and **saved ML models** (`ml_models.data`, a joblib pickle that executes on
-load, before every check around it). Both are instructions rather than numbers, so a project that
-arrived from somebody else is an attachment, not a data file.
+`SECURITY-REVIEW-2026-08-22.md` finding F1. A `.duckdb` carries **saved equations** (the
+`equations` table — the store `equations::save_equation` writes; no `documents` row with doc_type
+`equation` has ever existed, and both the notice and the diagnostic report counted that empty
+store until 2026-08-27, so a foreign project full of user-authored Python produced no notice at
+all) and **saved ML models** (`ml_models.data`, a joblib pickle that executes on load, before
+every check around it). Both are instructions rather than numbers, so a project that arrived from
+somebody else is an attachment, not a data file. Both counts now come from ONE helper,
+`project::code_counts` — a consumer that writes its own COUNT query is the regression returning.
 
 Jauhar's call, put to him as a choice: **warn once, then let it run** - never gate, never refuse.
 `project_code_notice` counts what is there, `showProjectCodeNotice` says it once after the

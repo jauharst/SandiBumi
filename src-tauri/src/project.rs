@@ -170,6 +170,22 @@ pub fn trust_project_code(path: &str) {
     }
 }
 
+/// How much executable content the project carries: (saved equations, saved ML models).
+///
+/// Saved equations live in the `equations` table — the store `equations::save_equation` writes,
+/// and the only store the Equation Editor has ever saved through. Nothing has ever written a
+/// `documents` row with doc_type 'equation'; the F1 notice and the diagnostic report both used
+/// to count that empty store, so a foreign project full of user-authored Python produced no
+/// code notice at all unless it also carried ML models. One helper, called by both consumers,
+/// so they can never again disagree about where equations live.
+pub fn code_counts(conn: &duckdb::Connection) -> (usize, usize) {
+    // A project too old to carry either table is not a failure — it carries no code.
+    let count = |sql: &str| -> usize {
+        conn.query_row(sql, [], |r| r.get::<_, i64>(0)).map(|n| n.max(0) as usize).unwrap_or(0)
+    };
+    (count("SELECT COUNT(*) FROM equations"), count("SELECT COUNT(*) FROM ml_models"))
+}
+
 /// The path the app opens at startup: the most recently opened project that still
 /// exists, else the legacy `project.duckdb` next to the process cwd.
 pub fn startup_path() -> String {
@@ -665,6 +681,41 @@ pub(crate) mod tests {
 
         std::env::remove_var("SANDIBUMI_CONFIG_DIR");
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// An equation saved through the Equation Editor is counted as code the notice announces.
+    ///
+    /// Pinned from both sides: a fresh project counts zero (the count must not invent code),
+    /// and one `equations::save_equation` — the only path the editor has ever saved through —
+    /// raises it to one. The regression this pins: both consumers of the count used to read
+    /// `documents WHERE doc_type = 'equation'`, a store nothing ever wrote, so a project that
+    /// arrived carrying user-authored Python equations produced NO code notice at all unless
+    /// it also happened to carry ML models — which defeated the warn-once decision the notice
+    /// implements (SECURITY-REVIEW-2026-08-22, F1).
+    #[test]
+    fn an_equation_saved_through_the_editor_is_counted_as_code_the_notice_announces() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        assert_eq!(code_counts(&conn), (0, 0), "a fresh project carries no code to announce");
+        crate::equations::save_equation(
+            &conn,
+            &crate::equations::EquationDef {
+                equation_id: String::new(),
+                name: "GR_INDEX".to_string(),
+                description: None,
+                script: "output = (GR - 20.0) / (140.0 - 20.0)".to_string(),
+                input_curves: vec!["GR".to_string()],
+                output_curve: "GR_INDEX".to_string(),
+                output_units: None,
+                language: "python".to_string(),
+            },
+        )
+        .expect("the editor's save path");
+        assert_eq!(
+            code_counts(&conn).0,
+            1,
+            "the equation just saved is runnable code and the notice must count it"
+        );
     }
 
     /// "Compact Project" must (1) actually shrink a file bloated the way the field bloats

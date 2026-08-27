@@ -424,11 +424,14 @@ pub fn build_report(conn: &Connection, app_version: &str, spec: &ReportSpec) -> 
         ("imported samples", "SELECT COUNT(*) FROM curve_samples"),
         ("core plugs", "SELECT COUNT(*) FROM core_data"),
         ("pictures", "SELECT COUNT(*) FROM well_images"),
-        ("saved equations", "SELECT COUNT(*) FROM documents WHERE doc_type = 'equation'"),
-        ("saved ml models", "SELECT COUNT(*) FROM ml_models"),
     ] {
         out.push_str(&field(label, &count(conn, sql).to_string()));
     }
+    // The saved-code counts come from the same helper the foreign-project notice reads, so the
+    // report and the notice cannot disagree about where equations live.
+    let (equations, models) = crate::project::code_counts(conn);
+    out.push_str(&field("saved equations", &equations.to_string()));
+    out.push_str(&field("saved ml models", &models.to_string()));
     out.push('\n');
 
     out.push_str("== OPENING THIS PROJECT ==\n");
@@ -607,6 +610,22 @@ mod tests {
     #[test]
     fn a_report_carries_the_shape_of_the_problem_and_none_of_the_delivery() {
         let conn = project_with_wells();
+        // Saved through the Equation Editor's own path — the report must count the store that
+        // path writes, not the legacy documents store nothing ever wrote.
+        crate::equations::save_equation(
+            &conn,
+            &crate::equations::EquationDef {
+                equation_id: String::new(),
+                name: "GR_INDEX".to_string(),
+                description: None,
+                script: "output = GR".to_string(),
+                input_curves: vec!["GR".to_string()],
+                output_curve: "GR_INDEX".to_string(),
+                output_units: None,
+                language: "python".to_string(),
+            },
+        )
+        .expect("save an equation");
         record_op("Module", "vsh_larionov on SANDI-10", 4200, 1, "ok");
         // A label carrying the FIELD name, not just the well. Without one the field-name
         // assertion below is vacuous - no section of the report prints a field name on its own,
@@ -636,6 +655,13 @@ mod tests {
         assert!(
             report.lines().any(|line| line.starts_with("wells") && line.trim_end().ends_with('2')),
             "the well count must be in the report:\n{report}"
+        );
+        // The store the Equation Editor writes is the store the report counts.
+        assert!(
+            report
+                .lines()
+                .any(|line| line.starts_with("saved equations") && line.trim_end().ends_with('1')),
+            "an equation saved through the editor must be counted:\n{report}"
         );
 
         // And the sensitivity notice, because decision (a) put fitted parameters in this file.
