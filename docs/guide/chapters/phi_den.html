@@ -53,15 +53,18 @@ keep the raw arithmetic for QC.</p>
 
 <h2>Reading the result</h2>
 
-<p><b>3 clean</b>. Run live: median PHIE <b>0.1627</b>, median PHIT
-<b>0.2024</b>. The gap between them is the shale term doing its work in a
-section whose median VSH is 0.54.</p>
+<p><b>0 clean &middot; 3 degraded</b>. Run live: median PHIE <b>0.0848</b>,
+median PHIT <b>0.1686</b>. The gap between them is the shale term doing its
+work in a section whose median VSH is 0.54, and the degraded verdict is the
+same clamped-and-counted grammar the VSH chapters decode: at scattered
+high-VSH samples the computed porosity exceeded the shale-reduced ceiling
+and was clamped to it, each one counted in the per-well report.</p>
 
 <pre class="equations">SELECT round(median(value), 4) FROM computed_curves
 WHERE curve_name = 'PHIE_DEN' AND NOT isnan(value)</pre>
 
 <p>The sensitivity that matters: RHO_MA moved from 2.65 to 2.68 (a slightly
-calcareous sand) lifts the medians to <b>0.1731 / 0.2129</b>: about one
+calcareous sand) lifts the medians to <b>0.0924 / 0.1776</b>: about one
 porosity unit for three hundredths of a gram. Heavier assumed matrix reads
 more porosity, in proportion to the endpoint move over the matrix-fluid
 contrast. On a 20%-porosity sand that is a five-percent relative error from
@@ -70,9 +73,10 @@ defaulted-and-forgotten.</p>
 
 <figure>
   <img src="../img/guide-phiden-result.png"
-       alt="The Porosity from Density run reporting three clean wells" />
-  <figcaption>Three clean wells; the medians above are the section's answer
-    under the cited endpoints.</figcaption>
+       alt="The Porosity from Density run reporting three degraded wells" />
+  <figcaption>Three degraded wells, every warning a clamp at the shale
+    ceiling; the medians above are the section's answer under the cited
+    endpoints.</figcaption>
 </figure>
 
 <h2>QC and pitfalls</h2>

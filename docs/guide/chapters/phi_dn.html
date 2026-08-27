@@ -52,13 +52,14 @@ the logs disagree.</p>
 
 <h2>Reading the result</h2>
 
-<p><b>3 clean</b>, median PHIE_DN <b>0.1642</b>. The instructive measurement
-is the combination switch, read in the right place. Switching to GAS_RMS
-leaves the whole-section median at exactly <b>0.1642</b>, unchanged,
-because most of the section's density and neutron agree, and there the RMS
-is the average. Restricted to the gas-crossover samples the conditioning
-flags marked (XOVER_FLAG = 1), the median moves from <b>0.2004</b> to
-<b>0.2092</b>:</p>
+<p><b>0 clean &middot; 3 degraded</b> (the shale-reduced clamps again, at
+scattered high-VSH samples), median PHIE_DN <b>0.034</b>. The instructive
+measurement is the combination switch, read in the right place. Switching
+to GAS_RMS moves the whole-section median only from <b>0.034</b> to
+<b>0.035</b>, barely, because most of the section's density and neutron
+agree, and there the RMS is the average. Restricted to the gas-crossover
+samples the conditioning flags marked (XOVER_FLAG = 1), the median moves
+from <b>0.1963</b> to <b>0.2057</b>:</p>
 
 <pre class="equations">SELECT round(median(c.value), 4) FROM computed_curves c
 JOIN computed_curves f ON c.well_id = f.well_id AND c.depth = f.depth
@@ -70,9 +71,9 @@ the zone that matters: measure a gas option in the gas zones.</p>
 
 <figure>
   <img src="../img/guide-phidn-result.png"
-       alt="The Porosity from Density-Neutron run reporting three clean wells" />
-  <figcaption>The combination choice is invisible in the section-wide
-    statistics and real in the crossover intervals.</figcaption>
+       alt="The Porosity from Density-Neutron run reporting three degraded wells" />
+  <figcaption>The combination choice barely moves the section-wide
+    statistics and is real in the crossover intervals.</figcaption>
 </figure>
 
 <h2>QC and pitfalls</h2>

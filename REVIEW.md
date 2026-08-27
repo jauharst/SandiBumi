@@ -1,5 +1,47 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-27 — Second pass, increment 14: every module chapter's figures re-shot on a layout composed for that module's own workflow
+
+This is the screenshot instruction applied to the whole back catalogue: the 36 module
+chapters from increments 2–5 (Data Prep, Condition, Frame, VSH, Porosity, Lithology,
+Saturation) had been shot against whatever layout happened to be open. Each now has its
+own saved "Guide <module>" layout — the input curves on the left, the module's outputs
+beside them at 1:500, crossovers/flags/step-curves where the chapter discusses them — and
+73 figures were re-driven live and re-shot (36 pane + 36 result + the Phimax refusal).
+Every figure was eyeballed against its chapter's text before shipping.
+
+- [ ] **Open any module chapter in the guidebook** (Help ▸ Guidebook, e.g. Despike,
+      Flip Polarity, VSH from Gamma Ray, SW — RtC) and check the figures now show that
+      module's own curves in the log view beside the pane — not a leftover layout.
+- [ ] **Four porosity chapters were re-measured, not just re-shot** (phi_den, phi_dn,
+      phi_dnbk, phi_son). Today's sandbox no longer reproduces the porosity numbers the
+      chapters were first written against (the flag counts reproduce exactly —
+      BADHOLE 612/1185, COND_FLAG 648/1185, XOVER 265 — but the stored RHOB cannot yield
+      the old PHIT median under any masking I tried; the old figures show an older
+      sandbox epoch). Rather than ship figures that contradict the text, the four
+      chapters now carry today's measured medians and verdicts ("0 clean · 3 degraded",
+      every warning a clamp at the shale ceiling), and the sensitivity numbers were
+      re-run live to match. Chip filed to re-verify the example-dataset numbers across
+      chapters 2–5 wholesale (task_75244154).
+- [ ] **Flip Polarity is back on the gamma ray.** The first re-shoot ran on SP (the
+      module's default) against a stale layout; the chapter demos GR pivot 75 with exact
+      mirror arithmetic. Re-driven with CURVE = GR — the result figure now shows GR and
+      GR_C as exact mirrors about 75.
+- [ ] **Defect found on camera, filed not patched**: the Despike pane's "Live
+      contamination ceiling" card always fails with "unregistered backend well-scope
+      operation 'despike contamination preview'" — lib.rs:2388 passes an operation name
+      the well_scope registry never lists. One registry row fixes it; chip
+      task_8ac11bac. The despike figures ship with the honest error card visible (the
+      chapter never mentions the ceiling, so nothing contradicts).
+- [ ] **BADHOLE/COND_FLAG were re-established first** (BS_INPUT 8.5 per the badhole
+      chapter — without it BADHOLE stores 0 evaluable rows and COND_FLAG cascades to
+      empty), so every downstream figure shows the chapters' own flag state.
+- [ ] **FTEMP's track was rescaled 90–105 °C** — at the first 20–80 range the ~97–100 °C
+      gradient plotted off-scale and the track looked empty.
+- [ ] The first-hour tour (first-hour.md) was assessed and deliberately left untouched:
+      it was written against an older sandbox epoch and is self-consistent — its figures
+      do not contradict its text. Book regenerated: 98 pages.
+
 ## 2026-08-27 — Second pass, increment 13: the Workspace & Project tool book — Zones, Tops & Autocorrelation, Equation Editor, Sessions & Layouts, Processing History, Composite Log, Report & Deliverables, Diagnostics
 
 - [ ] **Eight Workspace & Project chapters written** (tool_zones, tool_tops_editor,

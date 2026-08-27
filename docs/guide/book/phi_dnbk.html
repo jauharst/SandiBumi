@@ -520,13 +520,15 @@ conventions are load-bearing:</p>
 
 <h2>Reading the result</h2>
 
-<p><b>3 clean</b>. Run live: median PHIE_DNBK <b>0.1762</b>, and median
-RHOMAA_BK <b>2.6892 g/cc</b>: a hair above quartz, which is what a slightly
-shaly quartz sand should return, and the first thing to check on any run.
-Against the quick-look average the analytic answer reads
-<b>+0.0124</b> (median, sample-paired): the two methods genuinely differ,
-about 1.2 porosity units here, and the analytic one is the method with a
-published derivation behind it:</p>
+<p><b>0 clean &middot; 3 degraded</b> (shale-ceiling clamps at scattered
+samples). Run live: median PHIE_DNBK <b>0.0383</b>, and median RHOMAA_BK
+<b>2.7385 g/cc</b>: well above quartz, which is what a section whose median
+VSH is 0.54 should return, the clay's heavier matrix pulling the apparent
+grain density up, and the first thing to check on any run. Against the
+quick-look average the analytic answer reads <b>+0.0068</b> (median,
+sample-paired): the two methods genuinely differ, about 0.7 of a porosity
+unit here, and the analytic one is the method with a published derivation
+behind it:</p>
 
 <pre class="equations">SELECT round(median(a.value - b.value), 4)
 FROM computed_curves a JOIN computed_curves b
@@ -534,26 +536,26 @@ FROM computed_curves a JOIN computed_curves b
 WHERE a.curve_name = 'PHIE_DNBK' AND NOT isnan(a.value) AND NOT isnan(b.value)</pre>
 
 <p>The shale-point dial, measured: NPHI_SH moved to 0.30 lifts the median to
-<b>0.1852</b> and pushes RHOMAA_BK up to <b>2.7132</b>: the hydroxyl the
+<b>0.0699</b> and pushes RHOMAA_BK up to <b>2.7544</b>: the hydroxyl the
 shale point no longer accounts for is pushed into apparent matrix, and the
-divergence from the quick-look doubles to +0.023. RHOMAA drifting off the
-field's known lithology is the tell that the shale point is wrong; restored
-to 0.38, every number returns exactly.</p>
+divergence from the quick-look nearly triples to +0.0186. RHOMAA drifting
+further off the section's already-shaly matrix is the tell that the shale
+point is wrong; restored to 0.38, every number returns exactly.</p>
 
 <figure>
   <img src="../img/guide-phidnbk-result.png"
-       alt="The Bateman-Konen run reporting three clean wells" />
-  <figcaption>RHOMAA_BK near quartz is the crossplot vouching for its own
-    endpoints.</figcaption>
+       alt="The Bateman-Konen run reporting three degraded wells" />
+  <figcaption>RHOMAA_BK sitting heavy of quartz is the crossplot reporting
+    the section's clay, not an error in its endpoints.</figcaption>
 </figure>
 
 <h2>QC and pitfalls</h2>
 
 <ul>
   <li>Read RHOMAA_BK before the porosity. It should sit on the field's
-    lithology (quartz here); intervals where it drifts heavy or light are
-    intervals where an endpoint, the matrix convention, or gas is
-    lying.</li>
+    lithology, clay included (here a shaly sand reading heavy of quartz);
+    intervals where it drifts beyond what the clay explains are intervals
+    where an endpoint, the matrix convention, or gas is lying.</li>
   <li>Gas moves both logs off the model and the crossplot cannot tell gas
     from lithology; treat crossover intervals with the gas correction first
     or interpret them separately.</li>
