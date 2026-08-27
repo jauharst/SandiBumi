@@ -440,13 +440,7 @@ async fn project_code_notice(
     let handle = db.0.clone();
     let (equations, models) = tauri::async_runtime::spawn_blocking(move || {
         let conn = handle.lock().unwrap();
-        // A project too old to carry either table is not a failure — it carries no code.
-        let equations: i64 = conn
-            .query_row("SELECT COUNT(*) FROM documents WHERE doc_type = 'equation'", [], |r| r.get(0))
-            .unwrap_or(0);
-        let models: i64 =
-            conn.query_row("SELECT COUNT(*) FROM ml_models", [], |r| r.get(0)).unwrap_or(0);
-        (equations.max(0) as usize, models.max(0) as usize)
+        project::code_counts(&conn)
     })
     .await
     .map_err(|e| e.to_string())?;

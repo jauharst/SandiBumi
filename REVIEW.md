@@ -19960,3 +19960,21 @@ over the same wells and fails if they ever disagree — including disagreeing ab
 - [ ] **Change one cut-off and re-run.** That must create a new version, and the old must survive.
 - [ ] **See whether your machine is happier** than it was with the previous version — this one should
       use far less of it. If it feels the same or worse, tell me.
+
+## The foreign-project code warning was looking in an empty drawer (2026-08-27)
+
+The app is supposed to warn you once when you open a project file that came from somebody else
+and carries runnable code — saved equations or saved ML models — because an equation is a small
+program, not a number. It turned out the warning was counting equations in a place nothing ever
+stored them: the Equation Editor has always saved into its own table, but the warning (and the
+"saved equations" line of the Diagnostics report) counted a different, permanently empty store.
+So a project arriving with somebody's Python equations said nothing at all, unless it also
+happened to carry ML models. Both counters now read the table the editor actually writes, and
+they share one piece of code so they cannot drift apart again. A test now saves an equation the
+same way the editor does and fails if either count misses it.
+
+- [ ] **Save an equation** in the Equation Editor (any small one), then open Project ▸ Monitor ▸
+      Diagnostics… — the "saved equations" line must now show the real count, not 0.
+- [ ] **Open a project you did not create on this machine** that has at least one saved equation
+      (copy one of your own projects to a new name to simulate this) — the one-time notice about
+      the project carrying saved code must appear.

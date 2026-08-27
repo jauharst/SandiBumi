@@ -266,7 +266,7 @@
     {
       "id": "security-integrity",
       "title": "Security and data-integrity guards",
-      "review_section_patterns": ["CSP", "XSS", "hostile", "write", "migration", "undo", "panic", "failure", "refus", "silent", "honest", "corrupt", "WAL"]
+      "review_section_patterns": ["CSP", "XSS", "hostile", "write", "migration", "undo", "panic", "failure", "refus", "silent", "honest", "corrupt", "WAL", "warn"]
     },
     {
       "id": "verification-stewardship",
