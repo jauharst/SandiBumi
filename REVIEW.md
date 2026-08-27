@@ -1,5 +1,69 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-28 — Second pass, increment 19: the guidebook stops writing in dashes
+
+Your second call: *"for all 92 chapter please screening and refine again if AI slop
+symbol still there, especially '-'"*, with the Contents lead paragraph circled. Every
+authored chapter was scanned, not sampled: **98 files, 295 dashes before, 87 after**
+(`git grep -ho -e '—' -e '–' -e '&ndash;' -e '&mdash;' master -- 'docs/guide/chapters/*.html' | wc -l`
+against the same `grep` on the working tree), and **20 chapters plus the generator** were
+rewritten. The paragraph you circled lives in `tools/gen-guidebook.mjs`, not in a
+chapter file, which is why re-reading chapters would never have found it.
+
+Nothing was replaced blindly. Three kinds of dash were kept, and the count above is
+what survives them:
+
+- **Numeric ranges** — `1500.0–1546.6 m`, `r 0.91–0.99`, `P5–P25–P50–P75–P95`.
+- **Compound terms** — `NPHI–RHOB`, `Pd–G`, `RQI–φz`, `sand–shale–sand`, `min–max`.
+- **Text the application itself prints**, quoted verbatim. Each one was checked against
+  the source before being kept, not assumed: the two Plug QC reference-line labels
+  (`src/ui/plugQcPanel.ts:163`), the tops status line (`src/ui/workspace.ts:1184`), the
+  zone-precedence callout (`src/ui/moduleDialog.ts:542`), the unsettled-value chip
+  (`src/ui/paramSources.ts:62`), and the `TOC — Passey ΔlogR + Schmoker` module title
+  (`src-tauri/src/unconventional.rs:24`).
+
+- [ ] **Read the Contents page's opening paragraph.** It was three sentences joined by
+      dashes; it is now three sentences. Same content, same links, no other change.
+- [ ] **Read Your First Hour end to end.** It carried 93 dash-bearing lines, by far the
+      most of any chapter, and now carries four — all of them application text it
+      quotes. The bulleted walkthrough lists (`RUN ON`, `OPT_GR`, `MASK`, `VSH`,
+      `VSH_GR`, `VSH_PROV`) now read `<b>term</b>: gloss` instead of `term — gloss`.
+- [ ] **One quote was wrong as well as dashed, and is fixed.** The chapter quoted the
+      Curve Catalog as saying *"every run is kept as a version — nothing is
+      overwritten."* The application actually writes it with parentheses
+      (`src/ui/inspectorPanel.ts:713`), so the quotation marks were covering a
+      paraphrase. Both places in the chapter now match the app.
+- [ ] **Spot-check any module chapter's "What the application enforces" section.** The
+      generator's own separators changed with it: a pre-run check now reads
+      `CODE: statement`, and a choice list `LINEAR: VSH = IGR`. The line that strips the
+      app's own `LINEAR — ` prefix out of a manifest label was deliberately left alone,
+      because that one is parsing the application's format, not writing ours.
+- [ ] **Nothing outside the guidebook prose was touched.** No Rust, no TypeScript, no
+      figures, no CSS. The application's own strings still contain em dashes — roughly
+      1054 source lines carry one inside a quoted literal — and that is a separate
+      decision for you, not something to change quietly under a documentation sweep.
+
+**Why you had to ask twice, measured.** A dash sweep already ran on 2026-08-26
+(`REVIEW.md:790`: *"the 52 chapters go from 324 em dashes to 12"*). It held. Splitting
+today's 295 by when each file was written says exactly where they came back from:
+
+| Chapters | Dashes before this increment |
+|---|---|
+| `tool_*.html`, written after that sweep | 171 |
+| `first_hour.html`, joined the book 2026-08-27 | 103 |
+| the 52 chapters that sweep actually cleaned | 21 |
+
+**274 of 295, or 93%, sit in prose written after the last sweep.** The cleaned files
+stayed clean; every chapter authored since reintroduced the voice from scratch, because
+nothing in the repository measures it.
+
+The guard that would stop a third round is a ratchet, not a rule: assert that
+`docs/guide/chapters/` carries no more than 87 dashes, and a chapter written in the old
+voice fails the gate by name. It is deliberately **not** in this increment — it would
+block unrelated commits, and whether it should be a hard failure or a printed warning is
+your call, not a side effect of a documentation sweep. Say the word and it is the next
+one.
+
 ## 2026-08-28 — Second pass, increment 18: the last stale figures, the wide margin stops being a void, and the display font goes
 
 Three of your calls. **The figure sweep is finished**: every tool-book figure has now

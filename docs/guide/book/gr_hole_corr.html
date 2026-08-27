@@ -594,7 +594,7 @@ WHERE g.curve_name = 'GR_EC' AND g.value - s.gr > 1e-6</pre>
     feed the corrected curve by name rather than re-pointing the GR alias.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>GR_EC = GR * (1 + K_GR*(CALI - BS)): linear borehole-enlargement correction — gamma rays attenuated by the extra mud annulus are restored. Bit size from the BS curve where present, else BS_DEF. The public runner refuses if CALI is missing at any finite GR sample; it never writes an unmarked uncorrected GR_EC copy.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>GR</td><td>Gamma ray log</td><td><code>GR</code></td><td>yes</td><td>—</td></tr>

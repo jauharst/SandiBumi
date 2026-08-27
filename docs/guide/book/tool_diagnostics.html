@@ -510,11 +510,11 @@
 <p>Diagnostics (<b>Project &#9656; Diagnostics</b>) builds the one file
 to send when something must be reported from a machine you cannot see:
 "it was slow", "the numbers look wrong", "it closed by itself". It is
-not telemetry &ndash; nothing runs in the background and nothing is
+not telemetry. Nothing runs in the background and nothing is
 transmitted; the pane's own first line ends "Read it, then send it.
 Nothing is transmitted from here." Reach for it when reporting a
-problem, and read it yourself first &ndash; that reading is a designed
-step, not a courtesy.</p>
+problem, and read it yourself first, because that reading is a designed
+step rather than a courtesy.</p>
 
 <h2>The pane</h2>
 
@@ -529,8 +529,8 @@ step, not a courtesy.</p>
 
 <ul>
   <li><b>What travels is the shipped vocabulary.</b> Module ids, curve
-    mnemonics, job kinds, durations, error text &ndash; the material a
-    diagnosis is made of.</li>
+    mnemonics, job kinds, durations and error text, which is the
+    material a diagnosis is made of.</li>
   <li><b>What is masked is the client's.</b> The report states its own
     rule:</li>
 </ul>
@@ -541,8 +541,8 @@ cannot be lined up against each other.</pre>
 
 <ul>
   <li><b>Parameter values travel on purpose.</b> Without m, n, a, Rw and
-    the cutoffs there is usually no way to say why a number looks wrong
-    &ndash; so they are included, and the report says so at the top in a
+    the cutoffs there is usually no way to say why a number looks wrong,
+    so they are included, and the report says so at the top in a
     box you cannot miss, because they are analytical work product that
     may fall under a confidentiality agreement.</li>
 </ul>
@@ -553,8 +553,8 @@ cannot be lined up against each other.</pre>
   <li>Open <b>Project &#9656; Diagnostics</b>, optionally tick "Include
     how the selected well's curves were computed" for the per-curve
     provenance section, and press <b>Build report</b>.</li>
-  <li><b>Read it.</b> The pane shows the whole file &ndash; just over a
-    million characters on the example project &ndash; before any save.</li>
+  <li><b>Read it.</b> The pane shows the whole file, just over a million
+    characters on the example project, before any save.</li>
   <li><b>Save&hellip;</b> to a file, or <b>Copy</b> straight into a
     message.</li>
 </ol>
@@ -563,33 +563,34 @@ cannot be lined up against each other.</pre>
 
 <p>The example report opens with the caution box, then answers a support
 conversation in order: MACHINE (32 cores, 48&nbsp;GB, Python found with
-numpy, scipy 1.18.0 &ndash; whether the optional stack exists is half of
+numpy, scipy 1.18.0, since whether the optional stack exists is half of
 many mysteries), PROJECT SHAPE (3 wells, 259,515 computed samples, 221
-computed curves, 45 core plugs, 16 pictures &ndash; the denominator that
-decides whether a minute is slow), OPENING timings per migration step,
-OPERATIONS THIS SESSION (each import, run and render with its duration
-and outcome &ndash; the example's tops import took 49&nbsp;ms), CRASHES
-AND INTERNAL ERRORS read back from the previous launches' crash log, and
-optionally HOW THESE CURVES WERE MADE for one well. The wells throughout
-read WELL-1, WELL-2 &ndash; the mapping is built from the project's own
-well list, applied longest-name-first, and never stored.</p>
+computed curves, 45 core plugs, 16 pictures, which is the denominator
+that decides whether a minute is slow), OPENING timings per migration
+step, OPERATIONS THIS SESSION (each import, run and render with its
+duration and outcome, so the example's tops import shows as
+49&nbsp;ms), CRASHES AND INTERNAL ERRORS read back from the previous
+launches' crash log, and optionally HOW THESE CURVES WERE MADE for one
+well. The wells throughout read WELL-1, WELL-2, and that mapping is
+built from the project's own well list, applied longest-name-first, and
+never stored.</p>
 
 <h2>QC and pitfalls</h2>
 
 <ul>
   <li><b>The masking is exact, not clever.</b> It replaces the project's
     actual well and field names; it does not pattern-guess. Free text you
-    typed yourself &ndash; a custody source line, a set name, a plate
-    caption &ndash; travels as typed, and on the example a run-source
+    typed yourself (a custody source line, a set name, a plate caption)
+    travels as typed, and on the example a run-source
     citation that mentioned the field's name survived verbatim. That is
     what the read-before-send step is for.</li>
   <li><b>Parameter values are the report's payload and its risk.</b> If
-    the recipient must not see the calibration, do not send the file
-    &ndash; there is no switch that strips the parameters and leaves
-    anything worth diagnosing.</li>
+    the recipient must not see the calibration, do not send the file.
+    There is no switch that strips the parameters and leaves anything
+    worth diagnosing.</li>
   <li><b>Two reports cannot be joined.</b> The WELL-n mapping is rebuilt
-    per report, so numbers cannot be correlated across two files &ndash;
-    include everything relevant in one build rather than sending a
+    per report, so numbers cannot be correlated across two files.
+    Include everything relevant in one build rather than sending a
     series.</li>
 </ul></div>
 </div>

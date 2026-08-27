@@ -4,8 +4,8 @@
 <h2>What this is and when to reach for it</h2>
 
 <p>The Equation Editor (the Inspector's other tab, beside the Curve
-Catalog) computes a curve you define yourself &ndash; a quick index, a
-QC difference, a transform no shipped module covers. Equations run as
+Catalog) computes a curve you define yourself: a quick index, a QC
+difference, a transform no shipped module covers. Equations run as
 Python with numpy against the well's aligned curves, or in the legacy
 Rhai expression language; either way the output lands in the project as
 a real computed curve, versioned and provenance-stamped like a module's.
@@ -19,7 +19,7 @@ module would be ceremony.</p>
        alt="The Equation Editor with the gamma-ray index equation, its script, and the all-wells run result beside the log view" />
   <figcaption>A one-line gamma-ray index: input GR, output IGR, endpoints
     taken from the well's own data. The result line reports the run the
-    way the write path saw it &ndash; wells succeeded, rows written.</figcaption>
+    way the write path saw it, in wells succeeded and rows written.</figcaption>
 </figure>
 
 <ul>
@@ -37,7 +37,7 @@ grs = signal.savgol_filter(gr, 11, 2) (Python equations is available in
 C:\Users\...\Python312\python.exe · scipy 1.18.0)</pre>
 
 <ul>
-  <li><b>Python runs as a separate process, never inside the app</b> &ndash;
+  <li><b>Python runs as a separate process, never inside the app</b>, so
     a missing or broken interpreter fails an equation run with a message,
     never the application. A curve mnemonic always wins over a scipy
     name: your data is never shadowed by a library.</li>
@@ -60,9 +60,9 @@ C:\Users\...\Python312\python.exe · scipy 1.18.0)</pre>
 <pre class="equations">igr = np.clip((gr - np.nanmin(gr)) / (np.nanmax(gr) - np.nanmin(gr)), 0, 1)</pre>
 
 <ol start="3">
-  <li><b>Save, then Run.</b> The order is enforced &ndash; pressing Run on
-    an unsaved definition refuses with "Save the equation before running
-    it." &ndash; and the run itself opens the run-custody prompt. The
+  <li><b>Save, then Run.</b> The order is enforced: pressing Run on an
+    unsaved definition refuses with "Save the equation before running
+    it.", and the run itself opens the run-custody prompt. The
     custody refuses too, until a source is stated:</li>
 </ol>
 
@@ -77,9 +77,8 @@ C:\Users\...\Python312\python.exe · scipy 1.18.0)</pre>
 
 <p>The result line speaks in write-path terms: the single-well run
 reported "1/1 well(s) succeeded, 395 rows written.", the field run "3/3
-well(s) succeeded, 1185 rows written." &ndash; and the stored IGR spans
-exactly 0 to 1 on each well, because its endpoints are each well's own
-extremes. The output shows up immediately in the Curve Catalog with its
+well(s) succeeded, 1185 rows written." The stored IGR spans exactly 0 to
+1 on each well, because its endpoints are each well's own extremes. The output shows up immediately in the Curve Catalog with its
 provenance, in the log view as a plottable curve, and in the Processing
 History as an EQUATION entry naming the definition and the well count.
 A re-run writes a new version of the curve rather than silently
@@ -90,7 +89,7 @@ overwriting the old one.</p>
 <ul>
   <li><b>NaN is the missing value, and it propagates.</b> A sample missing
     in any input is missing in the output unless the script says
-    otherwise &ndash; which is the honest default. Do not fill gaps with a
+    otherwise, which is the honest default. Do not fill gaps with a
     constant inside an equation; the Fill Gaps module exists and flags
     every sample it invents.</li>
   <li><b>Data-driven endpoints are per-well statements.</b> The example's
@@ -100,6 +99,6 @@ overwriting the old one.</p>
     be comparable in absolute terms. Choose per the question.</li>
   <li><b>The custody source field is quoted downstream, so write a real
     reference into it.</b> What you type travels with the curve into
-    deliverables and diagnostics &ndash; a citation helps the next reader;
-    a throwaway phrase follows the curve around forever.</li>
+    deliverables and diagnostics. A citation helps the next reader; a
+    throwaway phrase follows the curve around forever.</li>
 </ul>

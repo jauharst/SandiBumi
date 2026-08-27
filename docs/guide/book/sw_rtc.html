@@ -666,7 +666,7 @@ Restored, every number returns exactly.</p>
     wet, and the same discipline applies at that scale.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>LRLC RtC method: excess conductivity from clay chemistry and capillary (micropore) water is regressed as Cex = (A_CAP·CAPBW + B_QV·Qv + C0)·PHIT·RSF and removed from the measured conductivity before Archie: Sw = [Rw·(1/Rt − Cex)/PHIT^M]^(1/N). Qv comes from the QV input log when present, else from CEC·RHOG·(1−PHIT)/(100·PHIT). NO CALIBRATION COEFFICIENTS SHIP AS DEFAULTS. A foreign calibration here does not announce itself: it yields a smooth, plausible Sw that is simply wrong. Fit your own with Advance ▸ Calibrate RtC…, which regresses A_CAP/B_QV/C0 from excess conductivity over an interval you declare water-bearing. CAPBW pairs naturally with SSC's CWSH or SSPW's CAPBW_SSPW. The correction is capped at 98% of the measured conductivity so Rt_corr stays finite.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>RT</td><td>Deep resistivity</td><td><code>RES_DEEP</code></td><td>yes</td><td>—</td></tr>

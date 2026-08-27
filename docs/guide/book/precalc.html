@@ -619,7 +619,7 @@ median RMF <b>0.0770&nbsp;ohmm</b> (the 0.2&nbsp;ohmm lab measurement, roughly
     Keep one owner for the temperature trend in a study, and cite it once.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Reservoir-condition inputs for saturation and SandiMin work, from trend fits: formation temperature = SURF_TEMP + TEMP_GRAD*TVDSS and FPRESS = PSURF + PGRAD*TVDSS, both linear in true vertical depth. Gradients — and the TREND fit below — are per depth unit of the TVDSS curve: enter per-metre values (and a metric refit) for metric wells. The shipped 77 degF / 0.026 deg/ft starting values are one study's feet-based fits, attributed to the owner by DEC-077 — refit per basin, and convert before a metric well (SB-ENV-045 records the 66 degC cost of skipping that). SURF_TEMP / TEMP_GRAD / RMF_TEMP are entered in OPT_TU units, but the FTEMP curve is always written in degC (the unit every downstream module assumes); FTEMP_F is the same trend in degF for SandiMin fluid-property entry. RMF at formation temperature comes either from a surface mud-filtrate measurement Arps-converted per sample (ARPS) or from a field regression RMF = RMF_A + RMF_B*log10(TVDSS) already fit at formation temperature (TREND, for wells with no mud data). CT = 1000/RT and CXO = 1000/RXO are QC/plotting conductivities in mmho/m — SandiMin's CT/CXO tool rows read the RESISTIVITY curves directly and convert internally, so do not feed these curves to them. No TVDSS curve → measured DEPTH is used instead (fine for near-vertical wells).</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>TVDSS</td><td>True vertical depth subsea</td><td><code>TVDSS</code></td><td>no</td><td>—</td></tr>
@@ -631,12 +631,12 @@ median RMF <b>0.0770&nbsp;ohmm</b> (the 0.2&nbsp;ohmm lab measurement, roughly
 <p>Surface temperature (intercept, whole well)</p>
 <ul><li><b>Default:</b> 77</li>
 <li><b>Accepted range:</b> -50 to 150 degF|degC</li>
-<li><b>One value per well</b> — a named-zone override of this parameter is refused.</li></ul>
+<li><b>One value per well</b>: a named-zone override of this parameter is refused.</li></ul>
 <h3>TEMP_GRAD <span class="src">(deg/ft|m)</span></h3>
 <p>Temperature gradient per TVDSS unit (whole well)</p>
 <ul><li><b>Default:</b> 0.026</li>
 <li><b>Accepted range:</b> 0.0005 to 0.2 deg/ft|m</li>
-<li><b>One value per well</b> — a named-zone override of this parameter is refused.</li></ul>
+<li><b>One value per well</b>: a named-zone override of this parameter is refused.</li></ul>
 <h3>PSURF <span class="src">(psi)</span></h3>
 <p>Formation pressure intercept</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
@@ -649,25 +649,25 @@ median RMF <b>0.0770&nbsp;ohmm</b> (the 0.2&nbsp;ohmm lab measurement, roughly
 <p>Rmf measured at surface (ARPS)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
-<li><b>Checked before the run:</b> <code>rmf_meas.required_when_arps</code> — RMF_MEAS is required when OPT_RMF = ARPS. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>rmf_meas.required_when_arps</code>: RMF_MEAS is required when OPT_RMF = ARPS. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5 mud-filtrate parameters</div></li></ul>
 <h3>RMF_TEMP <span class="src">(degF|degC)</span></h3>
 <p>Rmf measurement temperature (ARPS)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> -50 to 150 degF|degC</li>
-<li><b>Checked before the run:</b> <code>rmf_temp.required_when_arps</code> — RMF_TEMP is required when OPT_RMF = ARPS. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>rmf_temp.required_when_arps</code>: RMF_TEMP is required when OPT_RMF = ARPS. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5 mud-filtrate parameters</div></li></ul>
 <h3>RMF_A <span class="src">(ohmm)</span></h3>
 <p>RMF trend intercept (TREND, ft-based fit)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 5 ohmm</li>
-<li><b>Checked before the run:</b> <code>rmf_a.required_when_trend</code> — RMF_A is required when OPT_RMF = TREND. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>rmf_a.required_when_trend</code>: RMF_A is required when OPT_RMF = TREND. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5 mud-filtrate parameters</div></li></ul>
 <h3>RMF_B <span class="src">(ohmm)</span></h3>
 <p>RMF trend slope on log10(TVDSS) (TREND — fit must use the TVDSS curve's depth unit)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> -2 to 2 ohmm</li>
-<li><b>Checked before the run:</b> <code>rmf_b.required_when_trend</code> — RMF_B is required when OPT_RMF = TREND. Applies when: [object Object].
+<li><b>Checked before the run:</b> <code>rmf_b.required_when_trend</code>: RMF_B is required when OPT_RMF = TREND. Applies when: [object Object].
     <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5 mud-filtrate parameters</div></li></ul>
 <h2>Options</h2>
 <h3>OPT_TU</h3>

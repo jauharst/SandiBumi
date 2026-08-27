@@ -594,7 +594,7 @@ FROM computed_curves WHERE curve_name = 'GR_C' AND NOT isnan(value)</pre>
     pivot chosen to fake both.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Mirrors a curve about a pivot: OUT = 2 x pivot - CURVE. For an SP recorded with the wrong sign convention, or any reading delivered inverted.
 
 PIVOT_FROM:
@@ -614,14 +614,14 @@ MIDRANGE and MEAN are computed PER WELL, so the same run gives each well a diffe
 <h2>Options</h2>
 <h3>OPT_PIVOT</h3>
 <p>Where the mirror line sits</p>
-<ul><li><b>Choices:</b><ul><li><code>VALUE</code> — mirror about PIVOT</li>
-<li><code>MIDRANGE</code> — about (min + max) / 2 of this well's curve</li>
-<li><code>MEAN</code> — about this well's own mean</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>VALUE</code>: mirror about PIVOT</li>
+<li><code>MIDRANGE</code>: about (min + max) / 2 of this well's curve</li>
+<li><code>MEAN</code>: about this well's own mean</li></ul></li>
 <li><b>Default:</b> <code>VALUE</code></li></ul>
 <h3>OPT_FLAG</h3>
 <p>Write a curve carrying the pivot actually used</p>
-<ul><li><b>Choices:</b><ul><li><code>YES</code> — write the flag curve</li>
-<li><code>NO</code> — the conditioned curve only</li></ul></li>
+<ul><li><b>Choices:</b><ul><li><code>YES</code>: write the flag curve</li>
+<li><code>NO</code>: the conditioned curve only</li></ul></li>
 <li><b>Default:</b> <code>YES</code></li></ul>
 <h2>Output curves</h2>
 <div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>OUT_CURVE</td><td>Conditioned curve</td></tr>

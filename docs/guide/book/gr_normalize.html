@@ -548,7 +548,7 @@ reference pair is entered, deriving the pair from the field distribution with
 the Database Inspector, and verifying that every normalized well's
 percentiles coincide afterwards.</p>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>GRN = (GR − Plow_well)·(Phigh_ref − Plow_ref)/(Phigh_well − Plow_well) + Plow_ref. The well percentiles are computed from this run's GR samples (mask the run to a common reference interval so every well is measured over comparable rock); the reference percentiles are parameters. SET YOUR OWN FIELD REFERENCE PAIR — that is the entire point of the module. The pair ships absent: a reference pair from one basin is the wrong reference in another. Derive yours from the field's own multi-well GR distribution, or from a reference well everyone agrees on, then use the SAME pair for every well in the study. QC across wells with a GRN histogram overlay — the P3/P97 of every normalized well should coincide.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>GR</td><td>Gamma ray log</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>

@@ -605,7 +605,7 @@ precisely what a boundary facies looks like.</p>
     lithology.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>Soft electrofacies: a Gaussian mixture model (diagonal covariance, EM, initialized from k-means) clusters this well's samples in the space of the supplied curves. Unlike k-means, every sample gets a membership PROBABILITY per facies — FPROB is the winning facies' posterior (1.0 = unambiguous, ~1/K = boundary/mixed sample), so transitional beds are visible instead of being forced into a class. Labels are ordered by the mean of the first supplied curve (usually GR). Deterministic for a given seed. Outputs: FACIES_GMM (integer 0..K-1), FPROB (max posterior, 0-1).</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE1</td><td>Curve 1 (also orders the facies)</td><td><code>GR</code></td><td>yes</td><td>—</td></tr>

@@ -597,7 +597,7 @@ WHERE g.curve_name = 'NPHI_EC'</pre>
     Conversion chapter), not the environment.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>NPHI_EC = NPHI + K_TEMP*(FTEMP - T_REF) + K_SAL*(SALW/100000): linearized formation-temperature and formation-salinity terms. The coefficients ship as DEC-077 practitioner starting values - replace them with values read from the applicable CNL chart for the tool in hand where one is available. Requires FTEMP (run Formation Temperature first) for the temperature term; without it only the salinity term applies. SALW defaults to the chart reference condition itself (fresh, zero), so the salinity term is inert until the study declares its formation salinity.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>NPHI</td><td>Neutron porosity log</td><td><code>NPHI</code></td><td>yes</td><td>—</td></tr>

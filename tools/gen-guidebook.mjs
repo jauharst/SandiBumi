@@ -675,7 +675,7 @@ function conditionText(c) {
     rule = ` Must be strictly above <code>${esc(c.other)}</code>.`;
   }
   const when = c.when ? ` Applies when: ${esc(c.when)}.` : '';
-  return `<code>${esc(c.id)}</code> — ${esc(c.statement)}${rule}${when}
+  return `<code>${esc(c.id)}</code>: ${esc(c.statement)}${rule}${when}
     <div class="src">Source: ${esc(c.source)}</div>`;
 }
 
@@ -699,7 +699,7 @@ function renderParam(a) {
     items.push(`<b>Accepted range:</b> ${a.min ?? '−∞'} to ${a.max ?? '∞'}${a.unit ? ` ${esc(a.unit)}` : ''}`);
   }
   if (a.well_scope) {
-    items.push('<b>One value per well</b> — a named-zone override of this parameter is refused.');
+    items.push('<b>One value per well</b>: a named-zone override of this parameter is refused.');
   }
   if (a.sources_topic) {
     items.push(
@@ -728,7 +728,7 @@ function renderOption(a) {
     const rows = a.choices.map((choice, i) => {
       let label = (a.choice_labels ?? [])[i] ?? '';
       if (label.startsWith(`${choice} — `)) label = label.slice(choice.length + 3);
-      return `<li><code>${esc(choice)}</code>${label ? ` — ${esc(label)}` : ''}</li>`;
+      return `<li><code>${esc(choice)}</code>${label ? `: ${esc(label)}` : ''}</li>`;
     });
     items.push(`<b>Choices:</b><ul>${rows.join('\n')}</ul>`);
     if (a.default) items.push(`<b>Default:</b> <code>${esc(a.default)}</code>`);
@@ -797,7 +797,7 @@ function renderChapter(m, chapterNo, walkthrough, nav) {
   inner.push('<h2>What the application enforces</h2>');
   inner.push(
     '<p>Everything below is generated from the same manifest the application builds ' +
-      'this module’s pane from — descriptions, defaults, sources, ranges and ' +
+      'this module’s pane from, so the descriptions, defaults, sources, ranges and ' +
       'pre-run checks here are exactly what the running application enforces.</p>',
   );
   inner.push(`<p>${esc(m.doc)}</p>`);
@@ -857,12 +857,12 @@ function renderIndex(books, nav) {
   parts.push('<div class="titlerow"><h1>Contents</h1>' +
     `<p class="toc-status">${status}</p></div>`);
   parts.push(
-    '<p class="lead">One chapter per petrophysics module — the method, its equations and published ' +
-      'references, a step-by-step walkthrough with screenshots, and everything the running ' +
-      'application enforces for that module — followed by the tool books: the plot panels, ' +
-      'data tools, batch machinery and working panes the modules are driven from. For the ' +
+    '<p class="lead">One chapter per petrophysics module, covering the method, its equations and ' +
+      'published references, a step-by-step walkthrough with screenshots, and everything the ' +
+      'running application enforces for that module. After those come the tool books: the plot ' +
+      'panels, data tools, batch machinery and working panes the modules are driven from. For the ' +
       'workflow these all live in, start with ' +
-      '<a href="first_hour.html">Your First Hour</a> — book 01.</p>',
+      '<a href="first_hour.html">Your First Hour</a>, book 01.</p>',
   );
   for (const b of books) {
     parts.push(`<section class="toc-book" id="b${b.num}">`);
@@ -873,7 +873,7 @@ function renderIndex(books, nav) {
     const rows = b.chapters.map((c) =>
       c.written
         ? `<tr><td>${c.no}</td><td><a href="${esc(c.m.name)}.html">${esc(c.m.title)}</a></td><td><code>${esc(c.m.name)}</code></td></tr>`
-        : `<tr><td>${c.no}</td><td class="missing">${esc(c.m.title)} — chapter not yet written</td><td><code>${esc(c.m.name)}</code></td></tr>`,
+        : `<tr><td>${c.no}</td><td class="missing">${esc(c.m.title)} (chapter not yet written)</td><td><code>${esc(c.m.name)}</code></td></tr>`,
     );
     parts.push(
       `<div class="toc-card"><table><thead><tr><th style="width:44px">No.</th><th>Chapter</th>` +

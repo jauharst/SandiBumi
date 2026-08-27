@@ -27,8 +27,8 @@ parameter should stop being one number for the whole well.</p>
     top down to the next; the last runs to TD. On the example well that
     made MENTARI 1512.0&ndash;1528.0, LESTARI 1528.0&ndash;1544.0 and
     PURNAMA 1544.0&ndash;1560.0, and the same click on the other two wells
-    built their zones on their own autocorrelated tops &ndash; same names,
-    each well's own depths.</li>
+    built their zones on their own autocorrelated tops, with the same
+    names on each well's own depths.</li>
   <li><b>The override table is the precedence rule made visible.</b> The
     pane states it in one sentence:</li>
 </ul>
@@ -38,9 +38,9 @@ applies well-wide. Overrides beat the value typed in a module dialog.</pre>
 
 <ul>
   <li><b>Calibrations land here too.</b> The four well-wide rows in the
-    figure (A_CAP, B_QV, C0, RSF) were not typed in this pane &ndash; they
-    are what the resistivity-conductivity calibration wrote when its fit
-    was accepted, arriving as one batch. The Zones pane is where every
+    figure (A_CAP, B_QV, C0, RSF) were not typed in this pane. They are
+    what the resistivity-conductivity calibration wrote when its fit was
+    accepted, arriving as one batch. The Zones pane is where every
     such acceptance becomes inspectable.</li>
 </ul>
 
@@ -50,9 +50,9 @@ applies well-wide. Overrides beat the value typed in a module dialog.</pre>
   <li>Open <b>Petrophysics &#9656; Zones&hellip;</b> with the well
     selected, and press <b>From Tops</b> (or type a name and depths into
     the Add / Update Zone row for an interval no top defines).</li>
-  <li>To scope a parameter, fill the bottom row &ndash; zone name (or
-    <code>*</code> for well-wide), parameter name, value &ndash; and press
-    <b>Set</b>. The write goes through the run-custody prompt like any
+  <li>To scope a parameter, fill the bottom row with a zone name (or
+    <code>*</code> for well-wide), a parameter name and a value, then
+    press <b>Set</b>. The write goes through the run-custody prompt like any
     other change that reaches a deliverable: who set it, and on what
     source.</li>
   <li>Repeat per well, or manage many wells' values at once in the
@@ -61,7 +61,7 @@ applies well-wide. Overrides beat the value typed in a module dialog.</pre>
 
 <h2>Reading the result</h2>
 
-<p>The demonstration row sets M&nbsp;=&nbsp;2 on the middle zone &ndash;
+<p>The demonstration row sets M&nbsp;=&nbsp;2 on the middle zone,
 deliberately the same value the Archie dialog already defaults to, so the
 mechanism is visible without smuggling in a physics claim. What matters is
 the plumbing it proves: on the next saturation run, samples inside
@@ -76,8 +76,8 @@ prompt's source field.</p>
 <ul>
   <li><b>Removing an override is a deletion, not a zero.</b> The &#10005;
     on a row deletes it, and the run falls back to the module value. A
-    parameter row pinned to 0 would keep computing with zero &ndash; which
-    is why clearing a fitted parameter goes through the delete, never
+    parameter row pinned to 0 would keep computing with zero, which is
+    why clearing a fitted parameter goes through the delete, never
     through typing 0.</li>
   <li><b>Zone names must match across wells to aggregate.</b> The pay
     summary and dashboard group by name; a well whose middle zone is
@@ -86,6 +86,6 @@ prompt's source field.</p>
     construction.</li>
   <li><b>The override wins silently, so audit the table before quoting a
     run.</b> A forgotten test row beats the carefully chosen value in the
-    module dialog &ndash; this pane is where to look when a zone's answer
+    module dialog, and this pane is where to look when a zone's answer
     refuses to change with the dialog.</li>
 </ul>

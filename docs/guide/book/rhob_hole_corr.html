@@ -594,7 +594,7 @@ WHERE g.curve_name = 'RHOB_EC' AND g.value - s.rhob > 1e-6</pre>
     the hole is out of range; trust the mask, not the extrapolation.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>RHOB_EC = RHOB + K_RHO*(CALI - HD_REF) for CALI beyond HD_REF: in oversize holes the pad reads too much mud, so density is restored upward using supplied, tool-specific chart values. Within gauge RHOB may remain unchanged; the public runner refuses if CALI is missing at any finite RHOB sample. Use with the BADHOLE flag — beyond a few inches of washout no correction is trustworthy.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>RHOB</td><td>Density log</td><td><code>RHOB</code></td><td>yes</td><td>—</td></tr>

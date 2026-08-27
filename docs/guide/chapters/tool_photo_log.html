@@ -6,8 +6,8 @@
 <p>Photo Log reads curves off conditioned core photographs: darkness,
 redness and texture, sampled every couple of centimetres down the whole
 cored interval. That makes the photograph the densest measurement made on
-the core itself &ndash; a plug table gives a few dozen samples, a
-photograph gives hundreds &ndash; and the traces it writes can anchor a
+the core itself, since a plug table gives a few dozen samples where a
+photograph gives hundreds, and the traces it writes can anchor a
 depth registration, sit beside GR in a layout, or flag intervals worth a
 closer look. Reach for it after conditioning, never before.</p>
 
@@ -35,8 +35,8 @@ a shale volume, which is why nothing here is called VSH.</pre>
   <li><b>Depth runs across or down</b>, with a "Deepest end first" toggle
     for a box laid out the other way round; <b>Runs of core</b> splits a
     multi-row box into equal lanes, and the column table handles a packed
-    core-display plate whose barrels each carry their own depths
-    &ndash; detected from the picture, typed from the caption, never
+    core-display plate whose barrels each carry their own depths,
+    detected from the picture or typed from the caption, never
     guessed.</li>
   <li><b>Check against</b> correlates each trace with a real log before
     anything is written; <b>Light: Ultraviolet</b> switches the read to
@@ -61,7 +61,7 @@ a shale volume, which is why nothing here is called VSH.</pre>
 1528.0&ndash;1542.9&nbsp;m: against GR, DARK +0.91, RED +0.94, TEX
 &minus;0.08. The sign is the QC: clay is dark and clay is radioactive, so
 darkness and GR should rise together, and a strongly negative agreement
-means the box was read the wrong way up &ndash; which a correlogram
+means the box was read the wrong way up, which a correlogram
 cannot tell from a genuine depth error, so the pane says it in words
 rather than proposing a shift. TEX staying near zero here is honest too:
 the lower unit's laminations run along the core, and texture measures
@@ -74,7 +74,7 @@ The photograph was read at about 0.020 - each stored sample is the AVERAGE of th
 photograph samples inside it rather than one of them picked out, which would alias.</pre>
 
 <p>The strips land in their own CORE STRIP dataset, each box on its own
-interval, "so a gap between two runs stays a gap" &ndash; the example's
+interval, "so a gap between two runs stays a gap", and the example's
 10&nbsp;cm barrel gaps survive into the track. Rebuilding replaces the
 strips in place: a lane-count experiment leaves no STRIP_1, STRIP_2 trail
 behind.</p>
@@ -90,6 +90,6 @@ behind.</p>
     a point sample with no axis to read along; it is refused rather than
     stretched over a guessed thickness.</li>
   <li><b>Depths outside the photographs stay empty.</b> The saved curves
-    are NaN off the cored interval &ndash; no picture, no value &ndash;
-    so a module reading them sees exactly where evidence exists.</li>
+    are NaN off the cored interval, since no picture means no value, and
+    a module reading them sees exactly where evidence exists.</li>
 </ul>

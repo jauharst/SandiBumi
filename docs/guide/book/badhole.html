@@ -602,7 +602,7 @@ where.</p>
     its keep.</li>
 </ul>
 <h2>What the application enforces</h2>
-<p>Everything below is generated from the same manifest the application builds this module’s pane from — descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
+<p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
 <p>BADHOLE = 1 where the borehole departs from gauge or the density correction is large enough to distrust the porosity logs: |DRHO| &gt; DRHO_MAX, or |CALI - bit size| &gt; DCAL_MAX. Bit size comes from the BS curve where present, or the interpreter's optional BS_INPUT; no value is substituted when both are absent, so only DRHO can be evaluated. The flag is 0 in good hole and MISSING where no QC criterion can be evaluated. The two BADHOLE_*_EVALUATED companions record criterion availability with 1 = evaluated and 0 = unavailable; the BADHOLE_CALI / BADHOLE_DRHO_POS / BADHOLE_DRHO_NEG cause flags record which criterion fired, with the DRHO sign carried natively (DEC-060). Feed BADHOLE to any module run as a mask so flagged intervals go missing instead of polluting results.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>DRHO</td><td>Density correction log</td><td><code>DRHO</code></td><td>no</td><td>—</td></tr>
@@ -624,8 +624,8 @@ where.</p>
 <h2>Options</h2>
 <h3>DRHO_MAX_UNIT</h3>
 <p>Unit of the density-correction threshold; required when DRHO is present</p>
-<ul><li><b>Choices:</b><ul><li><code>g/cc</code> — g/cc</li>
-<li><code>kg/m3</code> — kg/m3</li></ul></li></ul>
+<ul><li><b>Choices:</b><ul><li><code>g/cc</code>: g/cc</li>
+<li><code>kg/m3</code>: kg/m3</li></ul></li></ul>
 <h2>Output curves</h2>
 <div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>BADHOLE</td><td>Bad-hole flag (1 = bad, 0 = good) <span class="src">(flag: EXCLUSION_MASK)</span></td></tr>
 <tr><td>BADHOLE_CALI</td><td>Caliper departure fired (DEC-060 bad-hole cause group; MISSING where the criterion was not evaluable) <span class="src">(flag: DIAGNOSTIC_INDICATOR)</span></td></tr>
