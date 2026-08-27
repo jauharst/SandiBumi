@@ -11462,6 +11462,7 @@
             "id": "ref_low.required_when_two_point",
             "statement": "REF_LOW is required when OPT_METHOD = TWO_POINT.",
             "source": "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+            "refusal": "REF_LOW and REF_HIGH must both be set - the reference pair IS the normalization, and there is no value that is right in two fields. Take it from this field's own multi-well distribution, or from a reference well, and use the same pair for every well.",
             "kind": "required_value",
             "when": {
               "argument": "OPT_METHOD",
@@ -11472,6 +11473,7 @@
             "id": "ref_low.required_when_range",
             "statement": "REF_LOW is required when OPT_METHOD = RANGE.",
             "source": "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+            "refusal": "REF_LOW and REF_HIGH must both be set - the reference pair IS the normalization, and there is no value that is right in two fields. Take it from this field's own multi-well distribution, or from a reference well, and use the same pair for every well.",
             "kind": "required_value",
             "when": {
               "argument": "OPT_METHOD",
@@ -11502,6 +11504,7 @@
             "id": "ref_high.required_when_two_point",
             "statement": "REF_HIGH is required when OPT_METHOD = TWO_POINT.",
             "source": "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+            "refusal": "REF_LOW and REF_HIGH must both be set - the reference pair IS the normalization, and there is no value that is right in two fields. Take it from this field's own multi-well distribution, or from a reference well, and use the same pair for every well.",
             "kind": "required_value",
             "when": {
               "argument": "OPT_METHOD",
@@ -11512,6 +11515,7 @@
             "id": "ref_high.required_when_range",
             "statement": "REF_HIGH is required when OPT_METHOD = RANGE.",
             "source": "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+            "refusal": "REF_LOW and REF_HIGH must both be set - the reference pair IS the normalization, and there is no value that is right in two fields. Take it from this field's own multi-well distribution, or from a reference well, and use the same pair for every well.",
             "kind": "required_value",
             "when": {
               "argument": "OPT_METHOD",

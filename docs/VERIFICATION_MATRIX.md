@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **188** of 745,
+Review sections counted toward no capability: **188** of 746,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -23,7 +23,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 43 | — | 11 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 246 | 2026-08-13 | 77 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 62 | 2026-08-13 | 11 |
-| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 126 | 2026-08-13 | 27 |
+| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 129 | 2026-08-13 | 28 |
 | `formation-temperature` | Formation-temperature curves | Not exercised | 0 / 5 | — | 2 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
 | `array-logs` | Array-log storage and displays | Not exercised | 0 / 16 | — | 1 |
@@ -67,5 +67,5 @@ this table, so every figure above reads low by whatever those sections cover.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 83 | 2026-07-19 | 19 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 280 | 2026-08-13 | 75 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 283 | 2026-08-13 | 76 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 227 | 2026-08-13 | 60 |

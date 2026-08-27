@@ -211,6 +211,12 @@ pub struct ValidityCondition {
     pub statement: String,
     /// Named source for this condition. Empty strings are rejected by the registry test.
     pub source: String,
+    /// The module's own operator-facing refusal wording (see [`refuses`]). When non-empty, the
+    /// precondition layer speaks it instead of the generic branch-parameter refusal, so the
+    /// module and the layer that fires first cannot refuse the same absence in two voices.
+    /// Empty means the generic wording applies; only [`ValidityRule::RequiredValue`] reads it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub refusal: String,
     #[serde(flatten)]
     pub rule: ValidityRule,
 }
@@ -754,7 +760,13 @@ pub(crate) fn opt_labelled(
 }
 
 pub(crate) fn validity(id: &str, statement: &str, source: &str, rule: ValidityRule) -> ValidityCondition {
-    ValidityCondition { id: id.into(), statement: statement.into(), source: source.into(), rule }
+    ValidityCondition {
+        id: id.into(),
+        statement: statement.into(),
+        source: source.into(),
+        refusal: String::new(),
+        rule,
+    }
 }
 
 pub(crate) fn with_validity(mut arg: ArgSpec, conditions: Vec<ValidityCondition>) -> ArgSpec {
@@ -838,6 +850,21 @@ pub(crate) fn param_open_when(
         })
         .collect();
     with_validity(param_open(name, desc, unit, min, max, false), conditions)
+}
+
+/// Carry the module's own refusal wording on this argument's branch-required conditions, so the
+/// precondition layer - which fires before the module's own check ever runs - refuses in the
+/// module's voice rather than the schema's. The text passed here is the SAME constant the
+/// module's backstop refusal returns: one wording, spoken by whichever layer meets the absence
+/// first (the `requireWell`/`no_plates` argument - two copies of one refusal is two places for
+/// the wording to drift).
+pub(crate) fn refuses(mut arg: ArgSpec, refusal: &str) -> ArgSpec {
+    for condition in &mut arg.validity_conditions {
+        if matches!(condition.rule, ValidityRule::RequiredValue { .. }) {
+            condition.refusal = refusal.into();
+        }
+    }
+    arg
 }
 
 /// A free-text run option (see [`ArgKind::Text`]). Reaches the module through `opts`.
@@ -3568,47 +3595,63 @@ fn validate_declared_preconditions_ignoring(
                     }
                 }
                 ValidityRule::RequiredValue { .. } => {
-                    let Some(values) = ctx.params.get(&arg.name) else {
-                        return Err(format!(
-                            "precondition '{}' on '{}' failed before {} ran: this parameter ships ABSENT because it has no defensible generic default, and the selected method branch requires an interpreter value. {} Source: {}",
-                            condition.id,
-                            arg.name,
+                    // The one precondition family whose failure is an OPERATOR's empty field
+                    // rather than bad data, so it refuses in the house voice - what was refused,
+                    // why the app cannot guess, what to do naming the pane control - with the
+                    // schema record (condition id, source) kept, but trailing. A module may carry
+                    // its own wording (`refuses`), which speaks here so this layer and the
+                    // module's backstop never refuse the same absence in two voices.
+                    let refuse = |fault: String| {
+                        let body = if condition.refusal.is_empty() {
+                            format!(
+                                "It deliberately ships with no default, so the app cannot fill it in. Enter a value in the module pane's '{}' field.",
+                                arg.desc
+                            )
+                        } else {
+                            condition.refusal.clone()
+                        };
+                        format!(
+                            "{} did not run: {} {}. {} {} Source: {} (precondition {})",
                             spec.name,
+                            arg.name,
+                            fault,
+                            body,
                             condition.statement,
-                            condition.source
-                        ));
+                            condition.source,
+                            condition.id
+                        )
+                    };
+                    let Some(values) = ctx.params.get(&arg.name) else {
+                        return Err(refuse("is not set for this run".into()));
                     };
                     if values.len() < ctx.n {
-                        return Err(format!(
-                            "precondition '{}' on '{}' failed before {} ran: the selected method branch requires {} sample values but only {} were resolved. {} Source: {}",
-                            condition.id,
-                            arg.name,
-                            spec.name,
-                            ctx.n,
+                        return Err(refuse(format!(
+                            "resolved only {} of the run's {} sample values",
                             values.len(),
-                            condition.statement,
-                            condition.source
-                        ));
+                            ctx.n
+                        )));
                     }
-                    if let Some((index, value)) = values
-                        .iter()
-                        .copied()
-                        .enumerate()
-                        .take(ctx.n)
-                        .find(|(index, value)| {
-                            !ignored_samples.contains(index) && !value.is_finite()
-                        })
-                    {
-                        return Err(format!(
-                            "precondition '{}' on '{}' failed before {} ran: the selected method branch requires a finite interpreter value at sample {}, got {}. {} Source: {}",
-                            condition.id,
-                            arg.name,
-                            spec.name,
-                            index,
-                            value,
-                            condition.statement,
-                            condition.source
-                        ));
+                    // An all-NaN parameter is the pane's empty field and says so; a NaN with
+                    // finite neighbours is a hole - usually a zone override that misses samples -
+                    // and is named by position instead.
+                    let mut first_missing = None;
+                    let mut any_finite = false;
+                    for (index, value) in values.iter().copied().enumerate().take(ctx.n) {
+                        if ignored_samples.contains(&index) {
+                            continue;
+                        }
+                        if value.is_finite() {
+                            any_finite = true;
+                        } else if first_missing.is_none() {
+                            first_missing = Some(index);
+                        }
+                    }
+                    if let Some(index) = first_missing {
+                        return Err(refuse(if any_finite {
+                            format!("has no usable value at sample {index}")
+                        } else {
+                            "is not set for this run".into()
+                        }));
                     }
                 }
                 ValidityRule::RequiredWhereFinite { input } => {
@@ -10221,6 +10264,82 @@ mod tests {
         assert!((valid["VSH_GR"][0] - 0.5).abs() < 1e-6, "valid LINEAR result changed");
     }
 
+    /// The RequiredValue precondition is the layer an operator's empty branch field actually
+    /// meets - it fires before the module's own backstop can speak - so it refuses in the house
+    /// voice. Pinned from both sides: a manifest that carries the module's own wording
+    /// (`refuses`) must speak it verbatim, and one that does not must name the pane control by
+    /// its printed label, while the naming phrase, condition id and source all survive trailing.
+    #[test]
+    fn a_missing_branch_parameter_refuses_in_the_module_voice_and_names_the_pane_field() {
+        // normalize TWO_POINT with the pair resolved to NaN - the exact shape a workflow run
+        // hands the runner when the pane fields were left empty.
+        let error = run_module(
+            "normalize",
+            &ctx_with(
+                2,
+                &[("CURVE", vec![50.0, 90.0])],
+                &[("P_LOW", 3.0), ("P_HIGH", 97.0), ("REF_LOW", f64::NAN), ("REF_HIGH", f64::NAN)],
+                &[("OPT_METHOD", "TWO_POINT")],
+            ),
+        )
+        .expect_err("TWO_POINT without its reference pair must refuse before normalize runs");
+        assert!(
+            error.starts_with("normalize did not run: REF_LOW is not set for this run."),
+            "the operator voice must lead, not the schema record: {error}"
+        );
+        assert!(
+            error.contains(crate::condition::REF_PAIR_REFUSAL),
+            "the precondition must speak the module's own refusal wording verbatim: {error}"
+        );
+        assert!(
+            error.contains("REF_LOW is required when OPT_METHOD = TWO_POINT."),
+            "the naming phrase must survive for the guidebook and the record: {error}"
+        );
+        assert!(
+            error.contains("(precondition ref_low.required_when_two_point)")
+                && error.contains("docs/PRD_v2/20_envcorr-qc.md"),
+            "the condition id and source must still travel, trailing: {error}"
+        );
+
+        // The other side: an argument that carries no module wording names the pane control by
+        // its printed label instead (moduleDialog labels a parameter field with the manifest
+        // desc), so a schema-only manifest still says what to do.
+        let generic = run_module(
+            "normalize",
+            &ctx_with(
+                2,
+                &[("CURVE", vec![50.0, 90.0])],
+                &[("P_LOW", 3.0), ("P_HIGH", 97.0), ("REF_SD", 1.0)],
+                &[("OPT_METHOD", "MEAN_SD")],
+            ),
+        )
+        .expect_err("MEAN_SD without its reference mean must refuse before normalize runs");
+        assert!(
+            generic.starts_with("normalize did not run: REF_MEAN is not set for this run."),
+            "{generic}"
+        );
+        assert!(
+            generic.contains("Enter a value in the module pane's 'MEAN_SD: reference mean' field."),
+            "an uncarried refusal must still name the control: {generic}"
+        );
+
+        // A hole is not an empty field: a missing value with finite neighbours is a zone
+        // override that skips samples, and is named by position.
+        let mut holed = ctx_with(
+            2,
+            &[("CURVE", vec![50.0, 90.0])],
+            &[("P_LOW", 3.0), ("P_HIGH", 97.0), ("REF_LOW", 40.0), ("REF_HIGH", 120.0)],
+            &[("OPT_METHOD", "TWO_POINT")],
+        );
+        holed.params.insert("REF_LOW".into(), vec![40.0, f64::NAN]);
+        let hole = run_module("normalize", &holed)
+            .expect_err("a hole in a branch parameter must refuse by position");
+        assert!(
+            hole.contains("REF_LOW has no usable value at sample 1"),
+            "a hole with finite neighbours is a different fault from an empty field: {hole}"
+        );
+    }
+
     /// CORRECTNESS — `20_envcorr-qc.md` section 4.1 SB-ENV-009 and section 6.1
     /// SB-ENV-T03. The closed method set is the shipping VSH-GR manifest sourced from Geolog
     /// `vsh_gr.info` / `vsh_gr.lls` and recorded in `10_clay-volume.md` sections 3.2-3.3. The
@@ -15400,7 +15519,7 @@ mod tests {
         let error = run_module("ftemp_grad", &bht_mode)
             .expect_err("BHT mode without a bottom-hole temperature must refuse");
         assert!(
-            error.contains("BHT") && error.contains("ABSENT") && error.contains("DEC-077"),
+            error.contains("BHT is not set for this run") && error.contains("DEC-077"),
             "the BHT refusal must name the parameter and its ruling: {error}"
         );
         let no_bit_size = ctx_with(

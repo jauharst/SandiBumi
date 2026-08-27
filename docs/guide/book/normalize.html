@@ -525,14 +525,16 @@ whose chapter now points here.</p>
 <h2>The picks and why: the refusal comes first</h2>
 
 <p>The reference pair ships absent on purpose, and running without one is
-refused, demonstrated live (0 clean, 3 failed, each well reporting the
+refused before the module runs (0 clean, 3 failed, each well reporting the
 missing parameter by name):</p>
 
-<pre class="equations">REF_LOW is required when OPT_METHOD = TWO_POINT.</pre>
-
-<p>The pair IS the normalization, and there is no value that is right in two
-fields: take it from this field's own multi-well distribution, or from a
-reference well, and use the same pair for every well.</p>
+<pre class="equations">normalize did not run: REF_LOW is not set for this run. REF_LOW and
+REF_HIGH must both be set - the reference pair IS the normalization, and
+there is no value that is right in two fields. Take it from this field's own
+multi-well distribution, or from a reference well, and use the same pair for
+every well. REF_LOW is required when OPT_METHOD = TWO_POINT. Source:
+docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters
+(precondition ref_low.required_when_two_point)</pre>
 
 <figure>
   <img src="../img/guide-normalize-refused.png"
