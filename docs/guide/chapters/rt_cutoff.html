@@ -28,10 +28,15 @@ MISSING.</p>
 <i>more</i> shale than moderate) and the run refuses with the full
 argument:</p>
 
-<pre class="equations">precondition 'rt_cutoff.vsh_ladder_order' on 'VSH1' failed before rt_cutoff
-ran: value 0.467 at sample 0 is above 'VSH2' value 0.458. The best class's
-shale cutoff must not exceed the moderate class's — equal is allowed, and
-separates the two on porosity alone.</pre>
+<pre class="equations">rt_cutoff did not run: VSH1 carries value 0.467 at sample 0, above 'VSH2'
+value 0.458. The two are an ordered pair, and the app cannot tell which of
+them you meant to change. Correct them in the module pane's 'Vsh cutoff for
+RT1 (best)' and 'Vsh cutoff for RT2 (moderate)' fields, or in the zone
+overrides that supply them. The best class's shale cutoff must not exceed
+the moderate class's — equal is allowed, and separates the two on porosity
+alone. Source: docs/research_2026-07/ref_rocktyping_shf.md §Cutoff-based
+electrofacies tie-in, which writes the middle class as v1 &lt;= Vsh &lt; v2
+(precondition rt_cutoff.vsh_ladder_order)</pre>
 
 <figure>
   <img src="../img/guide-rtcutoff-refused.png"
