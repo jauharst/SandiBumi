@@ -487,8 +487,8 @@
 RANGE: the same map from the curve's own MIN and MAX
 MEAN_SD: OUT = (x − mean)/sd·REF_SD + REF_MEAN
 SPACE = LOG: mapped in log10 and inverted afterwards; non-positive samples become MISSING</pre>
-<!-- Authored walkthrough for the normalize guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+<!-- Authored walkthrough for the normalize guidebook chapter. Numbers re-measured
+     live on the SANDI-* example wells (2026-08-27, guide_measure harness),
      second pass: the refusal, the derived pair, and the anchor sensitivity. -->
 
 <h2>What this is and when to reach for it</h2>
@@ -520,12 +520,14 @@ whose chapter now points here.</p>
 <h2>The picks and why: the refusal comes first</h2>
 
 <p>The reference pair ships absent on purpose, and running without one is
-refused, demonstrated live (0 clean, 3 failed, each well reporting):</p>
+refused, demonstrated live (0 clean, 3 failed, each well reporting the
+missing parameter by name):</p>
 
-<pre class="equations">REF_LOW and REF_HIGH must both be set — the reference pair IS the
-normalization, and there is no value that is right in two fields. Take it
-from this field's own multi-well distribution, or from a reference well, and
-use the same pair for every well.</pre>
+<pre class="equations">REF_LOW is required when OPT_METHOD = TWO_POINT.</pre>
+
+<p>The pair IS the normalization, and there is no value that is right in two
+fields: take it from this field's own multi-well distribution, or from a
+reference well, and use the same pair for every well.</p>
 
 <figure>
   <img src="../img/guide-normalize-refused.png"

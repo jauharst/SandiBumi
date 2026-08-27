@@ -1,5 +1,5 @@
-<!-- Authored walkthrough for the fill_gaps guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
+<!-- Authored walkthrough for the fill_gaps guidebook chapter. Numbers re-measured
+     live on the SANDI-* example wells (2026-08-27, guide_measure harness),
      second pass: the limit demonstrated from both sides of a real 1.22 m hole. -->
 
 <h2>What this is and when to reach for it</h2>
@@ -29,14 +29,17 @@ first live one below. Two rules carry the honesty:</p>
 
 <h2>The picks and why</h2>
 
-<p>This dataset's PHIE carries one interior hole per well, 7 samples wide,
-from masked bad hole: 1.22&nbsp;m live-to-live. That makes the limit's
-behaviour demonstrable from both sides, run live:</p>
+<p>On this dataset the porosity methods' bad-hole exclusion leaves PHIE far
+from continuous — 573 of its 1185 samples are finite — and most of the
+missing stretches are wider than any limit worth entering, so they stay
+missing. One hole per well is different: 7 samples wide, from the masked
+washout, 1.22&nbsp;m live-to-live. That makes the limit's behaviour
+demonstrable from both sides, run live:</p>
 
 <ul>
   <li><b>MAX_GAP 1.5&nbsp;m</b> (the walkthrough pick, wider than the hole):
-    all <b>21 samples filled</b> across the three wells, the curve goes 1164
-    to 1185 finite, and all 21 carry the flag.</li>
+    exactly those <b>21 samples filled</b> across the three wells, the curve
+    goes 573 to 594 finite, and all 21 carry the flag.</li>
   <li><b>MAX_GAP 1&nbsp;m</b> (just under the hole): <b>0 filled</b>. Not a
     failure, the module keeping its word: a hole wider than the stated limit
     stays honestly missing.</li>
@@ -73,7 +76,7 @@ FROM computed_curves WHERE curve_name = 'PHIE_C_FILL'</pre>
 <figure>
   <img src="../img/guide-fillgaps-result.png"
        alt="The Fill Gaps run reporting three clean wells" />
-  <figcaption>The filled curve reaches 1185 finite samples; the 21 invented
+  <figcaption>The filled curve reaches 594 finite samples; the 21 invented
     ones are flagged, not hidden.</figcaption>
 </figure>
 

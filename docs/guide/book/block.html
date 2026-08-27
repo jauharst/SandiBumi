@@ -488,9 +488,9 @@ MEAN: right for porosity and every volume fraction, because those add
 GEOMETRIC: k = (k1·k2·…·kn)^(1/n), the standard permeability estimate in randomly heterogeneous rock
 HARMONIC: k = n / Σ(1/ki), permeability across layers in series
 MODE: the commonest value, and the only upscale for a class curve</pre>
-<!-- Authored walkthrough for the block guidebook chapter. Numbers captured
-     live from the sandboxed app on the SANDI-* example wells (2026-08-26),
-     second pass: INTERVAL against CLASS beds, 81 values to 27. -->
+<!-- Authored walkthrough for the block guidebook chapter. Numbers re-measured
+     live on the SANDI-* example wells (2026-08-27, guide_measure harness),
+     second pass: INTERVAL against CLASS beds, 48 values to 15. -->
 
 <h2>What this is and when to reach for it</h2>
 
@@ -523,10 +523,10 @@ properties, MEDIAN where outliers within a bed should not vote.</p>
 
 <ul>
   <li>Canonical demonstration: <b>PHIE blocked over INTERVAL 2&nbsp;m
-    slices, MEAN</b>. Run live: the blocked curve carries <b>81 distinct
+    slices, MEAN</b>. Run live: the blocked curve carries <b>48 distinct
     values</b> across the three wells, one per slice.</li>
   <li>What changes under <b>CLASS beds on the FACIES curve</b>, run live: the
-    same porosity collapses to <b>27 distinct values</b>, one per facies run,
+    same porosity collapses to <b>15 distinct values</b>, one per facies run,
     with boundaries where the rock changes instead of every 2&nbsp;m. Fewer,
     bigger, geologically placed blocks: this is the mode the module's own
     documentation steers toward once a checked class curve exists.</li>
@@ -559,7 +559,7 @@ FROM computed_curves WHERE curve_name = 'PHIE_BLK' AND NOT isnan(value)</pre>
 <figure>
   <img src="../img/guide-block-result.png"
        alt="The Block run reporting three clean wells" />
-  <figcaption>81 interval blocks against 27 facies blocks: same porosity, two
+  <figcaption>48 interval blocks against 15 facies blocks: same porosity, two
     different statements about where rock changes.</figcaption>
 </figure>
 

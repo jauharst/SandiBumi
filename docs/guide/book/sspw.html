@@ -486,10 +486,10 @@
 <pre class="equations">PHIE = PHIT − CBW  (clay-bound water only)
 PHIFF = PHIT − CBW − CAPBW
 Gas conditioning corrects the density leg only (same c parameter as SSC)</pre>
-<!-- Authored walkthrough for the sspw guidebook chapter. Numbers captured live
-     from the sandboxed app on the SANDI-* example wells (2026-08-26),
-     second pass: the bound-water split demonstrated by moving VOL_CBW_SH while
-     SWIRR stands still. -->
+<!-- Authored walkthrough for the sspw guidebook chapter. Numbers re-measured
+     live on the SANDI-* example wells (2026-08-27, guide_measure harness,
+     gamma-ray VSH standing), second pass: the bound-water split demonstrated
+     by moving VOL_CBW_SH while SWIRR stands still. -->
 
 <h2>What this is and when to reach for it</h2>
 
@@ -537,8 +537,10 @@ capillary-bound. Per sample:</p>
 <h2>Step by step</h2>
 
 <ol>
-  <li>Run a VSH module first (the split multiplies it), and Neutron Matrix
-    Conversion so NPHI_SS exists.</li>
+  <li>Run a VSH module first (the split multiplies it — the numbers below
+    multiply the Gamma Ray chapter's VSH, so re-run that one if the
+    density-neutron VSH is standing), and Neutron Matrix Conversion so
+    NPHI_SS exists.</li>
   <li>Open <b>Advance ▸ SSPW</b>, point NPHI at NPHI_SS, enter the shale
     points and the split with their sources in the custody line.</li>
   <li>Press <b>Run SSPW</b>.</li>
