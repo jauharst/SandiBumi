@@ -17,6 +17,7 @@ import {
   type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion } from "../state";
+import type { WellPaneContext } from "./workspace";
 import { loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
@@ -51,6 +52,7 @@ function textToRows(text: string): MethodRow[] {
 export async function buildReportContent(
   well: WellSummary,
   setStatus: (text: string) => void,
+  pane?: WellPaneContext,
 ): Promise<{ el: HTMLElement; dispose?: () => void }> {
   const builtins = await listLayouts().catch(() => [] as Layout[]);
   const active = appState.activeLayout.get();
@@ -341,7 +343,10 @@ export async function buildReportContent(
       status.textContent = `${result.well_name}: ${result.pages.length} report page(s).`;
       showPage();
       // Rendering a report writes FLAG_SAND/RESERVOIR/PAY in place (its pay-summary pass), so
-      // refresh any open plots/log views showing those flag curves.
+      // refresh any open plots/log views showing those flag curves — but keep THIS pane: a
+      // rebuild would destroy the preview just drawn and reset the form (the latch is one-shot,
+      // consumed synchronously by the bump below).
+      pane?.suppressNextDataRebuild();
       bumpDataVersion();
     } catch (err) {
       status.textContent = `Render failed: ${err}`;
@@ -382,6 +387,7 @@ export async function buildReportContent(
       const path = await exportReportPdf(spec, dest);
       status.textContent = `Wrote ${path.split(/[\\/]/).pop()}`;
       setStatus(`Report PDF exported for ${well.well_name}.`);
+      pane?.suppressNextDataRebuild(); // keep this pane's preview/form through its own bump
       bumpDataVersion(); // the export's pay-summary pass writes FLAG curves in place
 
     } catch (err) {
@@ -511,7 +517,10 @@ export async function buildReportContent(
       setStatus(`Batch report export: ${paths.length} well(s).`);
       // Only the PDF path writes FLAG curves per well; the Word path exports without touching
       // the project, so there is nothing for open views to refresh.
-      if (!asWord) bumpDataVersion();
+      if (!asWord) {
+        pane?.suppressNextDataRebuild(); // keep this pane's form through its own bump
+        bumpDataVersion();
+      }
     } catch (err) {
       status.textContent = `Batch export: ${err}`;
     } finally {

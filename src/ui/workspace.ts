@@ -67,6 +67,14 @@ export interface SessionSnapshot {
   plotStates?: Record<string, PersistedPlotState>;
 }
 
+/** Handed to a wellPane builder so a pane action that writes data (and so must
+ *  bumpDataVersion for every OTHER open panel) can keep its own pane alive: arm the
+ *  latch immediately before the bump — synchronously, the Observable notifies in the
+ *  same call stack — and the pane skips exactly that one rebuild. */
+export interface WellPaneContext {
+  suppressNextDataRebuild(): void;
+}
+
 /** A dock panel whose content is a plain DOM subtree with optional async fill + cleanup. */
 class DomPanel implements IContentRenderer {
   readonly element = document.createElement("div");
@@ -719,7 +727,13 @@ export class Workspace {
           "dock-unconventional",
           "Unconventional",
           "the unconventional visuals",
-          () => import("./unconventionalPanel").then((m) => m.buildUnconventionalContent),
+          () =>
+            import("./unconventionalPanel").then(
+              // Its third param is a plot-state restore (`initial`), not the pane context —
+              // adapt so wellPane's latch argument is never mistaken for saved plot state.
+              (m) => (well: WellSummary, setStatus: (t: string) => void) =>
+                m.buildUnconventionalContent(well, setStatus),
+            ),
           true,
         );
       case "resultsQc":
@@ -780,7 +794,11 @@ export class Workspace {
     titleBase: string,
     label: string,
     loadBuilder: () => Promise<
-      (well: WellSummary, setStatus: (t: string) => void) => Promise<{ el: HTMLElement; dispose?: () => void }>
+      (
+        well: WellSummary,
+        setStatus: (t: string) => void,
+        pane?: WellPaneContext,
+      ) => Promise<{ el: HTMLElement; dispose?: () => void }>
     >,
     followData = false,
   ): IContentRenderer {
@@ -789,6 +807,13 @@ export class Workspace {
       let generation = 0;
       let closed = false;
       let currentWell: WellSummary | null = null;
+      // A pane action that itself bumps dataVersion (the report pane's render/PDF write FLAG
+      // curves in place) must not rebuild its OWN pane — the result on screen (preview, status,
+      // enabled Save buttons) is exactly what the action produced, and a rebuild resets the form
+      // to defaults. The builder arms this one-shot latch right before its bump; it is bound to
+      // the build's generation so a suppress from stale in-flight content is inert. Other panes
+      // still see the bump and refresh — the curves really did change.
+      let selfBumpAt = -1;
 
       const rebuild = (well: WellSummary | null) => {
         const gen = ++generation;
@@ -803,8 +828,13 @@ export class Workspace {
           return;
         }
         params.api.setTitle(`${titleBase} — ${well.well_name}`);
+        const paneCtx: WellPaneContext = {
+          suppressNextDataRebuild: () => {
+            selfBumpAt = gen;
+          },
+        };
         loadBuilder()
-          .then((build) => build(well, setStatus))
+          .then((build) => build(well, setStatus, paneCtx))
           .then((content) => {
             if (closed || gen !== generation) {
               content.dispose?.();
@@ -842,12 +872,19 @@ export class Workspace {
       // Data changes (a top picked, an import, an undo, a newly saved layout) invalidate
       // the built form's cached lists. Rebuild the pane's OWN well — not the global
       // selection, so pin-off working panes keep their well — deferred a microtask so a
-      // bump fired from inside this pane's own action unwinds first.
+      // bump fired from inside this pane's own action unwinds first. A bump the pane's own
+      // content armed the latch for is skipped outright: deferring only reorders the
+      // teardown, it does not prevent it, and the pane would destroy the very result its
+      // action just put on screen.
       let dataPrimed = false;
       const unsubData = appState.dataVersion.subscribe(() => {
         if (!followData) return;
         if (!dataPrimed) {
           dataPrimed = true; // the subscribe fires immediately; the first build already ran
+          return;
+        }
+        if (selfBumpAt === generation) {
+          selfBumpAt = -1; // one-shot: the next (foreign) bump rebuilds as usual
           return;
         }
         if (currentWell === null) return;
