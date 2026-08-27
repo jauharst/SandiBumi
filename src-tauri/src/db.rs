@@ -7938,6 +7938,68 @@ mod inspector_tests {
         }
     }
 
+    /// The Inspector applies a cell edit by re-stating the rest of the row: a zone edit re-declares
+    /// the row's own depth datum, a top edit re-sends its colour. Those values are read back out of
+    /// the row ON SCREEN, so a column the page does not carry is a value the edit cannot supply -
+    /// and `depth_datum` shipped on a zone while the page was still the older three-column one, so
+    /// every zone edit was refused with "zone X needs a declared depth datum", naming the one thing
+    /// the user had no way to give it.
+    ///
+    /// `every_inspector_table_returns_the_columns_it_declares` above cannot catch that. It asks
+    /// each spec for the columns it declares itself, so it agrees with whatever the spec says and
+    /// passed throughout. The contract that actually broke couples the two sides, and this pins it
+    /// for every editable table rather than only for zones - the same omission in `tops` or
+    /// `core_data` fails the same silent way, refusing an edit for a column nobody can see.
+    #[test]
+    fn an_inspector_edit_reads_its_row_back_from_a_page_that_carries_the_column() {
+        let frontend = include_str!("../../src/ui/dbInspectorPanel.ts");
+        let specs = table_specs();
+
+        // `commitEdit`'s switch: one arm per table, each re-reading its row through `cell("name")`.
+        let switch_start = frontend
+            .find("switch (def.key)")
+            .expect("dbInspectorPanel.ts must switch on the table key to apply an edit");
+        let body = &frontend[switch_start..];
+
+        let mut reads = 0usize;
+        for spec in &specs {
+            let needle = format!("case \"{}\":", spec.table);
+            let arm_start = match body.find(&needle) {
+                Some(index) => index + needle.len(),
+                None => continue,
+            };
+            let rest = &body[arm_start..];
+            // The arm runs to the next arm, or to the switch's own default.
+            let arm_end = rest
+                .find("case \"")
+                .into_iter()
+                .chain(rest.find("default:"))
+                .min()
+                .unwrap_or(rest.len());
+
+            for (index, matched) in rest[..arm_end].match_indices("cell(\"") {
+                let after = &rest[index + matched.len()..arm_end];
+                let name = &after[..after.find('"').expect("a cell() read names its column")];
+                assert!(
+                    spec.columns.contains(&name),
+                    "the inspector reads '{}' back out of the '{}' row it is editing, but the page \
+                     does not carry that column - every edit of that table is refused for a value \
+                     the user cannot see or supply",
+                    name,
+                    spec.table
+                );
+                reads += 1;
+            }
+        }
+
+        // The other side: a scan that matched nothing would satisfy the assertion above perfectly.
+        assert!(
+            reads >= 6,
+            "only {reads} row reads were found across the edit arms - the switch shape changed and \
+             this test is no longer looking at the edit path"
+        );
+    }
+
 
 
     /// SB-DBM-031 residue (DEC-073 item 5, RULED 2026-08-18: source-declared rows migrate,

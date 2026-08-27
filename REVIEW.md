@@ -20301,3 +20301,36 @@ over 1,185 evaluated sample windows across 3 wells.
 - [ ] **Change WINDOW, K or the curve.** The card should re-evaluate and the numbers follow.
 - [ ] **Switch METHOD away from HAMPEL.** The card should say that method does not use K — the
       ceiling is a HAMPEL statement, and the card must say so rather than compute one anyway.
+
+## The DB Inspector could not edit a zone at all (2026-08-27)
+
+Every zone edit in the Database Inspector was refused, with *"zone X needs a declared depth datum:
+MD, TVD, TVDSS, TVDKB, TWT, OWT, or CDEPTH"* — a message naming the one thing you had no way to
+supply. A zone now records which depth reference its top and bottom are measured against, and the
+Inspector re-states that reference when it writes the row back, reading it from the row on screen.
+The zones table it puts on screen was still the older three-column one, so the datum it went
+looking for was never there. The table now carries the column, which also means you can see and
+correct a zone's depth reference in the grid like any other cell.
+
+Found by the end-to-end harness rather than by a click-through, which is the point of having it:
+the suite had gone stale against several backend commands that have since grown required
+arguments, so it was failing before it ever got far enough to exercise this. It runs clean again —
+78 checks, no failures — and the two assertions it had been carrying against the SQL console's
+comment handling now pin the fixed behaviour, since that was repaired in `run_readonly_query`: a
+`SELECT` with a comment above it or after it runs instead of being refused.
+
+One thing I did not change, because it is a separate decision and yours to make: **the unsaved-work
+dot on the Project tab is lit from launch**, before any import, pane or edit. If the dot is meant
+to mean "your pane arrangement is unsaved", a freshly built default workspace arguably is — but it
+means the dot is never off, so it cannot warn you about anything.
+
+- [ ] **Open a well with zones, then Data ▸ DB Inspector and choose the Zones table.** Double-click
+      a Top or Bottom depth, type a new number, press Enter. It must save — the status line should
+      report the change, not a refusal about a depth datum.
+- [ ] **Check the Undo button after that edit.** It should name the edit, and pressing it must put
+      the old depth back — not just grey itself out.
+- [ ] **Look at the Zones table's columns.** There should now be a Depth Datum column showing MD
+      (or whatever the zone was entered against), and it should be editable.
+- [ ] **Open the SQL Query panel and run a SELECT with a comment on the line above it**, and one
+      with a trailing `-- comment`. Both must run. Neither should come back saying only SELECT
+      queries are allowed, or reporting a syntax error in a query that is perfectly valid.
