@@ -520,11 +520,11 @@ review.</p>
 <figure>
   <img src="../img/guide-resultsqc.png"
        alt="The Results QC pane with the check list, Sw-method envelope and Buckles plot" />
-  <figcaption>Five checks over the whole well: the Sw-method spread passes,
-    Buckles flags a 59% coefficient of variation, two checks await their
-    prerequisite runs, and the cutoff check confirms the porosity cutoff is
-    on a plateau. The envelope plot shows where the five methods
-    disagree.</figcaption>
+  <figcaption>Five checks in each of the three zones, one flagged: the
+    Sw-method spread passes everywhere, Buckles flags a 57% coefficient of
+    variation in LESTARI, two checks await their prerequisite runs, and the
+    cutoff check confirms the porosity cutoff is on a plateau. The envelope
+    plot shows where the five methods disagree.</figcaption>
 </figure>
 
 <ul>
@@ -558,19 +558,21 @@ review.</p>
 
 <h2>Reading the result</h2>
 
-<p>On the example wells the method spread passes: mean disagreement 0.024
-saturation units, worst 0.387 at 1550&nbsp;m, 2% of samples divergent. The
+<p>On the example wells the method spread passes in every zone: mean
+disagreement 0.007 saturation units in MENTARI, 0.017 in LESTARI and 0.050
+in PURNAMA, worst 0.354 at 1550&nbsp;m with 7% of samples divergent. That
 worst point is the reading to chase: 1550&nbsp;m is the base of the
 hydrocarbon sand, where the shaly-sand methods separate from clean-sand
 Archie exactly as their physics says they should.</p>
 
-<p>The Buckles check flags: the product of saturation and porosity varies
-59% across the well. On one homogeneous zone at irreducible saturation that
-would be damning; over a whole well spanning a gas sand and a wet interval
-it mostly restates the geology, which is why the check reports its evidence
-(BVW 0.099, n=191) rather than a verdict. The two grey checks are the
-honest state "not yet runnable", and the cutoff line compresses the
-sensitivity sweep into one sentence: 14.5&nbsp;m of net at the porosity
+<p>The Buckles check flags one zone: in LESTARI the product of saturation
+and porosity varies 57%. On one homogeneous zone at irreducible saturation
+that would be damning; across a gas sand that passes down into a wet
+interval it mostly restates the geology, which is why the check reports its
+evidence (BVW 0.104, n=105) rather than a verdict &mdash; and why the two
+neighbouring zones sit at 7% and 14%. The two grey checks are the honest
+state "not yet runnable", and the cutoff line compresses the sensitivity
+sweep into one sentence per zone: 6.9 and 7.6&nbsp;m of net at the porosity
 cutoff, unchanged by a &plusmn;0.02 porosity wiggle.</p>
 
 <h2>QC and pitfalls</h2>
