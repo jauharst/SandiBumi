@@ -1,5 +1,53 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-28 — Increment 20: the guidebook stops naming internal development documents
+
+Your call, off the install paragraph in Your First Hour. The guidebook is the product's
+manual and a customer has no repository to open, so a pointer at `CONTRIBUTING.md` or
+`docs/PRD_v2/…` was both a dead link and a statement about how the software is built that
+a manual has no reason to make. **The shipped book now contains zero of them**
+(`grep -ohE '(docs/[A-Za-z0-9_./-]+|\b[A-Za-z0-9_-]+\.md\b)' docs/guide/book/*.html | wc -l`
+returns 0, against roughly 90 before).
+
+- [ ] **Read the opening two paragraphs of Your First Hour.** The install paragraph now
+      points at the setup instructions that came with your copy and at the **Project ▸
+      Prerequisites** button, which is the thing a reader can actually press. The example
+      dataset is described as shipping with SandiBumi rather than by its repository path,
+      and the closing "where to go next" no longer sends anyone to a `docs/` folder.
+- [ ] **Open any module chapter's "What the application enforces" section.** Published
+      citations are untouched — Rickman et al. 2008, Langmuir 1918, Passey et al. 2010,
+      the AAPG references, the vendor pages. Only the internal pointer is gone, and a
+      citation that consisted of nothing else is dropped rather than printed empty.
+      Check `toc_passey`, `kerogen`, `gip` and `brittleness`, which each ended with a
+      "See <internal document>" sentence.
+- [ ] **The manifests were not touched.** The filter runs in the guidebook generator, so
+      the repository keeps its full provenance and only the customer-facing rendering is
+      trimmed. That is the opposite of stripping an attribution: the record stays where
+      the record belongs.
+- [ ] **Two chapters quote a refusal message that ends in an internal path**, so those
+      quotes are now excerpts ending in `[…]` — `rt_cutoff` and `normalize`. The argument
+      the reader needs is entirely above the cut.
+- [ ] **The "generated page" banner no longer names a path or a command.** It ships inside
+      every page a customer receives; it only has to stop someone hand-editing a file that
+      will be overwritten.
+
+**The bigger finding, and it needs your ruling.** The figure in the `rt_cutoff` chapter
+shows the application itself printing
+`Source: docs/research_2026-07/ref_rocktyping_shf.md §Cutoff-based …` in a module pane's
+parameter tooltip. The guidebook was only reflecting what the app says. Measured:
+
+| In `src-tauri/src/*.rs` string literals | Count | Files |
+|---|---|---|
+| internal repository `.md` paths | **239** | 40 |
+| vendor filenames (`.lls`, `.info`, `.htm`, `.chm`) | **158** | — |
+
+The first row is the same exposure you just ruled on, one layer down, and cleaning it
+means editing physics-parameter provenance in Rust and re-shooting every figure that shows
+a tooltip. The second row is the ruling already logged as open at `REVIEW.md:796` (the
+SSC/SSPW Loglan filenames). **I have not touched either** — stripping a cited default is
+exactly the thing the provenance discipline forbids doing quietly, and the two rows want
+one decision, not two. Tell me which way and it is the next increment.
+
 ## 2026-08-28 — Second pass, increment 19: the guidebook stops writing in dashes
 
 Your second call: *"for all 92 chapter please screening and refine again if AI slop

@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -595,14 +595,10 @@ FROM computed_curves WHERE curve_name = 'GR_C' AND NOT isnan(value)</pre>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Mirrors a curve about a pivot: OUT = 2 x pivot - CURVE. For an SP recorded with the wrong sign convention, or any reading delivered inverted.
-
-PIVOT_FROM:
+<p>Mirrors a curve about a pivot: OUT = 2 x pivot - CURVE. For an SP recorded with the wrong sign convention, or any reading delivered inverted. PIVOT_FROM:
 • VALUE — mirror about PIVOT, a number you give. The only reproducible choice, and the one to use when the pivot is a physical reference (an SP shale baseline).
 • MIDRANGE — mirror about (min + max) / 2 of this well's own curve.
-• MEAN — mirror about this well's own mean.
-
-MIDRANGE and MEAN are computed PER WELL, so the same run gives each well a different pivot and two wells' flipped curves are no longer on a common scale. That is often what is wanted for a quick look and is almost never what should go into a correlation — the run leaves the pivot it used in the flag curve so it is at least recoverable.</p>
+• MEAN — mirror about this well's own mean. MIDRANGE and MEAN are computed PER WELL, so the same run gives each well a different pivot and two wells' flipped curves are no longer on a common scale. That is often what is wanted for a quick look and is almost never what should go into a correlation — the run leaves the pivot it used in the flag curve so it is at least recoverable.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to flip</td><td><code>SP</code></td><td>yes</td><td>—</td></tr></table></div>
 <h2>Parameters</h2>

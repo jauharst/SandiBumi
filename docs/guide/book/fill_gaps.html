@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -607,17 +607,9 @@ FROM computed_curves WHERE curve_name = 'PHIE_C_FILL'</pre>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Fills holes in a curve that are no wider than MAX_GAP, and marks every sample it invented in &lt;OUT&gt;_FILL.
-
-A filled sample is not a measurement. That is the whole reason for the flag curve: without it a filled value is indistinguishable from a logged one in a crossplot, a histogram, a net count or a report, and the person reading the number is not the person who chose the limit. Mask on &lt;OUT&gt;_FILL to take them back out of any run.
-
-**A gap open at one end is never filled.** A hole at the top or the bottom of the curve has live data on one side only, so filling it is extrapolation — inventing rock past where the tool stopped. Only a gap bounded above AND below is a candidate.
-
-METHOD:
+<p>Fills holes in a curve that are no wider than MAX_GAP, and marks every sample it invented in &lt;OUT&gt;_FILL. A filled sample is not a measurement. That is the whole reason for the flag curve: without it a filled value is indistinguishable from a logged one in a crossplot, a histogram, a net count or a report, and the person reading the number is not the person who chose the limit. Mask on &lt;OUT&gt;_FILL to take them back out of any run. **A gap open at one end is never filled.** A hole at the top or the bottom of the curve has live data on one side only, so filling it is extrapolation — inventing rock past where the tool stopped. Only a gap bounded above AND below is a candidate. METHOD:
 • LINEAR — a straight line between the live samples either side.
-• HOLD — the last live value carried down. The honest choice for a curve that is blocky by nature (a facies code, a flag, a zone constant), where a ramp would draw a transition the rock does not have.
-
-MAX_GAP has no default: how far it is defensible to interpolate depends on why the data is missing and on the bed thickness, and no single value is right twice.</p>
+• HOLD — the last live value carried down. The honest choice for a curve that is blocky by nature (a facies code, a flag, a zone constant), where a ramp would draw a transition the rock does not have. MAX_GAP has no default: how far it is defensible to interpolate depends on why the data is missing and on the bed thickness, and no single value is right twice.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to fill</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
 <h2>Parameters</h2>

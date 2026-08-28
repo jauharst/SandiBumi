@@ -464,6 +464,7 @@
     "Second pass, increment 16: the 29 increment-2/3/5 chapters re-measured against today's example dataset (chip task_75244154)",
     "Second pass, increment 17: the first-hour guide becomes book 01 of the guidebook",
     "Second pass, increment 19: the guidebook stops writing in dashes",
+    "Increment 20: the guidebook stops naming internal development documents",
     "Guidebook: the documentation-tree shell and light screenshots"
   ]
 }

@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -602,13 +602,9 @@ FROM computed_curves WHERE curve_name = 'GR_C_CLP'</pre>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Holds a curve inside a range. MIN and MAX are in the curve's own units and either may be left EMPTY, which is a statement that the curve is unbounded on that side rather than an omission.
-
-ACTION:
+<p>Holds a curve inside a range. MIN and MAX are in the curve's own units and either may be left EMPTY, which is a statement that the curve is unbounded on that side rather than an omission. ACTION:
 • BLANK — a sample outside the range becomes MISSING. The right answer when the range is a validity check: a resistivity of 1e6 is not a very resistive rock, it is a reading the tool could not make, and pinning it to the bound would leave a real number where there is no measurement.
-• CLAMP — a sample outside the range is pulled to the bound. Only defensible when the excursion is a small arithmetic overshoot of a known physical limit, the way PHIE is floored at 0.001 rather than blanked.
-
-BLANK is the default because it is the one that cannot manufacture a measurement.</p>
+• CLAMP — a sample outside the range is pulled to the bound. Only defensible when the excursion is a small arithmetic overshoot of a known physical limit, the way PHIE is floored at 0.001 rather than blanked. BLANK is the default because it is the one that cannot manufacture a measurement.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to clip</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
 <h2>Parameters</h2>

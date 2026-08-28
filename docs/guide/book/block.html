@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -599,22 +599,16 @@ FROM computed_curves WHERE curve_name = 'PHIE_BLK' AND NOT isnan(value)</pre>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Replaces a curve with one value per bed, held across the bed. The curve stays on the well's own depth frame, so nothing downstream has to know it was upscaled — set its draw style to Step in the curve editor, or the log view draws a gradient between two block values that the data never measured.
-
-OPT_BEDS — what a bed is:
+<p>Replaces a curve with one value per bed, held across the bed. The curve stays on the well's own depth frame, so nothing downstream has to know it was upscaled — set its draw style to Step in the curve editor, or the log view draws a gradient between two block values that the data never measured. OPT_BEDS — what a bed is:
 • INTERVAL — equal slices of INTERVAL thickness. Reproducible, and it ignores the rock: a contact falling mid-slice is averaged across.
 • CLASS — each run of a constant value in the BEDS curve (FACIES, a rock type, a flag). Boundaries are where the rock changes; this is what a simulation model wants.
 • ZONES — one value per marker interval. The coarsest, and what a zone-parameter table or a volumetrics summary consumes.
-• AUTO — boundaries found from the curve itself, needing no other curve. They are INFERRED, and the run says so.
-
-OPT_STAT — how a bed's value is taken. **This is a petrophysical choice, not a formatting one.**
+• AUTO — boundaries found from the curve itself, needing no other curve. They are INFERRED, and the run says so. OPT_STAT — how a bed's value is taken. **This is a petrophysical choice, not a formatting one.**
 • MEAN — right for porosity and for every volume fraction, because those add.
 • GEOMETRIC — the standard estimate for PERMEABILITY in randomly heterogeneous rock.
 • HARMONIC — permeability across layers in SERIES (flow perpendicular to lamination); the lowest of the three and the one a vertical barrier deserves.
 • MEDIAN / MIN / MAX — order statistics, for a flag or a worst-case screen.
-• MODE — the bed's commonest value, and the ONLY upscale for a class curve (FACIES, a lithology code). A class code is a name written as a number: the mean of facies 1 and facies 4 is 2.5, which is not a facies, and nothing downstream can tell. A curve declared as a class refuses every averaging statistic here for that reason.
-
-An arithmetic upscale of a laminated sand-shale gives a permeability the rock does not have, and it is always the HIGHEST of the three, so the error never looks like a problem: 1000 mD sand with 0.01 mD shale in equal parts is 500 mD arithmetically, 0.3 mD geometrically and 0.02 mD harmonically.</p>
+• MODE — the bed's commonest value, and the ONLY upscale for a class curve (FACIES, a lithology code). A class code is a name written as a number: the mean of facies 1 and facies 4 is 2.5, which is not a facies, and nothing downstream can tell. A curve declared as a class refuses every averaging statistic here for that reason. An arithmetic upscale of a laminated sand-shale gives a permeability the rock does not have, and it is always the HIGHEST of the three, so the error never looks like a problem: 1000 mD sand with 0.01 mD shale in equal parts is 500 mD arithmetically, 0.3 mD geometrically and 0.02 mD harmonically.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to upscale</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr>
 <tr><td>BEDS</td><td>Class curve defining the beds (OPT_BEDS = CLASS)</td><td><code>FACIES</code></td><td>no</td><td>—</td></tr></table></div>
@@ -624,14 +618,12 @@ An arithmetic upscale of a laminated sand-shale gives a permeability the rock do
 <p>Block thickness (OPT_BEDS = INTERVAL)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 10000 depth</li>
-<li><b>Checked before the run:</b> <code>interval.required_when_interval</code>: INTERVAL is required when OPT_BEDS = INTERVAL. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters</div></li></ul>
+<li><b>Checked before the run:</b> <code>interval.required_when_interval</code>: INTERVAL is required when OPT_BEDS = INTERVAL. Applies when: [object Object].</li></ul>
 <h3>MIN_BED <span class="src">(depth)</span></h3>
 <p>Thinnest bed worth calling a bed (OPT_BEDS = AUTO)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 10000 depth</li>
-<li><b>Checked before the run:</b> <code>min_bed.required_when_auto</code>: MIN_BED is required when OPT_BEDS = AUTO. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters</div></li></ul>
+<li><b>Checked before the run:</b> <code>min_bed.required_when_auto</code>: MIN_BED is required when OPT_BEDS = AUTO. Applies when: [object Object].</li></ul>
 <h3>SENS</h3>
 <p>AUTO: how far off the bed's mean is a new bed, in noise units</p>
 <ul><li><b>Default:</b> 2</li>

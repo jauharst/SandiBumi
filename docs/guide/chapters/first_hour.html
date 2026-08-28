@@ -1,20 +1,19 @@
-<!-- Authored walkthrough: the first-hour guide, converted from docs/guide/first-hour.md
-     (voice approved 2026-08-25) into the book. The ten figures were captured live from
+<!-- Authored walkthrough: the first-hour guide, brought into the book
+     (voice approved 2026-08-25). The ten figures were captured live from
      the sandboxed app on the SANDI-* example wells; each was re-verified against this
      text on 2026-08-27 before the chapter joined the book. -->
 
 <p>This guide takes a petrophysicist from a fresh install to a finished one-well
 interpretation, following one path. It is not a reference manual: each chapter does one
-thing, in order, on the example dataset that ships in the repository
-(<code>dataset for test/examples/</code>, which holds three synthetic wells,
-<b>SANDI-01/02/03</b>, on one shared geology: a shale cap, a gas sand, a water sand, a
-base seal). Everything
+thing, in order, on the example dataset that ships with SandiBumi. That dataset is three
+synthetic wells, <b>SANDI-01/02/03</b>, on one shared geology of a shale cap, a gas
+sand, a water sand and a base seal. Everything
 photographed here is the real application driven through this exact flow.</p>
 
-<p><b>Setting up the machine is not this guide's job.</b> <code>CONTRIBUTING.md</code>
-§1–2 is the install checklist, and <code>docs/INSTALLATION_PREREQUISITES.md</code> lists
-exactly which capabilities need an optional Python package and what happens without it.
-The short version: the core application (projects, LAS import, log views, plots, every
+<p><b>Setting up the machine is not this guide's job.</b> Installation is covered by the
+setup instructions that came with your copy, and the <b>Project</b> tab's
+<b>Prerequisites</b> button reports what this machine actually has. The short version:
+the core application (projects, LAS import, log views, plots, every
 Rust petrophysics module, PDF/SVG export) needs <b>no Python at all</b>. Python (with
 numpy) adds user-written equations; <code>dlisio</code> adds DLIS import;
 <code>scikit-learn</code> adds the ML suite; Pillow adds picture imports beyond what the
@@ -45,8 +44,8 @@ command, never the application.</p>
     History, and why a module run is re-run rather than undone.</li>
   <li><b>Export something</b>: a LAS file that reports what it wrote, and a
     print-scale composite page.</li>
-  <li><b>Where to go next</b>: the Advance tab methods, per-panel Help, and the deeper
-    documents in <code>docs/</code>.</li>
+  <li><b>Where to go next</b>: the Advance tab methods, and the per-panel Help that
+    every pane carries.</li>
 </ol>
 
 <h2>1. Before you start</h2>
@@ -58,11 +57,11 @@ responsive on an ordinary field laptop. One <b>project is one file</b> (a
 and their full history travel together, and backing a study up means copying one
 file.</p>
 
-<p>This guide works on the example dataset in <code>dataset for test/examples/</code>.
-Its <code>README.md</code> is worth opening beside this guide: it describes each file,
-the ribbon path that imports it, and what to expect. The same three wells are what the
-project's own automated tests parse, so if the app accepts a file there, it accepts
-your real file of the same shape. The wells are synthetic but internally consistent
+<p>This guide works on the example dataset that ships with SandiBumi. It is worth
+opening beside this guide: each file has a ribbon path that imports it, and the same
+three wells are what the application's own automated tests parse, so if it accepts a
+file there, it accepts your real file of the same shape. The wells are synthetic but
+internally consistent
 (the core porosities derive from the same density profile the LAS carries), so QC
 cross-checks behave like a clean real delivery rather than random noise.</p>
 
@@ -505,9 +504,9 @@ versioned output. The module books of this guidebook (the <a href="index.html">C
 page</a>) carry one chapter per module, and each chapter's "What the application
 enforces" section is generated from the same manifests the panes are built from, so its
 descriptions, defaults, sources and pre-run checks are exactly what the running
-application enforces. The example dataset's README lists the import order for core,
-SCAL, deviation and the rest; with those loaded, the saturation-height tools and the
-QC crossplots have real input. Zones (Petrophysics → Zones…) is where per-interval
+application enforces. The example dataset also carries core, SCAL, deviation and the
+rest; with those imported, the saturation-height tools and the QC crossplots have real
+input. Zones (Petrophysics → Zones…) is where per-interval
 parameters live, the green callout from chapter 6 made concrete.</p>
 
 <p><b>The Advance tab</b> holds the flagship in-house methods, promoted out of the
@@ -516,10 +515,8 @@ generic dropdowns: the <b>SSC / SSPW</b> sand-silt-clay methods, <b>RtC</b> and
 <b>Thin Beds</b>, the <b>SandiMin</b> multi-mineral solver, the <b>ML Models</b>
 suite, and the core-imaging and petrography workbenches (core photos and photo logs,
 plate conditioning, pore-area measurement, the mineral classifier, plug QC). Each is
-documented by its own pane's <b>? Help</b>; the method mathematics is banked in
-<code>docs/</code> (<code>method_ssc_sspw.md</code>,
-<code>method_lrlc_rtc_imts.md</code>, and the <code>record_*.md</code> build
-records).</p>
+documented by its own pane's <b>? Help</b>, which states the method it implements and
+the parameters it takes.</p>
 
 <p><b>Many wells at once.</b> Everything you did on three wells was already
 multi-well, from the RUN ON pill to the tops that routed by well name. When the well count
@@ -529,6 +526,6 @@ chain, and the Field Dashboard that rolls the pay summary up per zone across eve
 well. Those have their own chapters in the tool books; the mechanics will already feel
 familiar.</p>
 
-<p>Wherever you are in the application: click the pane, press <b>? Help</b>. And when
-the answer is not there, the <code>docs/</code> folder of this repository is the
-deeper record. This guide is the front door, not the whole house.</p>
+<p>Wherever you are in the application: click the pane, press <b>? Help</b>. Between
+that and the chapters here, most questions answer themselves. This guide is the front
+door, not the whole house.</p>
