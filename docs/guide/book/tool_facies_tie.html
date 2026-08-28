@@ -520,7 +520,7 @@ that claim gets a number.</p>
   <img src="../img/guide-faciestie.png"
        alt="The Facies Tie-in confusion matrix with purity and k-variance statistics" />
   <figcaption>A GMM electrofacies against the rock-type curve: overall
-    purity 93.2% over 573 matched samples, k variance reduction 94.7% over
+    purity 93.5% over 573 matched samples, k variance reduction 94.7% over
     33 plugs, and the two per-class tables that ask different
     questions.</figcaption>
 </figure>
@@ -557,11 +557,12 @@ neither does any source SandiBumi holds - the bar is yours to set for this field
 
 <h2>Reading the result</h2>
 
-<p>The overall purity (93.2%) is the headline, but the per-class tables
-carry the decision. In the example one reference class is found only 51.6%
-of the time and one predicted label is right only 38.5% of the time, both
-low-n classes; the model is excellent on the dominant rocks and unreliable
-on the rare ones, which a single average hides. The k variance reduction
+<p>The overall purity (93.5%) is the headline, but the per-class tables
+carry the decision. In the example every reference class is found at least
+89.9% of the time, but one predicted label is right only 74.4% of the time
+&mdash; and it is the smallest class, 39 samples against 258 and 276; the
+model is excellent on the dominant rocks and least reliable on the rare
+one, which a single average hides. The k variance reduction
 (94.7% of the core log-permeability spread explained by predicted class,
 over 33 plugs) is the economically meaningful check: a facies scheme that
 separates permeability is useful even where its labels wobble, and one

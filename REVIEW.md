@@ -20630,3 +20630,47 @@ either, and writing "what to do" for a refusal nobody can reach would mean inven
       not something the change itself can do: `guide-permcoates-refused.png` and
       `guide-rtcutoff-refused.png`. (`guide-normalize-refused.png` from the previous increment is
       in the same state.)
+
+## The guidebook figures stop showing panes the chapter never mentions (2026-08-29)
+
+You sent a screenshot of chapter 16.4, Cutoff Sensitivity, with a `Crossplot — SANDI-01` tab
+sitting in the figure. The chapter never mentions a crossplot. Sweeping all 98 chapters and their
+173 figures turned up **45** carrying at least one pane the chapter does not discuss, and they had
+one shared cause rather than 45 separate slips: the capture scripts closed the workspace down to
+"everything except Wells, Tops, Processing and Crossplot" before each shot. Crossplot was kept
+deliberately so it could be re-fronted later, Tops was kept because it is normally useful — and in
+these captures it read "No tops for this well" — and Processing kept accumulating cards from every
+module run earlier in the batch. So the leftovers were not random: they were the same four panes,
+over and over, in shots taken hours apart.
+
+Every figure is now composed to the same rule — Wells, plus the log view where the chapter reads a
+curve, plus the pane the chapter is about, and nothing else. 43 figures were re-captured. 2 were
+deleted instead (`guide-calrtc-fit.png`, `guide-permxfm-pane.png`): no chapter referenced them, and
+the figure count on disk now matches the referenced count exactly, 173 to 173, so nothing is
+orphaned in either direction.
+
+Re-shooting a figure moves the numbers under its caption, so each new capture was read back against
+the sentence beside it and seven chapters were corrected where they had drifted: the First Hour
+zone name and its clamp count, the Lorenz coefficient and storage share, the facies purity and its
+per-class paragraph, the field map's scale bar, Thomeer's fit timing (dropped — a millisecond
+figure that changes every run is not a fact worth printing), and the Results QC and Monte Carlo
+readings, both of which now describe a per-zone pane where the old caption described a whole-well
+one.
+
+- [ ] **Open the guidebook and page through it.** No figure should show a pane the chapter around
+      it does not talk about. 16.4 Cutoff Sensitivity is the one you caught; it is the one to
+      check first.
+- [ ] **Read the seven corrected chapters against their figures** — First Hour, Lorenz, Facies
+      Tie-in, Field Map, Pc Fit (Thomeer), Results QC, Monte Carlo. Every number in the prose
+      should be findable in the picture beside it.
+- [ ] **The First Hour walkthrough** now names LESTARI over 1528.0–1544.0 m and reports 83 clamped
+      samples of 395. Worth walking once on the example project, since it is the chapter a new
+      user meets first.
+- [ ] **One figure was deliberately not re-shot and needs your call: `guide-shf.png`** (Saturation
+      Height). Reproducing it means choosing a free-water level, which is a physics decision and
+      not mine to make. Using the project's own gas-water contact, 1520.1 m TVDSS from the fluid
+      contacts registry the guidebook itself shows, gives 506 points with a real trend
+      (a = 0.197, b = -0.400, R² = 0.31). The chapter as written describes the opposite — a
+      deliberate negative result, 149 points, R² 0.006, "visibly flat", with the FWL pinned at the
+      edge of the scan. Both are honest chapters; they are not the same chapter. Tell me which one
+      the guidebook should teach and I will shoot it and write it to match.

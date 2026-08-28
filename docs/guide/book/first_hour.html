@@ -679,14 +679,14 @@ confirms <i>"Loaded well SANDI-01"</i>.</p>
 
 <figure>
   <img src="../img/guide-top-selected.png"
-       alt="TOP_SAND_A selected: the Tops pane highlights it and every panel windows to the interval" />
-  <figcaption>TOP_SAND_A selected: the Tops pane highlights it and every panel windows
+       alt="LESTARI selected: the Tops pane highlights it and every panel windows to the interval" />
+  <figcaption>LESTARI selected: the Tops pane highlights it and every panel windows
     to the interval.</figcaption>
 </figure>
 
-<p>The <b>Tops</b> pane below does the same for depth. Click <b>TOP_SAND_A</b> and the
-status bar states the mechanic in one line: <i>"Windowed to top TOP_SAND_A
-(1520.0–1535.0) — plots and log views follow."</i> The interval runs from the clicked
+<p>The <b>Tops</b> pane below does the same for depth. Click <b>LESTARI</b> and the
+status bar states the mechanic in one line: <i>"Windowed to top LESTARI
+(1528.0–1544.0) — plots and log views follow."</i> The interval runs from the clicked
 top down to the next one; log views scroll to it, and plots gain an auto-selected zone
 option for it. This is how you ask a histogram or crossplot about <i>one sand</i>
 instead of the whole well: select the top, and the plots follow.</p>
@@ -857,11 +857,11 @@ per-well report.</p></blockquote>
 <p>Expand <b>details</b> in the Processing panel. Each well says the same thing:</p>
 
 <blockquote><p>degraded result - CLAMPED: calculated value was clamped to the existing
-range [0, 1] (46 occurrences)</p></blockquote>
+range [0, 1] (83 occurrences)</p></blockquote>
 
 <p>This is the consequence of the P5/P95 pick, reported instead of hidden. SANDI-01's
 GR actually spans 41.5–115.2 gAPI; every sample cleaner than 44 or shalier than 112
-computes a GR index below 0 or above 1, and the limited output clamps it. About 46 of
+computes a GR index below 0 or above 1, and the limited output clamps it. About 83 of
 395 samples, which are the tails the percentile pick deliberately excluded. "Degraded"
 never means the run half-worked; it means the result carries a warning you should read
 once and then either accept (as here, since clamping at the endpoints is exactly what
