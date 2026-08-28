@@ -637,7 +637,8 @@ a real quality axis looks like from two directions.</p>
 <p>Vsh cutoff for RT1 (best)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 1 v/v</li>
-<li><b>Checked before the run:</b> <code>rt_cutoff.vsh_ladder_order</code>: The best class's shale cutoff must not exceed the moderate class's — equal is allowed, and separates the two on porosity alone.</li></ul>
+<li><b>Checked before the run:</b> <code>rt_cutoff.vsh_ladder_order</code>: The best class's shale cutoff must not exceed the moderate class's — equal is allowed, and separates the two on porosity alone.
+    <div class="src">Source: Cutoff-based electrofacies tie-in, which writes the middle class as v1 &lt;= Vsh &lt; v2</div></li></ul>
 <h3>PHI1 <span class="src">(v/v)</span></h3>
 <p>PHIE cutoff for RT1 (best)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
@@ -650,7 +651,8 @@ a real quality axis looks like from two directions.</p>
 <p>PHIE cutoff for RT2 (moderate)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 1 v/v</li>
-<li><b>Checked before the run:</b> <code>rt_cutoff.phi_ladder_order</code>: The moderate class's porosity floor must not exceed the best class's — equal is allowed, and separates the two on shale volume alone.</li></ul>
+<li><b>Checked before the run:</b> <code>rt_cutoff.phi_ladder_order</code>: The moderate class's porosity floor must not exceed the best class's — equal is allowed, and separates the two on shale volume alone.
+    <div class="src">Source: Cutoff-based electrofacies tie-in, which writes the middle class as p2 &lt;= PHIE &lt; p1</div></li></ul>
 <h2>Output curves</h2>
 <div class="wrap"><table><tr><th>Name</th><th>Description</th></tr><tr><td>RT_LOG</td><td>Cutoff rock-type class (1/2/3)</td></tr></table></div></div>
 </div>

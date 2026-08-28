@@ -860,7 +860,7 @@ mod tests {
         assert!(expected.contains("vsh_gr.gr_ma_range"), "condition id missing: {expected}");
         assert!(expected.contains("value -1 gAPI at sample 0"), "offending sample missing: {expected}");
         assert!(expected.contains("200"), "declared range missing: {expected}");
-        assert!(expected.contains("vsh_gr.info"), "condition source missing: {expected}");
+        assert!(expected.contains("Geolog"), "condition source missing: {expected}");
 
         // Dialog/Tauri route: assert both the returned IPC payload and what Processing polls.
         let (dialog_results, dialog_job) =

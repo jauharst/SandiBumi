@@ -68,6 +68,7 @@ mod pipeline_field_test;
 mod plotting;
 mod plugqc;
 mod project;
+mod public_source;
 mod python_engine;
 mod reader_pool;
 mod reframe;
@@ -2276,9 +2277,15 @@ fn finalize_plot_write_provenance(
 
 /// Lists every deterministic module manifest — the frontend auto-generates each module's
 /// parameter dialog from these (module-manifest model).
+///
+/// The sources are rendered for a reader on the way out (`public_source`). The catalog itself keeps
+/// its full provenance, which is what every source gate still asserts on and what the generated
+/// manifest dump still records; this is only what the running application shows.
 #[tauri::command]
 fn list_modules() -> Vec<modules::ModuleSpec> {
-    modules::list_modules()
+    let mut specs = modules::list_modules();
+    public_source::publicize_specs(&mut specs);
+    specs
 }
 
 /// The brief Help-card content for one module — method statement, equations, published

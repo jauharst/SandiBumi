@@ -654,24 +654,30 @@ GROUP BY w.well_name</pre>
 <p>TWO_POINT / RANGE: reference value at the low end</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> -1000000000 to 1000000000</li>
-<li><b>Checked before the run:</b> <code>ref_low.required_when_two_point</code>: REF_LOW is required when OPT_METHOD = TWO_POINT. Applies when: [object Object].</li>
-<li><b>Checked before the run:</b> <code>ref_low.required_when_range</code>: REF_LOW is required when OPT_METHOD = RANGE. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>ref_low.required_when_two_point</code>: REF_LOW is required when OPT_METHOD = TWO_POINT. Applies when: [object Object].
+    <div class="src">Source: normalization parameters</div></li>
+<li><b>Checked before the run:</b> <code>ref_low.required_when_range</code>: REF_LOW is required when OPT_METHOD = RANGE. Applies when: [object Object].
+    <div class="src">Source: normalization parameters</div></li></ul>
 <h3>REF_HIGH</h3>
 <p>TWO_POINT / RANGE: reference value at the high end</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> -1000000000 to 1000000000</li>
-<li><b>Checked before the run:</b> <code>ref_high.required_when_two_point</code>: REF_HIGH is required when OPT_METHOD = TWO_POINT. Applies when: [object Object].</li>
-<li><b>Checked before the run:</b> <code>ref_high.required_when_range</code>: REF_HIGH is required when OPT_METHOD = RANGE. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>ref_high.required_when_two_point</code>: REF_HIGH is required when OPT_METHOD = TWO_POINT. Applies when: [object Object].
+    <div class="src">Source: normalization parameters</div></li>
+<li><b>Checked before the run:</b> <code>ref_high.required_when_range</code>: REF_HIGH is required when OPT_METHOD = RANGE. Applies when: [object Object].
+    <div class="src">Source: normalization parameters</div></li></ul>
 <h3>REF_MEAN</h3>
 <p>MEAN_SD: reference mean</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> -1000000000 to 1000000000</li>
-<li><b>Checked before the run:</b> <code>ref_mean.required_when_mean_sd</code>: REF_MEAN is required when OPT_METHOD = MEAN_SD. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>ref_mean.required_when_mean_sd</code>: REF_MEAN is required when OPT_METHOD = MEAN_SD. Applies when: [object Object].
+    <div class="src">Source: normalization parameters</div></li></ul>
 <h3>REF_SD</h3>
 <p>MEAN_SD: reference standard deviation</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 1e-9 to 1000000000</li>
-<li><b>Checked before the run:</b> <code>ref_sd.required_when_mean_sd</code>: REF_SD is required when OPT_METHOD = MEAN_SD. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>ref_sd.required_when_mean_sd</code>: REF_SD is required when OPT_METHOD = MEAN_SD. Applies when: [object Object].
+    <div class="src">Source: normalization parameters</div></li></ul>
 <h2>Options</h2>
 <h3>OPT_METHOD</h3>
 <p>How the curve is mapped</p>

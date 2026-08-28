@@ -640,7 +640,7 @@ sits beside.</p>
 <li><b>Accepted range:</b> 40 to 70 us/ft</li>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>matrix_transit_time</code>); the pane lists them with sources at the point of choice.</li>
 <li><b>Checked before the run:</b> <code>phi_son.endpoint_order</code>: The matrix transit time must be strictly below the shale transit time. Must be strictly below <code>DT_SH</code>.
-    <div class="src">Source: Ruling DEC-063 (2026-08-18): DT MA should always be lower than DT SH; an inverted pair turns the shale subtraction into an addition (SB-POR-009 ordering)</div></li></ul>
+    <div class="src">Source: DT MA should always be lower than DT SH; an inverted pair turns the shale subtraction into an addition (SB-POR-009 ordering)</div></li></ul>
 <h3>DT_FL <span class="src">(us/ft)</span></h3>
 <p>Fluid transit time</p>
 <ul><li><b>Default:</b> 189</li>
@@ -657,7 +657,7 @@ sits beside.</p>
 <li><b>Accepted range:</b> 0.625 to 0.7</li>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>field_observed_coefficient</code>); the pane lists them with sources at the point of choice.</li>
 <li><b>Checked before the run:</b> <code>cfo.required_when_field_observed</code>: CFO is required when OPT_SON = FIELD_OBSERVED. Applies when: [object Object].
-    <div class="src">Source: SB-POR-014: Geolog phi_son.info CFO DEFAULT 0.67 with doc range 0.625-0.70 (T1); Techlog porosity-from-sonic File coefficient 0.625 (T3); DEC-017 requires a cited coefficient</div></li></ul>
+    <div class="src">Source: SB-POR-014: Geolog CFO DEFAULT 0.67 with doc range 0.625-0.70 (T1); Techlog porosity-from-sonic File coefficient 0.625 (T3); DEC-017 requires a cited coefficient</div></li></ul>
 <h3>RHO_MA <span class="src">(g/cc)</span></h3>
 <p>Matrix density (RHG80 suspension segment)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>

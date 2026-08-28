@@ -618,12 +618,14 @@ FROM computed_curves WHERE curve_name = 'PHIE_BLK' AND NOT isnan(value)</pre>
 <p>Block thickness (OPT_BEDS = INTERVAL)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 10000 depth</li>
-<li><b>Checked before the run:</b> <code>interval.required_when_interval</code>: INTERVAL is required when OPT_BEDS = INTERVAL. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>interval.required_when_interval</code>: INTERVAL is required when OPT_BEDS = INTERVAL. Applies when: [object Object].
+    <div class="src">Source: frame parameters</div></li></ul>
 <h3>MIN_BED <span class="src">(depth)</span></h3>
 <p>Thinnest bed worth calling a bed (OPT_BEDS = AUTO)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 10000 depth</li>
-<li><b>Checked before the run:</b> <code>min_bed.required_when_auto</code>: MIN_BED is required when OPT_BEDS = AUTO. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>min_bed.required_when_auto</code>: MIN_BED is required when OPT_BEDS = AUTO. Applies when: [object Object].
+    <div class="src">Source: frame parameters</div></li></ul>
 <h3>SENS</h3>
 <p>AUTO: how far off the bed's mean is a new bed, in noise units</p>
 <ul><li><b>Default:</b> 2</li>

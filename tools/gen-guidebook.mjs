@@ -670,39 +670,91 @@ function navHtml(books, current) {
 // citation naming an internal development document is a dead pointer that also states more
 // about how the software is built than a manual should. The manifests keep their full
 // citation - that record is the repo's, and stripping it there would be deleting provenance
-// rather than not printing it - so this trims only what the BOOK renders. A citation left
-// with nothing but the internal reference is dropped whole rather than printed empty.
-// A section number is part of the reference it belongs to, so it leaves with it - a bare
-// "and §5" pointing at nothing is worse than no citation at all.
-const DOCREF = () => /\bdocs\/[A-Za-z0-9_./-]+\.md\b(?:\s*(?:§|section\b)[^;)\]]*)?/gi;
+// rather than not printing it - so this trims only what the BOOK renders.
+//
+// These are the SAME rules the running application applies in src-tauri/src/public_source.rs,
+// deliberately restated here because a Node generator cannot call Rust. The book and the app
+// must not describe one source two ways, so `the_book_and_the_app_render_a_source_the_same_way`
+// reads this file from the Rust side and fails the build if the two drift - the arrangement
+// FACIES_PALETTE already uses for the screen and the print.
+//
+// Two rules do most of the work. An internal path leaves, and so does the REFERENCE TAIL after
+// it - section numbers, figure ids, requirement ids, line numbers, and the conjunctions joining
+// them - because "F17 and §5" left standing points at nothing; the tail stops at the first word
+// that is none of those, so "§5 porosity limits" keeps "porosity limits". A vendor FILE name
+// leaves and the vendor PRODUCT name stays, so "Geolog phi_den.info RHO_W DEFAULT 1000 k/m3"
+// becomes "Geolog RHO_W DEFAULT 1000 k/m3" - the attribution survives, the filename was only
+// ever how we find it again.
+const TAIL =
+  '(?:\\s*(?:§§?\\s*[\\d.]+(?:\\s*,\\s*[\\d.]+)*|§§?|F\\d+\\b|T\\d+\\b|SB-[A-Z]{2,}-\\d+(?:\\([a-z]\\))?' +
+  '|line\\s+\\d+\\b|section\\s+[\\d.]+\\b|:\\s*\\d+\\b|and\\b|,|/|\u2014|-\\s))*';
+const INTERNAL_DOC = () => new RegExp('\\bdocs/[A-Za-z0-9_./-]+\\.md\\b' + TAIL, 'gi');
+const VENDOR_FILE = () =>
+  /\b[A-Za-z0-9_*.-]+\.(?:lls|info|htm|html|chm)\b(?:'s)?(?::\d+)?(?:\s+L\d+(?:\s*-\s*L?\d+)?)?/gi;
+const RUST_FILE = () => /\b[a-z_]+\.rs\b(?::\d+(?:-\d+)?)?/gi;
+const SEE_SENTENCE = () => /\s*\bSee\s+docs\/[A-Za-z0-9_./-]+\.md\b[^.]*\.?/gi;
+const ADJUDICATION = /^(?:Absent by adjudication|Adjudication|Ruling)\s+DEC-[\d\sR.-]+\([^)]*\)\s*:\s*/i;
+
+// Raw sources whose mechanical rendering is correct but reads badly. Kept identical to the Rust
+// OVERRIDES table by the drift gate named above.
+const OVERRIDES = new Map([
+  ['docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 and section 6.2 T12', 'SandiBumi environmental-correction specification'],
+  ['docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 and section 6.2 T11/T12; DEC-031 (2026-08-17)', 'SandiBumi environmental-correction specification; DEC-031 (2026-08-17)'],
+  ['docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5.1; docs/workflow_standards.md', 'SandiBumi clay-volume specification and house workflow standards'],
+  ['docs/PRD_v2/10_clay-volume.md §3.5 F17 and §5; docs/workflow_standards.md', 'SandiBumi clay-volume specification and house workflow standards'],
+  ['docs/PRD_v2/19_toc-unconventional.md SB-TOC-019 and §5', 'SandiBumi unconventional-methods specification'],
+  ['docs/PRD_v2/11_porosity.md §5.6 Bateman-Konen crossplot constants, §5 porosity limits and DEC-015', 'Bateman-Konen crossplot constants; porosity limits and DEC-015'],
+  ["IP MINDEF, Techlog QM_MineralTable and SandiMin all 2.65 (3-way AGREE); docs/PRD_v2/11_porosity.md §5.1. SB-POR-011: one shared matrix density across chained modules, owner-selected 2026-08-16 over Geolog phi_den.info's shipped 2645 k/m3.", "IP MINDEF, Techlog QM_MineralTable and SandiMin all 2.65 (3-way AGREE); one shared matrix density across chained modules, owner-selected 2026-08-16 over Geolog's shipped 2645 k/m3."],
+  ['Geolog V14 phi_*.lls hard-coded VSH >= 0.95 (all six modules); docs/PRD_v2/11_porosity.md §5 line 1229 makes it a parameter in SandiBumi defaulting to 0.95 with this source', 'Geolog V14 hard-coded VSH >= 0.95 (all six modules); SandiBumi makes it a parameter defaulting to 0.95 with this source'],
+  ["sspw.lls (2025-02-28) gas branch writes the even split, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1 - and that is what SSC ran until DEC-088 OVERRODE it, ruling 1.6 here too and extending DEC-086's field observation that the even split still reads optimistic. The source is unchanged; the shipped default departs from it deliberately", "The originating SSPW source (2025-02-28) writes the even split in its gas branch, PHIT = ((phiD^2 + NPHI^2)/2)^0.5, i.e. c = 1 - and that is what SSC ran until DEC-088 OVERRODE it, ruling 1.6 here too and extending DEC-086's field observation that the even split still reads optimistic. The source is unchanged; the shipped default departs from it deliberately"],
+  ['porosity_sspw.lls (2022) gas branch c = 1.6; RULED by DEC-086 on field observation that the even split still reads optimistic', 'The originating SSPW source (2022) gas branch c = 1.6; RULED by DEC-086 on field observation that the even split still reads optimistic'],
+  ["Geolog V14 phi_dn.lls SCH_TNPH branch: phix = ((RHO_FL-1000)*(phit_2-phit_1)/190)+phit_1 - the input is the well's own fluid density and Geolog ships no default; docs/PRD_v2/11_porosity.md SB-POR-025 + F13", "Geolog V14 SCH_TNPH branch: phix = ((RHO_FL-1000)*(phit_2-phit_1)/190)+phit_1 - the input is the well's own fluid density and Geolog ships no default"],
+  ["SandiMin's own endpoint library carries this grain density (sandimin.rs LIB: clay Kaolinite RHOB 2.62, clay Illite RHOB 2.78), and docs/multimin_ref_spec.md:62 verifies the same pair against the reference-suite Multimin bound-water coefficients (Illite 0.1841, Kaolinite 0.0694). IP 2025 ships the matching un-expanded illite coefficient 0.185 (docs/research_2026-07/ip2025_chm_ingest/C_mineral_solver.md 3.4), so the two tools agree on this pair to three decimals", "SandiMin's own endpoint library carries this grain density (clay Kaolinite RHOB 2.62, clay Illite RHOB 2.78), verified against the reference-suite Multimin bound-water coefficients (Illite 0.1841, Kaolinite 0.0694). IP 2025 ships the matching un-expanded illite coefficient 0.185, so the two tools agree on this pair to three decimals"],
+]);
+
+function tidySource(s) {
+  return s
+    .replace(/\(\s*[;,]?\s*\)/g, '')
+    .replace(/\[\s*[;,]?\s*\]/g, '')
+    .replace(/\s*[;,]\s*([)\]])/g, '$1')
+    .replace(/([([])\s*[;,]\s*/g, '$1')
+    .replace(/\s*;(?:\s*;)+/g, ';')
+    .replace(/\s+([;,.:)\]])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s;,:.]+/, '')
+    .replace(/^[-\u2014]\s*/, '')
+    .replace(/[\s;,:]+$/, '')
+    .replace(/\s+[-\u2014]$/, '')
+    .trim();
+}
+
+const stripRefs = (s) =>
+  s
+    .replace(SEE_SENTENCE(), ' ')
+    .replace(INTERNAL_DOC(), ' ')
+    .replace(VENDOR_FILE(), ' ')
+    .replace(RUST_FILE(), ' ');
 
 function publicSource(src) {
   if (!src) return '';
+  if (OVERRIDES.has(src)) return OVERRIDES.get(src);
+  let out = String(src).replace(ADJUDICATION, '');
   // Inside brackets, drop the reference but keep its siblings: "(<internal doc>; DEC-079)"
   // must still say DEC-079, which is the adjudication number a reader can actually use.
-  let out = String(src).replace(/\(([^()]*)\)/g, (_m, inner) => {
-    const kept = inner
-      .replace(DOCREF(), '')
-      .replace(/\s*;\s*;+/g, ';')
-      .replace(/^[\s;,]+|[\s;,]+$/g, '')
-      .trim();
+  out = out.replace(/\(([^()]*)\)/g, (_m, inner) => {
+    const kept = tidySource(stripRefs(inner));
     return kept ? `(${kept})` : '';
   });
   // A reference still standing on its own takes its whole clause with it: what follows it
   // is that document's section, not an independent citation.
-  out = out
-    .split(';')
-    .map((s) => s.trim())
-    .filter((s) => s && !DOCREF().test(s))
-    .join('; ');
-  out = out
-    .replace(/\s+([:;,])/g, '$1')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/^[\s;,:]+/, '')
-    .replace(/[\s;,:]+$/, '')
-    .trim();
-  if (!/[A-Za-z0-9]/.test(out)) return '';
-  return out;
+  out = tidySource(
+    out
+      .split(';')
+      .map((s) => tidySource(stripRefs(s)))
+      .filter((s) => /[A-Za-z0-9]/.test(s))
+      .join('; '),
+  );
+  return /[A-Za-z0-9]/.test(out) ? out : '';
 }
 
 // Module documentation ends with a list of published references and then, sometimes, a
@@ -710,11 +762,7 @@ function publicSource(src) {
 // and stays; the pointer is to something the reader does not have.
 function publicDoc(text) {
   if (!text) return '';
-  return String(text)
-    .replace(/\s*\b(?:See|see)\s+docs\/[A-Za-z0-9_./-]+\.md\b[^.]*\.\s*/g, ' ')
-    .replace(/\s*\(?\bdocs\/[A-Za-z0-9_./-]+\.md\b[^)\s]*\)?/g, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  return tidySource(stripRefs(String(text)));
 }
 
 function sourceLine(src) {

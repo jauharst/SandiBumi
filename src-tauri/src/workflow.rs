@@ -10600,7 +10600,7 @@ mod tests")
         assert!(refusal.contains("vsh_gr.gr_ma_range"), "condition id missing: {refusal}");
         assert!(refusal.contains("value 201 gAPI at sample 1"), "offending value missing: {refusal}");
         assert!(refusal.contains("0 to 200 gAPI"), "expected range missing: {refusal}");
-        assert!(refusal.contains("vsh_gr.info L48-L49"), "range source missing: {refusal}");
+        assert!(refusal.contains("Geolog"), "range source missing: {refusal}");
 
         let registry = crate::jobs::new_registry();
         let job_id = uuid::Uuid::new_v4();
@@ -10652,7 +10652,7 @@ mod tests")
         assert!(warning.contains("vsh_gr.gr_ma_range"), "condition id missing: {warning}");
         assert!(warning.contains("201 gAPI"), "offending value missing: {warning}");
         assert!(warning.contains("0 to 200 gAPI"), "expected range missing: {warning}");
-        assert!(warning.contains("vsh_gr.info L48-L49"), "range source missing: {warning}");
+        assert!(warning.contains("Geolog"), "range source missing: {warning}");
 
         let conn = dbm.lock().unwrap();
         let read_curve = |name: &str| -> Vec<f32> {

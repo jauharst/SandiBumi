@@ -1,5 +1,70 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-28 — Increment 21: the application stops naming internal documents too
+
+Increment 20 fixed the book. You then chose **option 3** for the application itself: not just
+delete the internal path, but rewrite each citation so it reads like a sentence a colleague
+would say. This is that, and it turned out to have a second surface nobody had looked at.
+
+**The screenshot showed one of two leaks.** A parameter's source is printed in the module
+pane's tooltip *and* inside every refusal message, so filtering only the tooltip would have
+left the app printing `docs/research_2026-07/ref_rocktyping_shf.md §Cutoff-based …` the moment
+a run refused. Both go through one renderer now.
+
+**Nothing was deleted from the repository.** The stored strings are untouched, byte for byte —
+the filter runs where a source becomes text a reader sees. Every existing gate that asserts on
+a raw source still asserts on the raw source, and the generated manifest dump still records the
+full citation. That is what keeps this a rendering change rather than the concealment
+`CLAUDE.md` forbids.
+
+Measured: **83 distinct source strings** carrying an internal path, vendor filename or `.rs`
+reference (`node` walk over `docs/generated/module_manifests.json`), **200 occurrences** across
+five manifest fields. 71 render mechanically; 12 have an authored override because the
+mechanical result was correct but read badly.
+
+- [ ] **Hover a parameter in any module pane and read the "Default source" line.** It should
+      read as a sentence. `Geolog V14 RHO_W DEFAULT 1000 k/m3` rather than
+      `Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1`.
+      The vendor's NAME survives everywhere its filename was removed — that attribution is the
+      part worth keeping, and dropping it would be the thing we are not allowed to do.
+- [ ] **Force a refusal and read it.** Run `rt_cutoff` with VSH1 above VSH2, or `normalize`
+      with REF_LOW blank. The source now trails as `Cutoff-based electrofacies tie-in, which
+      writes the middle class as v1 <= Vsh < v2` and `normalization parameters`. Both chapters
+      quote the full message again, where increment 20 had to cut them off at `[…]`.
+- [ ] **A published citation is untouched.** Archie 1942, Passey et al. 1990, Rickman et al.
+      2008, Halliburton's charts, the IP and Techlog page references. Pinned from both sides:
+      a renderer returning nothing at all would satisfy "no internal document reaches a reader"
+      perfectly, so the test asserts the surviving text as well as the absence.
+- [ ] **Two adjudication numbers stopped being printed, and I want you to look at this one.**
+      `DEC-063` on the sonic endpoint pair and `DEC-077` on BHT were being shown to the user.
+      They now show the *reason* instead — "an inverted pair turns the shale subtraction into
+      an addition", "a well-specific measurement is user input, never a default (Halliburton
+      book 3 worked example)". I think the reason is more use to an operator than the number,
+      but two tests were pinning the number, so this is a real change and not a cosmetic one.
+- [ ] **The book and the app now say the same thing.** A Node generator cannot call Rust, so
+      `gen-guidebook.mjs` restates the rules. `the_book_and_the_app_render_a_source_the_same_way`
+      reads the JS file from the Rust side and fails the build if the two drift — the same
+      arrangement `FACIES_PALETTE` uses for the screen and the print.
+
+### Two things I did not touch, both needing your word
+
+**The figure `guide-rtcutoff-refused.png` is now stale.** It photographs the old refusal, with
+the internal path in it, and the chapter text beside it no longer matches. Re-shooting the
+figures means driving the app, so it is its own increment — say when.
+
+**An exported LAS carries the source string verbatim into the client's hands.** This is bigger
+than the tooltip you screenshotted, and I left it alone deliberately: `export.rs:1824` asserts
+*"the derivation citation reaches the deliverable verbatim"*, so the sidecar is a deliberate
+audit trail — it is what defends a number months later. But it means a delivered LAS can
+contain `docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.info L48-L49`. Three ways to go, and
+it is your call because it trades client-facing tidiness against auditability:
+
+| | What the sidecar would carry |
+|---|---|
+| Leave it | The full internal citation, as today. Best audit trail, and the client reads our repo paths. |
+| Render it like the app | `Geolog RHO_W DEFAULT 1000 k/m3`. Reads well, and the exact chapter is no longer recoverable from the file alone. |
+| Both | Public text in the sidecar, full text in the project. Truest, and the two can disagree if someone edits one. |
+
 ## 2026-08-28 — Increment 20: the guidebook stops naming internal development documents
 
 Your call, off the install paragraph in Your First Hour. The guidebook is the product's

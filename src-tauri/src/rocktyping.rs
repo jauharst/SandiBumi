@@ -591,7 +591,7 @@ mod tests {
             refused.contains("rt_cutoff.vsh_ladder_order")
                 && refused.contains("0.5")
                 && refused.contains("0.2")
-                && refused.contains("ref_rocktyping_shf.md"),
+                && refused.contains("Cutoff-based electrofacies tie-in"),
             "the refusal names the condition, both values and its source: {refused}"
         );
 
