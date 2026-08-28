@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -627,7 +627,7 @@ reproduces 68.62.</p>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Per-sample gas-in-place as gas CONTENT (scf per ton of rock), so it composites like any curve. Adsorbed via the Langmuir isotherm GIP_ADS = VL·P/(PL+P); free via GIP_FREE = 32.0368·φ·(1−Sw)/(RHOB·Bg) with Bg = 0.02827·z·T/P (T in Rankine); GIP_TOTAL = free + adsorbed. MODE=cbm applies the dry-ash-free correction GIP_ADS·(1−F_ASH−F_MOIST) and, given a measured in-situ gas content GC, emits the critical desorption pressure PCD = PL·GC/(VL−GC). Langmuir VL/PL ship absent and require matching core desorption/isotherm data. Ambrose pore-volume correction deferred. Cite: Langmuir 1918; Ambrose et al. 2010; GRI/Mavor-Nelson 1996. See docs/ref_unconventional.md §3.</p>
+<p>Per-sample gas-in-place as gas CONTENT (scf per ton of rock), so it composites like any curve. Adsorbed via the Langmuir isotherm GIP_ADS = VL·P/(PL+P); free via GIP_FREE = 32.0368·φ·(1−Sw)/(RHOB·Bg) with Bg = 0.02827·z·T/P (T in Rankine); GIP_TOTAL = free + adsorbed. MODE=cbm applies the dry-ash-free correction GIP_ADS·(1−F_ASH−F_MOIST) and, given a measured in-situ gas content GC, emits the critical desorption pressure PCD = PL·GC/(VL−GC). Langmuir VL/PL ship absent and require matching core desorption/isotherm data. Ambrose pore-volume correction deferred. Cite: Langmuir 1918; Ambrose et al. 2010; GRI/Mavor-Nelson 1996.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>PHI</td><td>Porosity (effective, or OM-corrected total)</td><td><code>PHIE</code></td><td>yes</td><td>—</td></tr>
 <tr><td>SW</td><td>Water saturation</td><td><code>SWE</code></td><td>yes</td><td>—</td></tr>
@@ -658,20 +658,17 @@ reproduces 68.62.</p>
 <p>Ash weight fraction (cbm)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 1 -</li>
-<li><b>Checked before the run:</b> <code>f_ash.required_when_cbm</code>: F_ASH is required when MODE = cbm. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/19_toc-unconventional.md SB-TOC-019 and §5</div></li></ul>
+<li><b>Checked before the run:</b> <code>f_ash.required_when_cbm</code>: F_ASH is required when MODE = cbm. Applies when: [object Object].</li></ul>
 <h3>F_MOIST <span class="src">(-)</span></h3>
 <p>Moisture weight fraction (cbm)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 1 -</li>
-<li><b>Checked before the run:</b> <code>f_moist.required_when_cbm</code>: F_MOIST is required when MODE = cbm. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/19_toc-unconventional.md SB-TOC-019 and §5</div></li></ul>
+<li><b>Checked before the run:</b> <code>f_moist.required_when_cbm</code>: F_MOIST is required when MODE = cbm. Applies when: [object Object].</li></ul>
 <h3>GC <span class="src">(scf/ton)</span></h3>
 <p>In-situ gas content for PCD (cbm; 0 = saturated)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 5000 scf/ton</li>
-<li><b>Checked before the run:</b> <code>gc.required_when_cbm</code>: GC is required when MODE = cbm. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/19_toc-unconventional.md SB-TOC-019 and §5</div></li></ul>
+<li><b>Checked before the run:</b> <code>gc.required_when_cbm</code>: GC is required when MODE = cbm. Applies when: [object Object].</li></ul>
 <h2>Options</h2>
 <h3>MODE</h3>
 <p>Reservoir type (cbm adds ash/moisture + critical desorption)</p>

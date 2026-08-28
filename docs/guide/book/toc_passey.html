@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -642,7 +642,7 @@ Restoring LOM 10.6 reproduces the 3.47 median to the third decimal.</p>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Total organic carbon from the Passey (1990) ΔlogR overlay — the separation between deep resistivity and a baselined porosity curve — converted to TOC with the maturity term 10^(2.297−0.1688·LOM). ΔlogR = log10(R/R_base) + 0.02·(DT−DT_base) [sonic overlay] or −2.5·(RHOB−RHOB_base) [density overlay]. Baselines are picked on a non-source, clay-rich interval (params, per-zone overridable) where the two curves overlie; where ΔlogR&lt;0 the rock is non-source and TOC floors to the background value. Also writes the Schmoker-Hester (1983) density-TOC 154.497/RHOB−57.261 as an independent cross-check whenever RHOB is present. TOC in wt%. LOM 6..12 (Passey is calibrated to LOM≤12). Cite: Passey, Creaney, Kulla, Moretti &amp; Stroud 1990, AAPG Bull. 74(12); Schmoker &amp; Hester 1983, AAPG Bull. 67(12). See docs/ref_unconventional.md §1. (Neutron overlay deferred — sign convention needs core verification.)</p>
+<p>Total organic carbon from the Passey (1990) ΔlogR overlay — the separation between deep resistivity and a baselined porosity curve — converted to TOC with the maturity term 10^(2.297−0.1688·LOM). ΔlogR = log10(R/R_base) + 0.02·(DT−DT_base) [sonic overlay] or −2.5·(RHOB−RHOB_base) [density overlay]. Baselines are picked on a non-source, clay-rich interval (params, per-zone overridable) where the two curves overlie; where ΔlogR&lt;0 the rock is non-source and TOC floors to the background value. Also writes the Schmoker-Hester (1983) density-TOC 154.497/RHOB−57.261 as an independent cross-check whenever RHOB is present. TOC in wt%. LOM 6..12 (Passey is calibrated to LOM≤12). Cite: Passey, Creaney, Kulla, Moretti &amp; Stroud 1990, AAPG Bull. 74(12); Schmoker &amp; Hester 1983, AAPG Bull. 67(12). (Neutron overlay deferred — sign convention needs core verification.)</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>RES</td><td>Deep resistivity</td><td><code>RES_DEEP</code></td><td>yes</td><td>—</td></tr>
 <tr><td>DT</td><td>Sonic Δt (sonic overlay)</td><td><code>DT</code></td><td>no</td><td>—</td></tr>
@@ -657,14 +657,12 @@ Restoring LOM 10.6 reproduces the 3.47 median to the third decimal.</p>
 <p>Baseline sonic Δt (sonic overlay)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 40 to 200 us/ft</li>
-<li><b>Checked before the run:</b> <code>dt_base.required_when_sonic</code>: DT_BASE is required when OVERLAY = sonic. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/19_toc-unconventional.md §5 resistivity/porosity baselines</div></li></ul>
+<li><b>Checked before the run:</b> <code>dt_base.required_when_sonic</code>: DT_BASE is required when OVERLAY = sonic. Applies when: [object Object].</li></ul>
 <h3>RHOB_BASE <span class="src">(g/cc)</span></h3>
 <p>Baseline bulk density (density overlay)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 1.5 to 3.5 g/cc</li>
-<li><b>Checked before the run:</b> <code>rhob_base.required_when_density</code>: RHOB_BASE is required when OVERLAY = density. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/19_toc-unconventional.md §5 resistivity/porosity baselines</div></li></ul>
+<li><b>Checked before the run:</b> <code>rhob_base.required_when_density</code>: RHOB_BASE is required when OVERLAY = density. Applies when: [object Object].</li></ul>
 <h3>LOM <span class="src">(-)</span></h3>
 <p>Level of organic maturity (Hood scale, 6..12)</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>

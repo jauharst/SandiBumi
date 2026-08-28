@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -618,7 +618,7 @@ and versions nothing; failure is a status, never a curve of zeros.</p>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Brittleness index (0 ductile .. 1 brittle) two ways. METHOD=elastic: dynamic Young's modulus and Poisson's ratio from DT, DTS, RHOB (G=ρ·Vs², K=ρ·(Vp²−4/3·Vs²), ν=(3K−2G)/(2(3K+G)), E=9KG/(3K+G), with Vp,Vs in km/s = 304.8/slowness, moduli in GPa, E→Mpsi), then Rickman et al. 2008 BI=(E_norm+ν_norm)/2 with E normalized over E_LO..E_HI Mpsi and ν over NU_LO..NU_HI (Barnett defaults 1..8 and 0.4..0.15 — recalibrate per basin). METHOD=mineral_jarvie: Jarvie 2007 BI=Qz/(Qz+carbonate+clay). METHOD=mineral_wanggale: Wang &amp; Gale 2009 BI=(Qz+Dol)/(Qz+Dol+calcite+clay+organic) — dolomite counts brittle. Mineral volumes come from a SandiMin run (VOL_*); a missing mineral is treated as absent. Elastic E,ν are DYNAMIC (apply a static correlation before geomechanics). Cite: Rickman et al. 2008 (SPE 115258); Jarvie et al. 2007; Wang &amp; Gale 2009. See docs/ref_unconventional.md §4.</p>
+<p>Brittleness index (0 ductile .. 1 brittle) two ways. METHOD=elastic: dynamic Young's modulus and Poisson's ratio from DT, DTS, RHOB (G=ρ·Vs², K=ρ·(Vp²−4/3·Vs²), ν=(3K−2G)/(2(3K+G)), E=9KG/(3K+G), with Vp,Vs in km/s = 304.8/slowness, moduli in GPa, E→Mpsi), then Rickman et al. 2008 BI=(E_norm+ν_norm)/2 with E normalized over E_LO..E_HI Mpsi and ν over NU_LO..NU_HI (Barnett defaults 1..8 and 0.4..0.15 — recalibrate per basin). METHOD=mineral_jarvie: Jarvie 2007 BI=Qz/(Qz+carbonate+clay). METHOD=mineral_wanggale: Wang &amp; Gale 2009 BI=(Qz+Dol)/(Qz+Dol+calcite+clay+organic) — dolomite counts brittle. Mineral volumes come from a SandiMin run (VOL_*); a missing mineral is treated as absent. Elastic E,ν are DYNAMIC (apply a static correlation before geomechanics). Cite: Rickman et al. 2008 (SPE 115258); Jarvie et al. 2007; Wang &amp; Gale 2009.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>DT</td><td>Compressional Δt (elastic)</td><td><code>DT</code></td><td>no</td><td>—</td></tr>
 <tr><td>DTS</td><td>Shear Δt (elastic)</td><td><code>DTS</code></td><td>no</td><td>—</td></tr>

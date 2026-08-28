@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -636,22 +636,18 @@ note is the module telling you the trend's depth frame honestly.</p>
 <p>Reference TVDSS where φmax = PHIMAX0</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> -30000 to 30000 depth</li>
-<li><b>Checked before the run:</b> <code>tvdss_ref.required_when_linear</code>: TVDSS_REF is required when MODE = linear. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters</div></li>
-<li><b>Checked before the run:</b> <code>tvdss_ref.required_when_athy</code>: TVDSS_REF is required when MODE = athy. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters</div></li></ul>
+<li><b>Checked before the run:</b> <code>tvdss_ref.required_when_linear</code>: TVDSS_REF is required when MODE = linear. Applies when: [object Object].</li>
+<li><b>Checked before the run:</b> <code>tvdss_ref.required_when_athy</code>: TVDSS_REF is required when MODE = athy. Applies when: [object Object].</li></ul>
 <h3>PHIMAX_GRAD <span class="src">(v/v per 1000)</span></h3>
 <p>LINEAR: φmax lost per 1000 TVDSS units deeper</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> -1 to 1 v/v per 1000</li>
-<li><b>Checked before the run:</b> <code>phimax_grad.required_when_linear</code>: PHIMAX_GRAD is required when MODE = linear. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters</div></li></ul>
+<li><b>Checked before the run:</b> <code>phimax_grad.required_when_linear</code>: PHIMAX_GRAD is required when MODE = linear. Applies when: [object Object].</li></ul>
 <h3>ATHY_K <span class="src">(1/1000)</span></h3>
 <p>ATHY: compaction coefficient per 1000 TVDSS units</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 5 1/1000</li>
-<li><b>Checked before the run:</b> <code>athy_k.required_when_athy</code>: ATHY_K is required when MODE = athy. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters</div></li></ul>
+<li><b>Checked before the run:</b> <code>athy_k.required_when_athy</code>: ATHY_K is required when MODE = athy. Applies when: [object Object].</li></ul>
 <h2>Options</h2>
 <h3>MODE</h3>
 <p>Ceiling model</p>

@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -547,9 +547,7 @@ missing parameter by name):</p>
 REF_HIGH must both be set - the reference pair IS the normalization, and
 there is no value that is right in two fields. Take it from this field's own
 multi-well distribution, or from a reference well, and use the same pair for
-every well. REF_LOW is required when OPT_METHOD = TWO_POINT. Source:
-docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters
-(precondition ref_low.required_when_two_point)</pre>
+every well. REF_LOW is required when OPT_METHOD = TWO_POINT. […]</pre>
 
 <figure>
   <img src="../img/guide-normalize-refused.png"
@@ -634,16 +632,10 @@ GROUP BY w.well_name</pre>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Maps a curve onto a common reference frame so wells can be compared and pooled. Works on ANY curve — the arithmetic is not specific to gamma ray.
-
-METHOD:
+<p>Maps a curve onto a common reference frame so wells can be compared and pooled. Works on ANY curve — the arithmetic is not specific to gamma ray. METHOD:
 • TWO_POINT — the workhorse. Reads this run's P_LOW and P_HIGH of the curve and maps them linearly onto REF_LOW and REF_HIGH. Percentiles rather than min/max because a single spike sets a min or a max, and one bad sample would then re-scale the whole well.
 • RANGE — the same map from the curve's own MIN and MAX. Reproducible, and spike-sensitive by construction: use it on a curve you have already despiked.
-• MEAN_SD — z-score to REF_MEAN and REF_SD. The right choice when the distribution matters more than its ends (feeding a classifier, comparing shapes).
-
-SPACE: LOG works in log10 and inverts afterwards, which is the honest frame for a resistivity or a permeability — those are read on a log scale, and a linear map stretches the bottom decade out of all proportion to the top. Non-positive samples have no logarithm and become MISSING, and the run says how many.
-
-THE REFERENCE PAIR HAS NO DEFAULT, and that is the point of the module. A pair from one basin is the wrong pair in another; normalized output looks entirely plausible either way, and nothing downstream can catch it. Derive yours from the field's own multi-well distribution or from a reference well everyone agrees on, then use the SAME pair for every well in the study. QC by overlaying the normalized histograms — every well's P_LOW and P_HIGH should coincide.</p>
+• MEAN_SD — z-score to REF_MEAN and REF_SD. The right choice when the distribution matters more than its ends (feeding a classifier, comparing shapes). SPACE: LOG works in log10 and inverts afterwards, which is the honest frame for a resistivity or a permeability — those are read on a log scale, and a linear map stretches the bottom decade out of all proportion to the top. Non-positive samples have no logarithm and become MISSING, and the run says how many. THE REFERENCE PAIR HAS NO DEFAULT, and that is the point of the module. A pair from one basin is the wrong pair in another; normalized output looks entirely plausible either way, and nothing downstream can catch it. Derive yours from the field's own multi-well distribution or from a reference well everyone agrees on, then use the SAME pair for every well in the study. QC by overlaying the normalized histograms — every well's P_LOW and P_HIGH should coincide.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to normalize</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
 <h2>Parameters</h2>
@@ -662,30 +654,24 @@ THE REFERENCE PAIR HAS NO DEFAULT, and that is the point of the module. A pair f
 <p>TWO_POINT / RANGE: reference value at the low end</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> -1000000000 to 1000000000</li>
-<li><b>Checked before the run:</b> <code>ref_low.required_when_two_point</code>: REF_LOW is required when OPT_METHOD = TWO_POINT. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li>
-<li><b>Checked before the run:</b> <code>ref_low.required_when_range</code>: REF_LOW is required when OPT_METHOD = RANGE. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li></ul>
+<li><b>Checked before the run:</b> <code>ref_low.required_when_two_point</code>: REF_LOW is required when OPT_METHOD = TWO_POINT. Applies when: [object Object].</li>
+<li><b>Checked before the run:</b> <code>ref_low.required_when_range</code>: REF_LOW is required when OPT_METHOD = RANGE. Applies when: [object Object].</li></ul>
 <h3>REF_HIGH</h3>
 <p>TWO_POINT / RANGE: reference value at the high end</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> -1000000000 to 1000000000</li>
-<li><b>Checked before the run:</b> <code>ref_high.required_when_two_point</code>: REF_HIGH is required when OPT_METHOD = TWO_POINT. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li>
-<li><b>Checked before the run:</b> <code>ref_high.required_when_range</code>: REF_HIGH is required when OPT_METHOD = RANGE. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li></ul>
+<li><b>Checked before the run:</b> <code>ref_high.required_when_two_point</code>: REF_HIGH is required when OPT_METHOD = TWO_POINT. Applies when: [object Object].</li>
+<li><b>Checked before the run:</b> <code>ref_high.required_when_range</code>: REF_HIGH is required when OPT_METHOD = RANGE. Applies when: [object Object].</li></ul>
 <h3>REF_MEAN</h3>
 <p>MEAN_SD: reference mean</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> -1000000000 to 1000000000</li>
-<li><b>Checked before the run:</b> <code>ref_mean.required_when_mean_sd</code>: REF_MEAN is required when OPT_METHOD = MEAN_SD. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li></ul>
+<li><b>Checked before the run:</b> <code>ref_mean.required_when_mean_sd</code>: REF_MEAN is required when OPT_METHOD = MEAN_SD. Applies when: [object Object].</li></ul>
 <h3>REF_SD</h3>
 <p>MEAN_SD: reference standard deviation</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 1e-9 to 1000000000</li>
-<li><b>Checked before the run:</b> <code>ref_sd.required_when_mean_sd</code>: REF_SD is required when OPT_METHOD = MEAN_SD. Applies when: [object Object].
-    <div class="src">Source: docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters</div></li></ul>
+<li><b>Checked before the run:</b> <code>ref_sd.required_when_mean_sd</code>: REF_SD is required when OPT_METHOD = MEAN_SD. Applies when: [object Object].</li></ul>
 <h2>Options</h2>
 <h3>OPT_METHOD</h3>
 <p>How the curve is mapped</p>

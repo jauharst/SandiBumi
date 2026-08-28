@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -603,16 +603,10 @@ WHERE curve_name = 'GR_C' AND NOT isnan(value)</pre>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Averages a curve over a WINDOW stated as a THICKNESS.
-
-**Despike first.** A least-squares smoother fits whatever is in the window, so over an un-despiked curve it fits the spike — the spike is not removed, it is spread over the window and made to look like rock.
-
-METHOD:
+<p>Averages a curve over a WINDOW stated as a THICKNESS. **Despike first.** A least-squares smoother fits whatever is in the window, so over an un-despiked curve it fits the spike — the spike is not removed, it is spread over the window and made to look like rock. METHOD:
 • MEAN — arithmetic mean of the live samples in the window.
 • MEDIAN — window median; keeps a step edge where a mean would ramp across it.
-• SAVGOL — local quadratic least-squares fit evaluated at the sample. Fitted on the real (depth, value) pairs rather than with the textbook fixed coefficients, which assume even sampling and are wrong on an irregular frame.
-
-A MISSING sample stays MISSING and no window is bridged: smoothing does not fill gaps, because a filled sample is a claim about rock nobody logged. Use Fill Gaps, which marks what it invented.</p>
+• SAVGOL — local quadratic least-squares fit evaluated at the sample. Fitted on the real (depth, value) pairs rather than with the textbook fixed coefficients, which assume even sampling and are wrong on an irregular frame. A MISSING sample stays MISSING and no window is bridged: smoothing does not fill gaps, because a filled sample is a claim about rock nobody logged. Use Fill Gaps, which marks what it invented.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to smooth</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
 <h2>Parameters</h2>

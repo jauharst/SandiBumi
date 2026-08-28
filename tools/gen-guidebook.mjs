@@ -39,9 +39,10 @@ const dumpPath = path.join(repo, 'docs', 'generated', 'module_manifests.json');
 const chaptersDir = path.join(repo, 'docs', 'guide', 'chapters');
 const outDir = path.join(repo, 'docs', 'guide', 'book');
 
-const REGEN =
-  'GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` ' +
-  '(source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html).';
+// The banner ships inside every page a customer receives, so it names no path and no
+// toolchain: it only has to stop someone hand-editing a file that will be overwritten.
+// How to regenerate is the repository's business and is recorded there.
+const REGEN = 'GENERATED PAGE — edits here are overwritten. Change the source, not this file.';
 
 const ABSENT_DEFAULT = 'ABSENT';
 
@@ -665,6 +666,62 @@ function navHtml(books, current) {
   return tree.join('\n') + '\n' + strip.join('\n');
 }
 
+// The guidebook is the product's manual, and a customer has no repository to open, so a
+// citation naming an internal development document is a dead pointer that also states more
+// about how the software is built than a manual should. The manifests keep their full
+// citation - that record is the repo's, and stripping it there would be deleting provenance
+// rather than not printing it - so this trims only what the BOOK renders. A citation left
+// with nothing but the internal reference is dropped whole rather than printed empty.
+// A section number is part of the reference it belongs to, so it leaves with it - a bare
+// "and §5" pointing at nothing is worse than no citation at all.
+const DOCREF = () => /\bdocs\/[A-Za-z0-9_./-]+\.md\b(?:\s*(?:§|section\b)[^;)\]]*)?/gi;
+
+function publicSource(src) {
+  if (!src) return '';
+  // Inside brackets, drop the reference but keep its siblings: "(<internal doc>; DEC-079)"
+  // must still say DEC-079, which is the adjudication number a reader can actually use.
+  let out = String(src).replace(/\(([^()]*)\)/g, (_m, inner) => {
+    const kept = inner
+      .replace(DOCREF(), '')
+      .replace(/\s*;\s*;+/g, ';')
+      .replace(/^[\s;,]+|[\s;,]+$/g, '')
+      .trim();
+    return kept ? `(${kept})` : '';
+  });
+  // A reference still standing on its own takes its whole clause with it: what follows it
+  // is that document's section, not an independent citation.
+  out = out
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s && !DOCREF().test(s))
+    .join('; ');
+  out = out
+    .replace(/\s+([:;,])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s;,:]+/, '')
+    .replace(/[\s;,:]+$/, '')
+    .trim();
+  if (!/[A-Za-z0-9]/.test(out)) return '';
+  return out;
+}
+
+// Module documentation ends with a list of published references and then, sometimes, a
+// pointer at an internal document. The published half is exactly what a manual should carry
+// and stays; the pointer is to something the reader does not have.
+function publicDoc(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/\s*\b(?:See|see)\s+docs\/[A-Za-z0-9_./-]+\.md\b[^.]*\.\s*/g, ' ')
+    .replace(/\s*\(?\bdocs\/[A-Za-z0-9_./-]+\.md\b[^)\s]*\)?/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function sourceLine(src) {
+  const s = publicSource(src);
+  return s ? `\n    <div class="src">Source: ${esc(s)}</div>` : '';
+}
+
 function conditionText(c) {
   let rule = '';
   if (c.kind === 'numeric_range') {
@@ -675,8 +732,7 @@ function conditionText(c) {
     rule = ` Must be strictly above <code>${esc(c.other)}</code>.`;
   }
   const when = c.when ? ` Applies when: ${esc(c.when)}.` : '';
-  return `<code>${esc(c.id)}</code>: ${esc(c.statement)}${rule}${when}
-    <div class="src">Source: ${esc(c.source)}</div>`;
+  return `<code>${esc(c.id)}</code>: ${esc(c.statement)}${rule}${when}${sourceLine(c.source)}`;
 }
 
 function renderParam(a) {
@@ -708,7 +764,7 @@ function renderParam(a) {
     );
   }
   for (const g of a.guidance ?? []) {
-    items.push(`<b>Guidance:</b> ${esc(g.text)} <div class="src">Source: ${esc(g.source)}</div>`);
+    items.push(`<b>Guidance:</b> ${esc(g.text)}${sourceLine(g.source)}`);
   }
   for (const c of a.validity_conditions ?? []) {
     items.push(`<b>Checked before the run:</b> ${conditionText(c)}`);
@@ -734,7 +790,7 @@ function renderOption(a) {
     if (a.default) items.push(`<b>Default:</b> <code>${esc(a.default)}</code>`);
   }
   for (const g of a.guidance ?? []) {
-    items.push(`<b>Guidance:</b> ${esc(g.text)} <div class="src">Source: ${esc(g.source)}</div>`);
+    items.push(`<b>Guidance:</b> ${esc(g.text)}${sourceLine(g.source)}`);
   }
   for (const c of a.validity_conditions ?? []) {
     items.push(`<b>Checked before the run:</b> ${conditionText(c)}`);
@@ -800,7 +856,7 @@ function renderChapter(m, chapterNo, walkthrough, nav) {
       'this module’s pane from, so the descriptions, defaults, sources, ranges and ' +
       'pre-run checks here are exactly what the running application enforces.</p>',
   );
-  inner.push(`<p>${esc(m.doc)}</p>`);
+  inner.push(`<p>${esc(publicDoc(m.doc))}</p>`);
   if (inputs.length) {
     inner.push('<h2>Input curves</h2>');
     inner.push(

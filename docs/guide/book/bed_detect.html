@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- GENERATED — do not hand-edit. Regenerate with `node tools/gen-guidebook.mjs` (source: docs/generated/module_manifests.json + docs/guide/chapters/<module>.html). -->
+<!-- GENERATED PAGE — edits here are overwritten. Change the source, not this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -590,13 +590,7 @@ GROUP BY w.well_name</pre>
 </ul>
 <h2>What the application enforces</h2>
 <p>Everything below is generated from the same manifest the application builds this module’s pane from, so the descriptions, defaults, sources, ranges and pre-run checks here are exactly what the running application enforces.</p>
-<p>Writes the bed number each sample falls in, found from the curve's own steps — the same segmentation Block's AUTO mode uses, exposed on its own so the beds can be LOOKED AT on a log before anything is averaged over them.
-
-That order matters: over-segmentation is what a step-finder gets wrong when it gets anything wrong, and a blocked curve computed from beds nobody checked looks perfectly reasonable. Put the bed curve in a track as class blocks, judge it against the log, then run Block with OPT_BEDS = CLASS pointing at it.
-
-A sample opens a new bed when it sits further from the running bed mean than SENS times the curve's own noise AND the bed already spans MIN_BED. The noise is measured from the curve's own sample-to-sample differences, so it is the curve's noise rather than how much it varies across the well.
-
-MIN_BED has no default: the thinnest thing worth calling a bed is a property of the tool and the rock.</p>
+<p>Writes the bed number each sample falls in, found from the curve's own steps — the same segmentation Block's AUTO mode uses, exposed on its own so the beds can be LOOKED AT on a log before anything is averaged over them. That order matters: over-segmentation is what a step-finder gets wrong when it gets anything wrong, and a blocked curve computed from beds nobody checked looks perfectly reasonable. Put the bed curve in a track as class blocks, judge it against the log, then run Block with OPT_BEDS = CLASS pointing at it. A sample opens a new bed when it sits further from the running bed mean than SENS times the curve's own noise AND the bed already spans MIN_BED. The noise is measured from the curve's own sample-to-sample differences, so it is the curve's noise rather than how much it varies across the well. MIN_BED has no default: the thinnest thing worth calling a bed is a property of the tool and the rock.</p>
 <h2>Input curves</h2>
 <div class="wrap"><table><tr><th>Role</th><th>Description</th><th>Resolves to</th><th>Required</th><th>Notes</th></tr><tr><td>CURVE</td><td>Curve to segment</td><td><code>GR</code></td><td>yes</td><td>—</td></tr></table></div>
 <h2>Parameters</h2>
