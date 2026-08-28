@@ -646,22 +646,26 @@ WHERE g.curve_name = 'RHOB_GC' AND g.value - s.rhob > 1e-6</pre>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
 <li>Competing shipped values exist for this parameter across installed tools (topic <code>formation_water_resistivity</code>); the pane lists them with sources at the point of choice.</li>
-<li><b>Checked before the run:</b> <code>rw.required_when_constant</code>: RW is required when OPT_RW = CONSTANT. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>rw.required_when_constant</code>: RW is required when OPT_RW = CONSTANT. Applies when: [object Object].
+    <div class="src">Source: formation-water parameters</div></li></ul>
 <h3>RWS <span class="src">(ohmm)</span></h3>
 <p>Measured water sample resistivity</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0.001 to 20 ohmm</li>
-<li><b>Checked before the run:</b> <code>rws.required_when_measured</code>: RWS is required when OPT_RW = MEASURED. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>rws.required_when_measured</code>: RWS is required when OPT_RW = MEASURED. Applies when: [object Object].
+    <div class="src">Source: formation-water parameters</div></li></ul>
 <h3>RWT <span class="src">(degC)</span></h3>
 <p>Temperature of RWS measurement</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 150 degC</li>
-<li><b>Checked before the run:</b> <code>rwt.required_when_measured</code>: RWT is required when OPT_RW = MEASURED. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>rwt.required_when_measured</code>: RWT is required when OPT_RW = MEASURED. Applies when: [object Object].
+    <div class="src">Source: formation-water parameters</div></li></ul>
 <h3>SALW <span class="src">(ppm)</span></h3>
 <p>Formation water salinity</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 100 to 300000 ppm</li>
-<li><b>Checked before the run:</b> <code>salw.required_when_salinity</code>: SALW is required when OPT_RW = SALINITY. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>salw.required_when_salinity</code>: SALW is required when OPT_RW = SALINITY. Applies when: [object Object].
+    <div class="src">Source: formation-water parameters</div></li></ul>
 <h2>Options</h2>
 <h3>OPT_GATE</h3>
 <p>Where to apply the correction</p>

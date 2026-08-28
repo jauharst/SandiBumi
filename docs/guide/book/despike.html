@@ -623,12 +623,14 @@ FROM computed_curves WHERE curve_name = 'GR_C_SPK'</pre>
 <p>ABS: distance from the median, in the curve's units</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 1000000000</li>
-<li><b>Checked before the run:</b> <code>thresh.required_when_abs</code>: THRESH is required when OPT_METHOD = ABS. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>thresh.required_when_abs</code>: THRESH is required when OPT_METHOD = ABS. Applies when: [object Object].
+    <div class="src">Source: conditioning parameters</div></li></ul>
 <h3>MAX_RATE</h3>
 <p>RATE: largest honest change per depth unit</p>
 <ul><li><span class="absent">No shipped default.</span> You supply this value, and a run entering it explicitly must also cite the source that covers it.</li>
 <li><b>Accepted range:</b> 0 to 1000000000</li>
-<li><b>Checked before the run:</b> <code>max_rate.required_when_rate</code>: MAX_RATE is required when OPT_METHOD = RATE. Applies when: [object Object].</li></ul>
+<li><b>Checked before the run:</b> <code>max_rate.required_when_rate</code>: MAX_RATE is required when OPT_METHOD = RATE. Applies when: [object Object].
+    <div class="src">Source: conditioning parameters</div></li></ul>
 <h2>Options</h2>
 <h3>OPT_METHOD</h3>
 <p>How a spike is told from rock</p>

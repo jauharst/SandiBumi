@@ -1353,7 +1353,7 @@ impl PreconditionViolation {
             self.expected,
             remainder,
             self.statement,
-            self.source
+            crate::public_source::public_source(&self.source)
         )
     }
 }
@@ -3542,9 +3542,15 @@ fn refuse_declared(
     fault: &str,
     remedy: &str,
 ) -> String {
+    // A source that was ONLY an internal reference renders to nothing for a reader, and every
+    // shipping module is pinned against that. Where it does happen the clause is omitted rather
+    // than printed empty: "Source:" naming nothing is worse than no source line at all, and it is
+    // the same judgement [`refuse_argument`] already makes about ABSENT.
+    let source = crate::public_source::public_source(&condition.source);
+    let record = if source.is_empty() { String::new() } else { format!(" Source: {source}") };
     format!(
-        "{} did not run: {} {}. {} {} Source: {} (precondition {})",
-        spec.name, arg.name, fault, remedy, condition.statement, condition.source, condition.id
+        "{} did not run: {} {}. {} {}{} (precondition {})",
+        spec.name, arg.name, fault, remedy, condition.statement, record, condition.id
     )
 }
 
@@ -3558,7 +3564,7 @@ fn refuse_argument(spec: &ModuleSpec, arg: &ArgSpec, fault: &str, remedy: &str) 
     let record = if arg.default_source.is_empty() || arg.default_source == ABSENT_DEFAULT_SOURCE {
         String::new()
     } else {
-        format!(" Source: {}", arg.default_source)
+        format!(" Source: {}", crate::public_source::public_source(&arg.default_source))
     };
     format!("{} did not run: {} {}. {}{}", spec.name, arg.name, fault, remedy, record)
 }
@@ -3750,7 +3756,7 @@ fn validate_declared_preconditions_ignoring(
                                 arg.name,
                                 index,
                                 condition.statement,
-                                condition.source
+                                crate::public_source::public_source(&condition.source)
                             ));
                         }
                     }
@@ -8699,7 +8705,7 @@ mod tests {
             refused.contains("phi_son.endpoint_order")
                 && refused.contains("DT_MA")
                 && refused.contains("DT_SH")
-                && refused.contains("DEC-063"),
+                && refused.contains("an inverted pair turns the shale subtraction into an addition"),
             "{refused}"
         );
         let equal = run(65.0, 65.0).expect_err("equality is not lower");
@@ -8818,7 +8824,7 @@ mod tests {
         )
         .expect_err("DT_MA 70 / DT_SH 60 must refuse under DEC-063");
         assert!(
-            refused.contains("phi_son.endpoint_order") && refused.contains("DEC-063"),
+            refused.contains("phi_son.endpoint_order") && refused.contains("an inverted pair turns the shale subtraction into an addition"),
             "{refused}"
         );
 
@@ -10322,7 +10328,10 @@ mod tests {
         )
         .expect_err("14 lb/gal must fail the 8-13 normal branch at its second sample");
         assert!(normal_error.contains("sample 1") && normal_error.contains("8 to 13"), "per-sample range missing: {normal_error}");
-        assert!(normal_error.contains("unc_tnph.lls:340"), "range source missing: {normal_error}");
+        assert!(
+            normal_error.contains("NON-ADOPTABLE verification fixture"),
+            "range source missing: {normal_error}"
+        );
 
         validate_declared_preconditions(
             &synthetic,
@@ -10336,7 +10345,14 @@ mod tests {
         )
         .expect_err("a declared required companion must refuse before computation");
         assert!(companion_error.contains("CALIPER"), "required companion missing: {companion_error}");
-        assert!(companion_error.contains("SB-ENV-001(d)"), "companion source missing: {companion_error}");
+        // This fixture's source is purely an internal reference, so nothing of it survives for a
+        // reader and the Source clause is omitted. What must still travel is the condition's own
+        // statement, which is the half an operator can act on.
+        assert!(
+            companion_error.contains("cannot be evaluated without a caliper input")
+                && !companion_error.contains("Source:"),
+            "companion statement missing: {companion_error}"
+        );
 
         let synthetic_option_error = validate_declared_preconditions(
             &synthetic,
@@ -10344,7 +10360,14 @@ mod tests {
         )
         .expect_err("an undeclared synthetic branch must refuse");
         assert!(synthetic_option_error.contains("TYPO") && synthetic_option_error.contains("NORMAL, BARITE"));
-        assert!(synthetic_option_error.contains("§6.1 T01/T03"), "enumeration source missing: {synthetic_option_error}");
+        // Another internal-only fixture source: the statement travels, the empty Source clause does
+        // not appear. Both halves are asserted so neither an omitted statement nor a dangling
+        // "Source:" could pass.
+        assert!(
+            synthetic_option_error.contains("The branch selector must name a declared branch.")
+                && !synthetic_option_error.contains("Source:"),
+            "enumeration statement missing: {synthetic_option_error}"
+        );
 
         let context = |gr_ma: f64, gr_sh: f64, method: &str, gr: Vec<f32>| {
             ctx_with(
@@ -10360,14 +10383,14 @@ mod tests {
         assert!(option_error.contains("vsh_gr.method_id"), "condition id missing: {option_error}");
         assert!(option_error.contains("TYPO"), "offending value missing: {option_error}");
         assert!(option_error.contains("LINEAR"), "permitted set missing: {option_error}");
-        assert!(option_error.contains("vsh_gr.lls"), "condition source missing: {option_error}");
+        assert!(option_error.contains("Geolog"), "condition source missing: {option_error}");
 
         let range_error = run_module("vsh_gr", &context(-1.0, 120.0, "LINEAR", vec![70.0]))
             .expect_err("a value outside the declared GR_MA range must stop before VSH arithmetic");
         assert!(range_error.contains("vsh_gr.gr_ma_range"), "condition id missing: {range_error}");
         assert!(range_error.contains("-1"), "offending value missing: {range_error}");
         assert!(range_error.contains("0") && range_error.contains("200"), "range missing: {range_error}");
-        assert!(range_error.contains("vsh_gr.info"), "range source missing: {range_error}");
+        assert!(range_error.contains("Geolog"), "range source missing: {range_error}");
 
         // SB-CLY-001 (DEC-036): a degenerate endpoint pair no longer refuses the whole run -
         // it is TOKENIZED, because a whole-run refusal could set no provenance token at all
@@ -10437,7 +10460,7 @@ mod tests {
         );
         assert!(
             error.contains("(precondition ref_low.required_when_two_point)")
-                && error.contains("docs/PRD_v2/20_envcorr-qc.md"),
+                && error.contains("normalization parameters"),
             "the condition id and source must still travel, trailing: {error}"
         );
 
@@ -10563,7 +10586,7 @@ mod tests {
         );
         assert!(
             ladder.contains("(precondition rt_cutoff.vsh_ladder_order)")
-                && ladder.contains("ref_rocktyping_shf.md"),
+                && ladder.contains("Cutoff-based electrofacies tie-in"),
             "the condition id and source must still trail: {ladder}"
         );
 
@@ -10584,7 +10607,7 @@ mod tests {
             "the operator voice must lead and carry the permitted set: {method}"
         );
         assert!(
-            method.contains("(precondition vsh_gr.method_id)") && method.contains("vsh_gr.lls"),
+            method.contains("(precondition vsh_gr.method_id)") && method.contains("Geolog"),
             "the condition id and source must still trail: {method}"
         );
 
@@ -15780,8 +15803,9 @@ mod tests {
         let error = run_module("ftemp_grad", &bht_mode)
             .expect_err("BHT mode without a bottom-hole temperature must refuse");
         assert!(
-            error.contains("BHT is not set for this run") && error.contains("DEC-077"),
-            "the BHT refusal must name the parameter and its ruling: {error}"
+            error.contains("BHT is not set for this run")
+                && error.contains("a well-specific measurement is user input, never a default"),
+            "the BHT refusal must name the parameter and the reason it ships absent: {error}"
         );
         let no_bit_size = ctx_with(
             2,
