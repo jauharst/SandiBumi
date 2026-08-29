@@ -1264,7 +1264,21 @@ textarea {
 .dock-intake,
 .dock-reframe,
 .dock-versions,
-.dock-sfactor-fit {
+.dock-sfactor-fit,
+/* The eight panes built on the shared `.mc-dialog` layout were never in this list, and
+ * `.mc-dialog` sets no padding of its own, so every one of them printed its first character
+ * against the card edge — measured on the running app: the first label's left edge sat at
+ * exactly the pane's own left edge, 0px of gutter. They are tool panes like the rest, so the
+ * list's own instruction above applies to them. (installationSupportDialog shares the class but
+ * is a MODAL, not a pane, and takes its gutter from `.modal-body` — it is deliberately absent.) */
+.dock-ml,
+.dock-montecarlo,
+.dock-shf,
+.dock-thomeer,
+.dock-hfu,
+.dock-lorenz,
+.dock-facies-tie,
+.dock-sandimin {
   padding: 10px 12px;
 }
 

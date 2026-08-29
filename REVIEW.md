@@ -20757,3 +20757,52 @@ describe the second and throw the third away.
       form labels sit flush against the card edge and the first character reads as clipped. It is
       visible in the new figure. I left it alone because fixing it moves roughly eight guidebook
       figures and deserves its own increment rather than being half-done here.
+
+## The eight tool panes get the gutter their stylesheet already asked for (2026-08-29)
+
+The follow-up I raised last increment, now done — with one correction to what I told you then:
+it is **eight** panes, not nine. Installation Support shares the same layout class but opens
+through `openModal`, so it is a dialog and already takes its gutter from the modal body. Naming
+it as a tenth offender was wrong.
+
+The stylesheet has a list of tool panes that get `padding: 10px 12px`, with a comment above it
+saying "Any new tool pane belongs in this list". It held 14 entries. The eight panes built on the
+shared dialog layout — Machine Learning, Monte Carlo, SHF Fit, Pc Fit (Thomeer), HFU Clustering,
+Lorenz, Facies Tie-in and SandiMin — were in none of them, and that layout sets no padding of its
+own, so every one of them printed its first character hard against the card edge.
+
+I measured it rather than eyeballing it. Suppressing the new rule on the running app and putting
+it back moved SandiMin's first label from **11 px to 23 px** from the pane edge, and the pane's
+own `padding-left` from **0 px to 12 px**; all eight read 12 px with the rule in place. That is
+the whole change — 8 selectors added to an existing list, no new rule and no layout reflow.
+
+Nine guidebook figures show those panes, so all nine were re-shot against a live run that
+reproduces the numbers each caption quotes:
+
+- [ ] **Machine Learning** — 776 samples fitted on two wells, 388 held blind, R² 0.9993 / 0.9947
+      / 0.9950. Reproduced twice, identically, so the run is deterministic on the seed.
+- [ ] **Monte Carlo** (two figures) — the GUIDE10 chain at 200 iterations, seed 42; the tornado
+      still swings HPV 1.35 → 1.58 about a base of 1.47 with ρ +0.76 and +0.60.
+- [ ] **SHF Fit** — A 0.405, B −0.614, R² 0.639 over 503 points.
+- [ ] **Pc Fit (Thomeer)** — three plugs, G 0.87–0.97, R² 0.97–0.99 on 8 points each.
+- [ ] **HFU Clustering** — five units from 35 plugs by Ward on FZI.
+- [ ] **Lorenz** — SANDI-01, coefficient 0.438, three flow units, top unit slope 1.85.
+- [ ] **Facies Tie-in** — purity 93.5% over 573 matched samples, k variance reduction 94.7%
+      over 33 plugs.
+- [ ] **SandiMin** — 395 samples solved per well, incoherence 2.453–2.460 σ into the SANDIMIN set.
+
+### One thing I fixed while I was in there
+
+- [ ] **The SHF figure was the only one of 173 shot at the wrong size.** The book's figures are
+      2880 × 1800 px; I shot that one at 2800 wide last increment. It is now 2880 like every
+      other, so the chapter's picture matches the width of the ones on either side of it.
+
+**What to look at:** open any of the eight panes and check the left edge — the first label should
+sit clear of the card edge the way it does in Plug QC or Mineral Classifier, not against it.
+Then compare each pane against its figure in the guidebook; the picture and the app should now
+be showing the same margin.
+
+### Still yours to call, carried forward
+
+- [ ] **The sw_height chapter's free-water level** — 1535 m MD in the chapter against 1550.1 m
+      MD from the contacts registry and the Results QC chapter. Unchanged, still waiting on you.
