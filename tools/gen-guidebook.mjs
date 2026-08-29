@@ -523,7 +523,7 @@ const TOOL_BOOKS = [
   { cat: 'Fits & Analysis', tools: [
     ['tool_sandimin', 'SandiMin Solver'],
     ['tool_ml', 'Machine Learning'],
-    ['tool_shf_fit', 'SHF Fit (Cuddy / FOIL)'],
+    ['tool_shf_fit', 'SHF Fit (saturation-height)'],
     ['tool_thomeer_fit', 'Pc Fit (Thomeer)'],
     ['tool_hfu', 'HFU Clustering (FZI)'],
     ['tool_lorenz', 'Lorenz Plot (flow units)'],
