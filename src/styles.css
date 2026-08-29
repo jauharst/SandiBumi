@@ -7159,15 +7159,20 @@ input[type="number"].num-editing:focus {
  * simply ended, with the dock's background showing past it (Jauhar, 2026-08-07: "when
  * resized, it wont fill"). They opt out exactly as SandiMin already did.
  *
- * The two calibration fits (Thomeer, saturation-height) KEEP the cap deliberately. They
- * genuinely are a column of fields, which is the same split the `.module-pane` rule below
- * already draws — a picture tool squeezed into a form column is the complaint, a form column
- * that stays a form column is not. */
+ * The two fits (Thomeer, saturation-height) kept the cap on the grounds that they "genuinely are
+ * a column of fields". That was the right test, and it has since stopped being true of them, so
+ * they join the list (2026-08-29). Measured at a 1680px window before the change: pane 1497px,
+ * card 620px, 877px of the pane left empty — while SHF drew its Sw-vs-height fit plot at 620px
+ * and Thomeer drew TWO plots and a TWELVE-column per-plug table at 620px. A plot you read the
+ * answer off, and a table that wide, are exactly what the paragraph above says the space should
+ * go to. The split is unchanged; these two panes moved across it. */
 .dock-ml .mc-dialog,
 .dock-facies-tie .mc-dialog,
 .dock-montecarlo .mc-dialog,
 .dock-lorenz .mc-dialog,
-.dock-hfu .mc-dialog {
+.dock-hfu .mc-dialog,
+.dock-shf .mc-dialog,
+.dock-thomeer .mc-dialog {
   max-width: none;
 }
 
@@ -7184,8 +7189,25 @@ input[type="number"].num-editing:focus {
 .dock-lorenz .form-row > select,
 .dock-lorenz .form-row > input,
 .dock-hfu .form-row > select,
-.dock-hfu .form-row > input {
+.dock-hfu .form-row > input,
+.dock-shf .form-row > select,
+.dock-shf .form-row > input {
   max-width: 460px;
+}
+/* Thomeer is deliberately absent: its only controls are the Run-on pills and the Fit button, so
+ * there is no single-line field for the cap to protect. Add it here the day it grows one. */
+
+/* Filling is not stretching, second reading — it applies to tables and plots, not only to fields.
+ * SHF's result table is a two-column key/value list (A, B, rms, R2, points fitted); across a wide
+ * pane the eye has to travel from the name to the number, so it keeps a column's width. Thomeer's
+ * twelve-column per-plug table is the opposite case and fills, which is half of why the cap came
+ * off. And the Pd-G plane is a CROSSPLOT — both axes are data — so it stays roughly square rather
+ * than becoming an 8:1 letterbox holding three points. */
+.dock-shf .mc-table {
+  max-width: 620px;
+}
+.dock-thomeer .mc-hist-plane {
+  max-width: 620px;
 }
 
 /* Where the pane is wide enough for two readable columns, the FORM gains a second column

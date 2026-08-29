@@ -181,9 +181,17 @@ things the conversion turned up, all worth keeping:
   barrels and the history, which is what the per-barrel path already did.
 - **`.module-pane` caps at 620px, which is right for a form column and wrong for a picture.** The
   picture and table panes (pore area, plate details, conditioning, depth registration, mineral
-  classifier) opt out via `.dock-<x> .module-pane { max-width: none }`; the two calibration fits
-  keep the cap because they genuinely are a column of fields. A picture tool squeezed into a form
-  column in a wide pane is exactly the "not proportional" complaint.
+  classifier) opt out via `.dock-<x> .module-pane { max-width: none }`; the calibration fits
+  (`.dock-rtc-fit`, `.dock-sfactor-fit`) keep the cap because they genuinely are a column of
+  fields. A picture tool squeezed into a form column in a wide pane is exactly the "not
+  proportional" complaint. **The test is what the pane HOLDS, and it is re-applied, not assumed:**
+  SHF Fit and Pc Fit kept the cap on the same grounds until 2026-08-29, by which time they held a
+  fit plot, two plots and a twelve-column table — measured at 877px of a 1497px pane sitting
+  empty — so they moved across the split. Filling is not stretching, and it is not only about
+  fields: in those two panes a two-column key/value table and the Pd-G CROSSPLOT (both axes are
+  data) stay bounded while the wide table and the read-left-to-right curves fill. **A canvas that
+  can now change size needs `attachResizeRedraw`** — a CSS box that grows without one is a scaled
+  bitmap, not a bigger plot.
 
 A pane that needs a well says so IN THE PANE rather than calling `requireWell` — that refusal
 exists for a click where nothing visible happens, and a pane opening IS visible.
