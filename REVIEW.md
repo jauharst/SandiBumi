@@ -20674,3 +20674,36 @@ one.
       deliberate negative result, 149 points, R² 0.006, "visibly flat", with the FWL pinned at the
       edge of the scan. Both are honest chapters; they are not the same chapter. Tell me which one
       the guidebook should teach and I will shoot it and write it to match.
+
+## The three refusal screenshots catch up with what the app now says (2026-08-29)
+
+The last two increments changed how the application words a refusal, and left three screenshots
+behind showing the old wording. This closes them: `guide-permcoates-refused.png`,
+`guide-rtcutoff-refused.png` and `guide-normalize-refused.png`, all re-captured against the running
+app on the example wells.
+
+Two of them really were quoting text the app no longer produces. The cutoff and Normalize panes
+used to print the internal document path behind a rule — *"Source: docs/research_2026-07/
+ref_rocktyping_shf.md §Cutoff-based electrofacies tie-in…"* — and since the application stopped
+naming its own working documents they print only the human half, *"Source: Cutoff-based
+electrofacies tie-in, which writes the middle class as v1 <= Vsh < v2"*. The screenshots were the
+one place that path still appeared to a reader.
+
+The Coates one was a different fault. Its wording was already current; what was wrong was the
+picture around it, which still carried a Tops pane reading "No tops for this well" and a Processing
+pane stacked with other modules' cards — the same leftover the figure sweep removed everywhere
+else. All three are now composed to that sweep's rule: the Wells pane, the pane the chapter is
+about, nothing else. Two things had to be handled to get there, both worth knowing: a module run
+opens Processing by itself, so it is closed again before the shot; and a refusal that happens
+before the run starts leaves the status bar showing whatever ran last, which in a figure reads as
+a result this pane produced.
+
+- [ ] **Open Petrophysics ▸ Rock Typing ▸ Rock Type from Cutoffs, enter the ladder inverted**
+      (VSH1 0.467 above VSH2 0.458, PHI1 0.148 / PHI2 0.134) **and run it.** The pane should state
+      the rule without naming any file path, and report 0 clean · 0 degraded · 3 failed.
+- [ ] **Open Condition ▸ Normalize with the reference pair left empty and run it.** Same check —
+      the rule stated, the source named in words, 3 failed.
+- [ ] **Open Permeability ▸ Coates with SWE_IRR 0.16 and PHIE_DEN but no constant.** The run
+      should refuse before it starts, naming the Coates constant field.
+- [ ] **The three chapters** (Coates, Rock Type from Cutoffs, Normalize) quote these refusals in
+      the text above each figure — the quoted words and the picture should now agree.
