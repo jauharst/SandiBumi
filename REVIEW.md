@@ -20707,3 +20707,53 @@ a result this pane produced.
       should refuse before it starts, naming the Coates constant field.
 - [ ] **The three chapters** (Coates, Rock Type from Cutoffs, Normalize) quote these refusals in
       the text above each figure — the quoted words and the picture should now agree.
+
+## The saturation-height chapter teaches the Leverett J-function (2026-08-29)
+
+Your call, and it settled the figure that had been parked: the J-function is fitted on the plugs'
+own rock quality, so the chapter no longer had to teach a negative result.
+
+The old chapter fitted Cuddy's FOIL with the free-water level scanned, got R² 0.006 over 149
+points, and explained at length why that was the correct reading of the rock. It was honest but it
+taught nothing you could use. Fitting the Leverett J-function instead, above the free-water level
+the fluid-contacts registry already carries, gives **Sw = 0.405 · J^−0.614, R² 0.639 over 503
+points** — a real law, and the one the forward sw_height module actually consumes.
+
+Nothing was invented to get there. The free-water level is 1520.1 m TVDSS, the mean of the three
+gas-water contact picks the contacts chapter shows fitted as one flat surface. The porosity cutoff
+is 0.10, the same number the pay summary applies. Choosing the Water-Gas system made the pane fill
+in its own σcosθ of 50 and gas density of 0.2. The rock-type curve is RT_LOG from the cutoff
+chapter.
+
+The per-rock-type split is what makes the chapter worth reading. One pooled R² of 0.639 hides three
+different verdicts: RT 1 carries 449 of the 503 points and fits better than the pool (R² 0.690);
+RT 2 comes back flat at Sw 0.89 with B ≈ 0, which is capillary-bound rock with no transition zone
+to model rather than a failed fit; and RT 3 returns a **positive B on five points**, which would
+mean saturation rising as you climb away from the water. The chapter says to quote the first,
+describe the second and throw the third away.
+
+- [ ] **Open the SHF Fit pane, set the form to Leverett-J** with PHIE / SWE / TVDSS / PERM, FWL
+      1520.1, min φ 0.10, Water-Gas, and Fit per rock type on RT_LOG. The pooled fit should come
+      back A 0.405, B −0.614, R² 0.639 on 503 points, with 590 samples excluded below the cutoff.
+- [ ] **Click through the RT 1 / RT 2 / RT 3 tabs** and check the three readings the chapter
+      gives them. RT 3's positive B is the one to look at.
+- [ ] **Read the chapter's equation section** — the J-function, the height-to-Pc step, and why
+      the √(k/φ) term is what earns the extra input curve. That is the part meant to teach.
+- [ ] **The chapter is retitled** "SHF Fit (saturation-height)" in the contents, since it no
+      longer teaches only Cuddy's FOIL.
+
+### Two things found on the way, both needing your call
+
+- [ ] **The sw_height chapter's free-water level may be 15 m shallow.** It enters **1535 m MD**
+      from the resistivity collapse. Measured on these three wells, measured depth runs exactly
+      30 m deeper than TVDSS throughout, so the contacts registry's 1520.1 m TVDSS is **1550.1 m
+      MD** — and the Results QC chapter independently calls 1550 m "the base of the hydrocarbon
+      sand". Three sources agree with each other and not with that chapter. I have not touched it:
+      it is a contact pick, which is yours. Say which is right and I will make the chapters agree.
+- [ ] **Nine tool panes are missing the gutter their own CSS comment says they need.** The
+      padding list in the stylesheet says "Any new tool pane belongs in this list" and holds 14
+      entries; the nine panes built on the shared dialog layout (SHF, Thomeer, Monte Carlo, ML,
+      Lorenz, HFU, Facies Tie-in, SandiMin, Installation Support) are in none of them, so their
+      form labels sit flush against the card edge and the first character reads as clipped. It is
+      visible in the new figure. I left it alone because fixing it moves roughly eight guidebook
+      figures and deserves its own increment rather than being half-done here.

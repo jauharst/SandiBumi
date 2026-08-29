@@ -1,76 +1,155 @@
 <!-- Authored walkthrough for the SHF Fit tool chapter. Numbers captured live
-     from the sandboxed app on the SANDI-* example wells (2026-08-27). -->
+     from the sandboxed app on the SANDI-* example wells (2026-08-29). -->
 
 <h2>What this is and when to reach for it</h2>
 
-<p>The SHF Fit pane fits a saturation-height function to the interpreted
-logs: five families (Cuddy FOIL, Brooks-Corey, Skelt-Harrison, Thomeer's
-log-hyperbola, Leverett-J), fitted on computed porosity, saturation and a
-true-vertical depth curve above a free-water level. Reach for it when the
-study needs saturation as a function of height rather than of resistivity:
-volumetrics away from well control, or a saturation model for a simulator
-that never sees a log.</p>
+<p>The SHF Fit pane turns the interpreted logs into a saturation-height
+function: a law that gives water saturation from height above the free-water
+level, so saturation can be carried away from well control. Reach for it when
+the study needs volumetrics between the wells, or a saturation model for a
+simulator that will never see a log.</p>
+
+<p>Five families are offered &mdash; Cuddy's FOIL, Brooks-Corey,
+Skelt-Harrison, Thomeer's hyperbola, and Leverett's J-function. This chapter
+fits the <b>Leverett J-function</b>, for two reasons. It is the only one of
+the five that carries rock quality explicitly, through a permeability and
+porosity term, so one law can span rock of different quality instead of
+averaging across it. And its two coefficients are exactly what the forward
+<a href="sw_height.html">sw_height</a> module consumes, so the fit made here
+becomes the law that writes the curve.</p>
+
+<h2>The equation</h2>
+
+<pre class="equations">J  = 0.21645 &middot; (Pc / &sigma;cos&theta;) &middot; &radic;(k / &phi;)
+Pc = 0.433 &middot; (&rho;w &minus; &rho;hc) &middot; h        [psi, h in feet]
+Sw = A &middot; J^B</pre>
+
+<p>Read it from the bottom line up. Height above the free-water level becomes
+a capillary pressure through the density difference between the two fluids;
+that pressure becomes a dimensionless J through the interfacial tension and
+the rock's own &radic;(k/&phi;); and saturation is a power law in J. The pane
+solves for A and B by least squares in log-log space. The J-function is
+Leverett (1941), <i>Transactions AIME</i> 142.</p>
+
+<p>That &radic;(k/&phi;) term is what earns the extra input curve. Two samples
+sitting the same height above the contact but in rock of different
+permeability land at different J, so the same law gives them different
+saturations. It is capillary physics doing the work rather than a curve
+shape.</p>
 
 <h2>The pane</h2>
 
 <figure>
   <img src="../img/guide-shf.png"
-       alt="The SHF Fit pane with a FOIL fit and the FWL scan controls" />
-  <figcaption>A Cuddy FOIL fit over three wells: 149 points above the
-    free-water level, 424 excluded below it, and a log-log BVW versus
-    height cloud that is visibly flat.</figcaption>
+       alt="The SHF Fit pane fitting the Leverett J-function across three wells, with the pooled coefficients and per-rock-type tabs" />
+  <figcaption>The J-function fitted across three wells above a free-water
+    level of 1520.1&nbsp;m TVDSS: A&nbsp;=&nbsp;0.405, B&nbsp;=&nbsp;&minus;0.614,
+    R&sup2;&nbsp;=&nbsp;0.639 over 503 points, with one law per rock type on
+    the tabs beside the pooled one.</figcaption>
 </figure>
 
 <ul>
-  <li><b>Inputs are curves, not core</b>: porosity, water saturation and
-    TVDSS selects, plus permeability for Leverett-J. The fit refuses,
-    naming the reason, when the wells carry no usable TVDSS samples; a
-    project with no deviation surveys has no height axis to fit
-    against.</li>
-  <li><b>The FWL can be scanned, not just typed</b>: "Scan for FWL (Cuddy
-    Eq 19)" tries candidates across a range and picks the best residual;
-    the scan plot below the fit shows the whole residual curve, and the
-    BVW plot's fitted line can be dragged to nudge the FWL by hand.</li>
-  <li><b>Fit per rock type</b> splits the fit by a rock-type curve, one
-    parameter set per class.</li>
+  <li><b>Inputs are curves, not core</b>: porosity, water saturation and a
+    TVDSS curve, plus permeability for this family. The fit refuses, naming
+    the reason, when the wells carry no usable TVDSS samples &mdash; a project
+    with no deviation surveys has no height axis to fit against.</li>
+  <li><b>The fluid system fills in its own constants.</b> Choosing Water-Gas
+    sets &sigma;cos&theta; to 50 and the hydrocarbon density to 0.2&nbsp;g/cc;
+    Water-Oil sets 26 and 0.7. Both are the app's shipped values for those
+    systems and both stay editable, because the fluids in your reservoir are
+    yours to state.</li>
+  <li><b>Fit per rock type</b> splits the fit by a rock-type curve and returns
+    one A and B per class. On stacked sands that is the whole point of the
+    exercise, not a refinement.</li>
+  <li><b>Every excluded sample is counted, by reason</b>, under the plot; and
+    the fitted curve on that plot is drawn at the median &radic;(k/&phi;) of
+    the samples in the fit, since one line has to stand for a range of rock
+    quality.</li>
+</ul>
+
+<h2>The picks and why</h2>
+
+<ul>
+  <li><b>Free-water level 1520.1&nbsp;m TVDSS</b>: the mean of the three
+    gas-water contact picks in the <a href="tool_fluid_contacts.html">fluid
+    contacts registry</a>, which fits them as one flat surface with no well
+    flagged. The pane does not pick a contact for you, and should not &mdash;
+    a contact comes from pressures, from the resistivity collapse, or from a
+    registry of picks somebody made and can defend. Mind the depth reference:
+    this field is TVDSS, and on these three wells measured depth runs exactly
+    30&nbsp;m deeper throughout, so the same contact is 1550.1&nbsp;m MD.</li>
+  <li><b>Min &phi; 0.10</b>: the study's own porosity cutoff, the same number
+    the <a href="tool_pay_summary.html">pay summary</a> applies, so shale
+    never enters the fit.</li>
+  <li><b>Water-Gas</b>: the contact is a gas-water contact, so the gas
+    constants are the right pair.</li>
+  <li><b>RT_LOG</b> as the rock-type curve, the three classes the
+    <a href="rt_cutoff.html">cutoff rock types</a> chapter writes.</li>
 </ul>
 
 <h2>Step by step</h2>
 
 <ol>
-  <li>Open the pane (workspace &#65291; menu &#9656; SHF Fit), point the
-    three selects at the study's PHIE, SWE and TVDSS, and set a porosity
-    cutoff so shale never enters the fit.</li>
-  <li>Enable the FWL scan over a range that brackets the deepest
-    hydrocarbon shows, and press <b>Fit FOIL</b>.</li>
-  <li>Read the scan plot before the coefficients: one sharp minimum is a
-    contact, a flat residual curve means the data does not locate
-    one.</li>
+  <li>Open the pane from the workspace &#65291; menu (<b>SHF Fit (Cuddy
+    FOIL)</b> &mdash; the menu is named for the default family, and the form
+    select changes it).</li>
+  <li>Set <b>SHF form</b> to Leverett-J, point the four selects at the
+    study's PHIE, SWE, TVDSS and PERM, and choose the fluid system.</li>
+  <li>Enter the free-water level and the porosity cutoff, tick <b>Fit per
+    rock type</b> with the rock-type curve, and press <b>Fit SHF</b>.</li>
+  <li>Read the exclusion counters before the coefficients, then the per-class
+    tabs before the pooled one.</li>
 </ol>
 
 <h2>Reading the result</h2>
 
-<p>The example is a deliberate negative result, and worth understanding:
-b&nbsp;=&nbsp;&minus;0.005 with R&sup2;&nbsp;=&nbsp;0.006 over 149 points.
-The FOIL model says bulk volume water falls as a power of height; this sand
-sits at irreducible saturation throughout, with no transition zone, so
-height explains nothing and the scan pins the FWL to the edge of its range.
-That is the correct reading of this rock, not a failed fit: a
-saturation-height function earns its coefficients only where a transition
-zone exists, and the flat cloud in the figure is the evidence to quote when
-explaining why the study carries no SHF.</p>
+<p>Pooled over the three wells the law is <b>Sw&nbsp;=&nbsp;0.405&nbsp;&middot;&nbsp;J^&minus;0.614</b>,
+R&sup2;&nbsp;0.639 with an rms of 0.270 over 503 points. B is negative, which
+is the first thing to check: saturation must fall as J rises, because J rises
+with height above the contact. Of the 1,164 samples the wells offered, 590
+fell below the porosity cutoff, 65 sat at or below the free-water level, 4
+carried a saturation of zero or less and 2 had no permeability &mdash; each
+counted rather than quietly dropped.</p>
+
+<p>The per-class tabs are where the reading actually happens:</p>
+
+<pre class="equations">          A        B        rms      R2       points
+pooled    0.40486  -0.61430  0.27022  0.63911  503
+RT 1      0.42305  -0.69119  0.24219  0.68965  449
+RT 2      0.89050  -0.00150  0.03422  0.00163   49
+RT 3      0.90676  +0.18070  0.30909  0.14494    5</pre>
+
+<p>Three different verdicts, which one pooled R&sup2; hides. <b>RT 1 is the
+law</b>: 449 of the 503 points, a steeper B and a better fit than the pool,
+and it is the best rock in the ladder, so it deserves to dominate. <b>RT 2 is
+a real statement, not a failed fit</b>: B is effectively zero and saturation
+sits flat near 0.89 whatever the height, which is what capillary-bound rock
+looks like &mdash; it has no transition zone to model, and the rms of 0.034
+says the flatness is tight rather than noisy. <b>RT 3 is not a law at all</b>:
+B comes back positive, which would mean saturation rising as you climb away
+from the water, and five points is simply not enough to ask. Quote RT 1,
+describe RT 2, and throw RT 3 away.</p>
 
 <h2>QC and pitfalls</h2>
 
 <ul>
-  <li><b>An FWL pinned to the scan edge is not a pick.</b> It means the
-    minimum lies outside the range or does not exist; widen the range or
-    accept that these wells do not see the contact.</li>
-  <li><b>Fit above the FWL only, and count the exclusions.</b> The pane
-    reports how many samples fell at or below the FWL; a fit dominated by
-    near-contact points measures the transition zone's noise, not its
-    shape.</li>
-  <li><b>One fit per rock type when the Pd differs.</b> A single FOIL
-    through two rock qualities averages two curves into neither; the
-    per-rock-type option exists for exactly that case.</li>
+  <li><b>Check the sign of B before anything else.</b> A positive B is
+    capillary physics running backwards; it means the class has too few
+    points, or a rock-type curve that is mixing rock, not that the reservoir
+    is unusual.</li>
+  <li><b>The free-water level is an input, not an output.</b> The pane will
+    scan for one, but a scan minimises a residual and a contact is a physical
+    surface &mdash; take it from pressures or from the contacts registry, and
+    let the fit be a test of that pick rather than a substitute for it.</li>
+  <li><b>Fit above the free-water level only, and read the exclusions.</b> A
+    fit dominated by near-contact points measures the transition zone's noise
+    instead of its shape, and the counters are how you notice.</li>
+  <li><b>One law per rock type when the entry pressures differ.</b> A single
+    J-function through two rock qualities averages two curves into neither,
+    which is exactly what the pooled row above is doing to RT 2.</li>
+  <li><b>A J-function fitted from logs is not a J-function measured from
+    core.</b> This one inherits whatever the saturation curve already assumed;
+    where SCAL capillary-pressure data exists, the
+    <a href="tool_thomeer_fit.html">Pc fit</a> is the independent
+    measurement to check it against.</li>
 </ul>
