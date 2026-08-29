@@ -1,5 +1,5 @@
 import { runThomeerFit, type ThomeerResult, type ThomeerSampleFit } from "../ipc";
-import { canvasFont, readTheme } from "./plotCanvas";
+import { attachResizeRedraw, canvasFont, readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 
@@ -41,6 +41,10 @@ export async function buildThomeerContent(
     "Swanson k constants are literature values — verify before field release.";
   content.appendChild(hint);
 
+  // One handle for the plots currently on screen. Each run replaces the results, so the previous
+  // render's resize observers are released first rather than stacking one set per fit.
+  let detachPlots: (() => void) | null = null;
+
   runBtn.addEventListener("click", async () => {
     const wellIds = scope.getWellIds();
     if (wellIds.length === 0) {
@@ -53,6 +57,8 @@ export async function buildThomeerContent(
     try {
       const res = await runThomeerFit(scope.backend());
       const ms = Math.round(performance.now() - t0);
+      detachPlots?.();
+      detachPlots = null;
       if (res.error) {
         statusLine.textContent = `Failed: ${res.error}`;
         results.innerHTML = "";
@@ -60,7 +66,7 @@ export async function buildThomeerContent(
         const skipNote = res.skipped > 0 ? ` (${res.skipped} plug(s) skipped — no φ or too few points)` : "";
         statusLine.textContent = `${res.fits.length} plug(s) fitted${skipNote} • ${ms} ms`;
         recordProcess("RockType", `Thomeer fit: ${res.fits.length} plug(s)${skipNote}`);
-        renderThomeer(results, res);
+        detachPlots = renderThomeer(results, res);
       }
     } catch (e) {
       statusLine.textContent = `Failed: ${e}`;
@@ -69,10 +75,16 @@ export async function buildThomeerContent(
     }
   });
 
-  return { el: content, dispose: () => scope.dispose() };
+  return {
+    el: content,
+    dispose: () => {
+      detachPlots?.();
+      scope.dispose();
+    },
+  };
 }
 
-function renderThomeer(host: HTMLElement, res: ThomeerResult): void {
+function renderThomeer(host: HTMLElement, res: ThomeerResult): () => void {
   host.innerHTML = "";
   let selected = 0;
 
@@ -90,7 +102,10 @@ function renderThomeer(host: HTMLElement, res: ThomeerResult): void {
   const pcCanvas = document.createElement("canvas");
   pcCanvas.className = "mc-hist";
   const pdgCanvas = document.createElement("canvas");
-  pdgCanvas.className = "mc-hist";
+  // Both axes of the Pd-G plane are data, so it is a crossplot and is marked as one: it stays
+  // roughly square instead of filling a wide pane. The Pc curve above it is read left to right
+  // against a single axis and is free to fill.
+  pdgCanvas.className = "mc-hist mc-hist-plane";
 
   const bodyRows: HTMLTableRowElement[] = [];
   const redraw = () => {
@@ -147,6 +162,20 @@ function renderThomeer(host: HTMLElement, res: ThomeerResult): void {
   host.appendChild(pdgCanvas);
 
   redraw();
+
+  // The pane no longer caps at the form-column width, so these canvases really do change size.
+  // A canvas whose CSS box grows without a redraw is a scaled bitmap, not a bigger plot.
+  return attachAll([
+    attachResizeRedraw(pcCanvas, () => drawPcCurve(pcCanvas, res.fits[selected])),
+    attachResizeRedraw(pdgCanvas, () => drawPdG(pdgCanvas, res.fits, selected)),
+  ]);
+}
+
+/** Collapse several detachers into one, so a caller holds a single handle per render. */
+function attachAll(detachers: Array<() => void>): () => void {
+  return () => {
+    for (const d of detachers) d();
+  };
 }
 
 /** Selected plug: Bv (linear) vs log10 Pc scatter + the fitted hyperbola. */
