@@ -8,7 +8,7 @@ import {
 } from "../ipc";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
-import { canvasFont, readTheme } from "./plotCanvas";
+import { attachResizeRedraw, canvasFont, readTheme } from "./plotCanvas";
 import { preferredCurveSelect } from "./plotCommon";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
@@ -202,12 +202,18 @@ export async function buildShfContent(
     },
   };
 
+  // One handle for whatever plot is on screen. Both render paths return their own detacher and
+  // every run replaces the results, so observers are released rather than stacked per fit.
+  let detachPlots: (() => void) | null = null;
+
   const doRun = async (): Promise<void> => {
     const wellIds = scope.getWellIds();
     if (wellIds.length === 0) {
       setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
       return;
     }
+    detachPlots?.();
+    detachPlots = null;
     runBtn.disabled = true;
     statusLine.textContent = "Fitting…";
     const t0 = performance.now();
@@ -246,7 +252,7 @@ export async function buildShfContent(
             (res.fwl_best != null ? ` • FWL=${res.fwl_best.toFixed(1)}` : "");
           if (res.fwl_best != null) fwlInput.value = res.fwl_best.toFixed(2);
           recordProcess("SHF", `Cuddy FOIL fit: BVW=${res.a.toExponential(3)}·H^${res.b.toFixed(3)} (R²=${res.r2.toFixed(3)})`);
-          renderResults(results, res, fwlCtl);
+          detachPlots = renderResults(results, res, fwlCtl);
         }
       } else {
         const res = await runShfFit(
@@ -270,7 +276,7 @@ export async function buildShfContent(
           const ps = res.params.map(([k, v]) => `${k}=${fmt(v, 3)}`).join(", ");
           statusLine.textContent = `${res.method}: ${ps} • R²=${res.r2.toFixed(4)} • ${res.n_points} pts • ${ms} ms`;
           recordProcess("SHF", `${res.method} fit: ${ps} (R²=${res.r2.toFixed(3)})`);
-          renderShfResults(results, res, fwlCtl);
+          detachPlots = renderShfResults(results, res, fwlCtl);
         }
       }
     } catch (e) {
@@ -283,7 +289,13 @@ export async function buildShfContent(
     void doRun();
   });
 
-  return { el: content, dispose: () => scope.dispose() };
+  return {
+    el: content,
+    dispose: () => {
+      detachPlots?.();
+      scope.dispose();
+    },
+  };
 }
 
 /** Excluded-sample breakdown + honesty notes, shown under every result (and on failures). */
@@ -338,8 +350,10 @@ function attachFwlDrag(canvas: HTMLCanvasElement, currentFwl: () => number, ctl:
   });
 }
 
-function renderResults(host: HTMLElement, res: CuddyFoilResult, ctl: FwlCtl): void {
+function renderResults(host: HTMLElement, res: CuddyFoilResult, ctl: FwlCtl): () => void {
   host.innerHTML = "";
+  // Collected as the canvases are built; the pane is resizable now, so each needs a redraw.
+  const detachers: Array<() => void> = [];
 
   const summary = document.createElement("table");
   summary.className = "mc-table";
@@ -393,6 +407,7 @@ function renderResults(host: HTMLElement, res: CuddyFoilResult, ctl: FwlCtl): vo
   canvas.className = "mc-hist";
   host.appendChild(canvas);
   drawFoil(canvas, res);
+  detachers.push(attachResizeRedraw(canvas, () => drawFoil(canvas, res)));
   attachFwlDrag(canvas, () => res.fwl_used, ctl);
 
   if (res.scan.length > 0) {
@@ -404,6 +419,7 @@ function renderResults(host: HTMLElement, res: CuddyFoilResult, ctl: FwlCtl): vo
     scanCanvas.className = "mc-hist";
     host.appendChild(scanCanvas);
     drawScan(scanCanvas, res);
+    detachers.push(attachResizeRedraw(scanCanvas, () => drawScan(scanCanvas, res)));
     // Click-to-pick a candidate FWL straight off the scan curve.
     scanCanvas.style.cursor = "crosshair";
     scanCanvas.addEventListener("click", (e) => {
@@ -418,6 +434,10 @@ function renderResults(host: HTMLElement, res: CuddyFoilResult, ctl: FwlCtl): vo
       if (Number.isFinite(fwl)) ctl.setFwl(Math.min(xmax, Math.max(xmin, fwl)));
     });
   }
+
+  return () => {
+    for (const d of detachers) d();
+  };
 }
 
 /** Log–log scatter of (H, BVW) with the fitted power-law line. */
@@ -545,8 +565,11 @@ function drawScan(canvas: HTMLCanvasElement, res: CuddyFoilResult): void {
 
 /** Height-domain fit results: param table, per-RT tabs, diagnostics, and the Sw-vs-height
  *  crossplot with the selected law's curve. */
-function renderShfResults(host: HTMLElement, res: ShfFitResult, ctl: FwlCtl): void {
+function renderShfResults(host: HTMLElement, res: ShfFitResult, ctl: FwlCtl): () => void {
   host.innerHTML = "";
+  // showTab rebuilds the plot on every click, so exactly one observer is held and replaced
+  // rather than one accumulating per tab visit.
+  let detachPlot: (() => void) | null = null;
 
   const paramTable = (params: [string, number | null][], r2: number | null, n: number): HTMLTableElement => {
     const t = document.createElement("table");
@@ -578,6 +601,8 @@ function renderShfResults(host: HTMLElement, res: ShfFitResult, ctl: FwlCtl): vo
   host.appendChild(detail);
 
   const showTab = (gp: ShfGroupFit | null): void => {
+    detachPlot?.();
+    detachPlot = null;
     detail.innerHTML = "";
     if (gp && gp.error) {
       detail.appendChild(paramTable([], null, gp.n_points));
@@ -605,7 +630,9 @@ function renderShfResults(host: HTMLElement, res: ShfFitResult, ctl: FwlCtl): vo
     canvas.className = "mc-hist";
     detail.appendChild(canvas);
     const pts = gp ? res.points.filter((p) => p.rt === gp.rt) : res.points;
-    drawShfFit(canvas, pts, gp ? gp.curve : res.curve);
+    const curve = gp ? gp.curve : res.curve;
+    drawShfFit(canvas, pts, curve);
+    detachPlot = attachResizeRedraw(canvas, () => drawShfFit(canvas, pts, curve));
     attachFwlDrag(canvas, ctl.getFwl, ctl);
   };
 
@@ -630,6 +657,8 @@ function renderShfResults(host: HTMLElement, res: ShfFitResult, ctl: FwlCtl): vo
 
   showTab(null);
   renderDiagnostics(host, res.excluded, res.notes);
+
+  return () => detachPlot?.();
 }
 
 /** Sw (linear, 0–1) vs height (log10) scatter + the fitted Sw(H) curve. */

@@ -20806,3 +20806,50 @@ be showing the same margin.
 
 - [ ] **The sw_height chapter's free-water level** — 1535 m MD in the chapter against 1550.1 m
       MD from the contacts registry and the Results QC chapter. Unchanged, still waiting on you.
+
+## The two fit panes fill the pane they are given (2026-08-29)
+
+**Read this one before accepting it — it reverses a decision of yours, not an oversight.** I
+proposed it as "SHF and Thomeer were swept up by mistake"; that was wrong. The stylesheet records
+a deliberate call from 2026-08-07 that those two keep the 620px form-column cap, on the stated
+grounds that they "genuinely are a column of fields". So the question is not whether the rule was
+right, but whether that reason still describes the panes. I do not think it does, and here is the
+measurement rather than an opinion.
+
+At a 1680px window, before the change: the pane is **1497px**, the card **620px**, and **877px of
+the pane sits empty**. In that 620px, SHF draws its Sw-versus-height fit plot, and Thomeer draws
+**two plots and a twelve-column per-plug table**. A plot you read the answer off, and a table that
+wide, are precisely what the same stylesheet paragraph says the space should go to. After the
+change both cards fill the pane, with 24px left — the pane's own gutter.
+
+**Filling is not stretching, and it is not only about fields.** Lifting the cap alone made two
+things worse, so both are bounded:
+
+- SHF's coefficients table is a **two-column key/value list** (A, B, rms, R², points fitted).
+  Across a wide pane the eye has to travel from the name to the number, so it keeps a column's
+  width. Thomeer's twelve-column table is the opposite case and fills.
+- Thomeer's **Pd–G plane is a crossplot** — both axes are data — so it stays roughly square
+  instead of becoming an 8:1 letterbox holding three points. The Pc curve above it is read left
+  to right against one axis, so it fills.
+- SHF's single-line selects and inputs hold at 460px, the same number the five panes that opted
+  out in 2026-08-07 already use.
+
+**The panes also had to learn to redraw.** Neither had a resize observer, because neither could
+change width before. A canvas whose CSS box grows without a redraw is a scaled bitmap, not a
+bigger plot. Both now redraw, and the observers are released on each re-run and on close rather
+than stacking one set per fit. Verified by fitting at a 1000px window and *then* widening: the
+canvas backing store followed, 1582 → 2902 px.
+
+- [ ] **Open Pc Fit (Thomeer) and press Fit Thomeer, then drag the pane wider.** The twelve-column
+      table should spread out and stay readable, the Pc curve should fill, and the Pd–G crossplot
+      should stay compact rather than stretching. The plots should stay sharp, not go soft.
+- [ ] **Open SHF Fit on Leverett-J and fit it, then widen.** Same check — the fit plot fills and
+      sharpens, the coefficient table stays a column, and the input selects stay their old width.
+- [ ] **Then narrow it back down.** Both panes should look exactly as they did before this change
+      at a normal docked width; the cap only ever bound above 620px.
+- [ ] **The two figures were re-shot**, same runs and same numbers as their captions quote —
+      Thomeer G 0.87–0.97 on 8 points each, SHF A 0.405 / B −0.614 / R² 0.639 over 503 points.
+      Only the layout moved.
+
+**If you disagree, say so and I will put the cap back** — it is two selectors, and the redraw
+work is worth keeping either way.
