@@ -151,3 +151,151 @@ the em dash as a connector. If a new one is inside a genuine quotation of the ap
 GUIDEBOOK_EM_DASH_CEILING in this file and say so in the commit. By chapter: {listing}"
     );
 }
+
+/// How many §4c audit findings the CODE cites by number while the backlog still shows them open.
+///
+/// A ratchet, for the reason the guidebook's em-dash ceiling is one: a sweep leaves nothing behind
+/// that the next session has to pass. Measured 2026-09-01 after verifying findings 1-28, 63 and 64
+/// item by item - 27 of those 30 were closed and had never been ticked. The rest of the section
+/// (the structure and slop blocks, findings 29-48 and 49-85) has NOT had that pass, which is what
+/// this number counts. Verify a block, tick what it closed, lower the constant.
+const AUDIT_CITED_BUT_UNTICKED_CEILING: usize = 42;
+
+fn find_from(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+    if needle.is_empty() || hay.len() < needle.len() {
+        return None;
+    }
+    let first = needle[0];
+    (from..=hay.len() - needle.len())
+        .find(|&i| hay[i] == first && &hay[i..i + needle.len()] == needle)
+}
+
+/// The number after a `finding` token: an optional plural, then spaces or a `#`, then digits.
+fn finding_number_at(hay: &[u8], mut i: usize) -> Option<u32> {
+    if hay.get(i) == Some(&b's') {
+        i += 1;
+    }
+    while matches!(hay.get(i), Some(b' ') | Some(b'#')) {
+        i += 1;
+    }
+    let start = i;
+    while hay.get(i).is_some_and(u8::is_ascii_digit) {
+        i += 1;
+    }
+    if i == start {
+        return None;
+    }
+    std::str::from_utf8(&hay[start..i]).ok()?.parse().ok()
+}
+
+/// Finding numbers this text cites IN THE AUDIT'S OWN REGISTER.
+///
+/// The anchor matters: `docs/review_triage.md` numbers its findings too, and a bare "finding 16"
+/// in the tree is that document's, not this one's - so an unanchored scan reported findings 16, 20
+/// and 21 as closed when 16 is the one item of the verified block that is genuinely still open.
+fn audit_findings_cited(text: &str) -> std::collections::BTreeSet<u32> {
+    let lower = text.to_ascii_lowercase();
+    let hay = lower.as_bytes();
+    let mut cited = std::collections::BTreeSet::new();
+
+    // Form 1: the audit named, then `finding N` close behind it.
+    let anchor = b"audit-2026-08-20";
+    let mut from = 0usize;
+    while let Some(at) = find_from(hay, anchor, from) {
+        let window = (at + 76).min(hay.len());
+        if let Some(f) = find_from(&hay[..window], b"finding", at) {
+            if let Some(n) = finding_number_at(hay, f + "finding".len()) {
+                cited.insert(n);
+            }
+        }
+        from = at + anchor.len();
+    }
+
+    // Form 2: `audit finding N`, where the register is named without its date.
+    let phrase = b"audit finding";
+    let mut from = 0usize;
+    while let Some(at) = find_from(hay, phrase, from) {
+        if let Some(n) = finding_number_at(hay, at + phrase.len()) {
+            cited.insert(n);
+        }
+        from = at + phrase.len();
+    }
+    cited
+}
+
+fn source_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            source_files(&path, out);
+        } else if matches!(path.extension().and_then(|e| e.to_str()), Some("rs") | Some("ts")) {
+            out.push(path);
+        }
+    }
+}
+
+/// A finding the code says it closed must not still read as open in the backlog.
+///
+/// Two consecutive picks off §4c on 2026-09-01 turned out to be work already done - the fixes had
+/// landed under their own decision ids (DEC-084/-085/-089/-090/-094/-096, the units family), each
+/// ticking ITS own entry, and each citing the audit finding faithfully in the code. Nothing carried
+/// that citation back to the checkbox, so the record of what is DONE lived in the source while the
+/// record of what is LEFT lived in ROADMAP, and only one of the two was maintained. A stale backlog
+/// is worse than no backlog: every plan drawn from it is wrong, and the wasted pick is paid by
+/// whoever picks next.
+#[test]
+fn a_finding_the_code_says_it_closed_is_ticked_in_the_backlog() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the repository root sits above src-tauri")
+        .to_path_buf();
+
+    let roadmap = std::fs::read_to_string(root.join("ROADMAP.md")).expect("read ROADMAP.md");
+    let start = roadmap.find("## B1c.").expect("the whole-code audit backlog section");
+    let after = &roadmap[start + "## B1c.".len()..];
+    let end = after
+        .find("\n## ")
+        .map_or(roadmap.len(), |i| start + "## B1c.".len() + i);
+
+    // Unticked finding numbers. Every `#N` inside the item's bold marker counts, because the P3
+    // long tail bundles a dozen findings onto one line.
+    let mut unticked = std::collections::BTreeSet::new();
+    for line in roadmap[start..end].lines() {
+        let Some(rest) = line.trim_start().strip_prefix("- [ ] **") else {
+            continue;
+        };
+        let marker = rest.split("**").next().unwrap_or("");
+        for piece in marker.split('#').skip(1) {
+            let digits: String = piece.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(n) = digits.parse::<u32>() {
+                unticked.insert(n);
+            }
+        }
+    }
+
+    let mut files = Vec::new();
+    source_files(&root.join("src-tauri").join("src"), &mut files);
+    source_files(&root.join("src"), &mut files);
+    assert!(files.len() > 50, "the source scan found only {} files", files.len());
+
+    let mut cited = std::collections::BTreeSet::new();
+    for path in &files {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            cited.extend(audit_findings_cited(&text));
+        }
+    }
+
+    let stale: Vec<u32> = cited.intersection(&unticked).copied().collect();
+    let listing = stale.iter().map(u32::to_string).collect::<Vec<_>>().join(", ");
+
+    assert!(
+        stale.len() <= AUDIT_CITED_BUT_UNTICKED_CEILING,
+        "{} audit findings are cited by number in the code and still show as open in ROADMAP section B1c, above the ratchet of {}. Read the citation, and if the finding is closed tick its box with the file:line as evidence; if the code merely mentions it as context for another decision, say so on the ROADMAP line. Findings: {}",
+        stale.len(),
+        AUDIT_CITED_BUT_UNTICKED_CEILING,
+        listing
+    );
+}

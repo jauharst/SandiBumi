@@ -271,7 +271,7 @@
     {
       "id": "verification-stewardship",
       "title": "Verification, provenance and stewardship",
-      "review_section_patterns": ["verification", "green gate", "fresh clone", "provenance", "source", "rules", "contract", "ratchet"]
+      "review_section_patterns": ["verification", "green gate", "fresh clone", "provenance", "source", "rules", "contract", "ratchet", "backlog"]
     }
   ],
   "unmapped_review_sections_note": "REVIEW.md sections that map to no capability above. Acknowledged debt, not an exemption: the generator refuses an unmapped section missing from this list, and refuses a listed title that no longer exists or has since been mapped. The list may shrink, never silently grow.",
@@ -412,7 +412,6 @@
     "UI polish #9B inc 1: shared colour-bar + scatter hover tooltip (2026-07-23)",
     "Cross-feature fix: survey TVD/TVDSS must not shadow an imported one (2026-07-22)",
     "TVD/TVDSS as fetchable curves (2026-07-22)",
-    "P0 senior-audit backlog — correctness & data-integrity fixes (2026-07-20)",
     "P1 — reliability (frontend state) (2026-07-20)",
     "Polish — UX (veteran-interpreter friction) (2026-07-20)",
     "Reference-library correctness fixes (2026-07-20)",

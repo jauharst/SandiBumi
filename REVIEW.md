@@ -20897,3 +20897,63 @@ reads only one encoding is walked around by typing another.
 - [ ] **If you want to see it fail**, put an em dash in any chapter and run the gate; it names the
       chapter and tells you to recast it or raise the number. I proved it from both sides before
       committing rather than trusting a test that had only ever passed.
+
+## The audit backlog said 30 things were open; 27 were already done (2026-09-01)
+
+I went to §4b/§4c for the next increment and picked **finding #27** — Larionov's rounded 0.33 and
+0.083 against the exact normalised form. It was already fixed, and fixed *better* than the finding
+asked: the module ships both, `LARINOV1_NORM`/`LARINOV2_NORM` for the exact form and the published
+decimals kept for vendor parity, each labelled with what it reads at IGR = 1.
+
+So I picked **finding #10** instead — the Monte Carlo pay path not flooring PHIE. Also already
+fixed, with a comment saying so.
+
+Two for two. At that point the increment is not any single finding: **it is that the backlog is
+wrong**, and a backlog that is wrong costs whoever reads it next exactly what it cost me.
+
+**I verified all 30 physics findings item by item.** 28 were closed and their boxes had never been
+ticked. Every one of them is now `[x]` in `ROADMAP.md` with the file and line that proves it, so
+you can spot-check any of them without taking my word for it.
+
+**Why it drifted, which is the part worth knowing.** The fixes did not come from this list. They
+came through their own decisions — DEC-084, DEC-085, DEC-089, DEC-090, DEC-094, DEC-096, the units
+family — and each of those ticked *its own* entry. Every one also cited the audit finding faithfully
+**in the code** (`AUDIT-2026-08-20 finding 5`). Nothing carried that citation back to the checkbox.
+So the record of what is *done* lived in the source, the record of what is *left* lived in ROADMAP,
+and only one of the two was being maintained.
+
+**What is genuinely still open, out of those 30 — two items, and one of them surprised me.**
+
+- **#16** is real. `facies_tie.rs` still measures "within 1 m" with a bare metre constant, whatever
+  unit the project is in — on a foot project that is 1 ft, a third of the rock it means to cover.
+  This is the same defect as #17 in the plug-QC tool, which *was* fixed, so the pattern to copy is
+  sitting right there.
+- **#20** I settled while the gate was compiling, and it closed in the **opposite direction to the
+  finding**. The finding said the print was wrong; in fact the print's behaviour is the stated
+  contract and the *screen* was brought to match it. Skipping the interval drew the last sample
+  before every gap as a zero-length tick — a blocked VSH ended one sample short of every washout,
+  and a zone-constant curve lost the bottom of its interval.
+- **#21** is the one I **could not settle either way**, and I have left it open and said so on the
+  line. Print and screen now agree, but no comment claims a fix, so the agreement might be
+  coincidence. Marking a fixed item open costs one wasted pick; marking an open item closed
+  deletes a real defect from the only place anyone would look for it. I took the cheaper mistake.
+
+**A sweep would not have held.** That is the em-dash lesson from three days ago, and it applies
+here without change: ticking 27 boxes leaves nothing behind that the next fix has to pass. So there
+is a gate — `a_finding_the_code_says_it_closed_is_ticked_in_the_backlog`. It counts findings the
+code cites by number while ROADMAP still shows them open, and fails when that count rises.
+
+**The number is 42, and it is not zero on purpose.** Those 42 are in the structure and slop blocks
+(findings 29–48 and 49–85), which I have *not* verified. Given that 28 of the first 30 turned out
+done, most of those 42 are probably done too — but "probably" is not what a tick means. Verifying
+them is its own increment, and each one that closes lowers the number.
+
+- [ ] **Spot-check two or three of the 27.** Each `[x]` line names a file and a line number. #10 and
+      #27 are the two I picked blind, so they are the fairest test of whether I read them right.
+- [ ] **#16 is the one worth fixing next** if you want a small, self-contained job with a worked
+      example beside it.
+- [ ] **Tell me if you want the 42 verified.** It is the same pass over roughly twice the items, and
+      it would probably close most of the remaining backlog on paper.
+- [ ] **The gate anchors on the audit's own name**, because `docs/review_triage.md` numbers findings
+      too. An unanchored scan read *its* "finding 16" as this audit's and would have reported the
+      one genuinely open item as closed.
