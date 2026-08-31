@@ -271,7 +271,7 @@
     {
       "id": "verification-stewardship",
       "title": "Verification, provenance and stewardship",
-      "review_section_patterns": ["verification", "green gate", "fresh clone", "provenance", "source", "rules", "contract"]
+      "review_section_patterns": ["verification", "green gate", "fresh clone", "provenance", "source", "rules", "contract", "ratchet"]
     }
   ],
   "unmapped_review_sections_note": "REVIEW.md sections that map to no capability above. Acknowledged debt, not an exemption: the generator refuses an unmapped section missing from this list, and refuses a listed title that no longer exists or has since been mapped. The list may shrink, never silently grow.",

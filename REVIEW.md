@@ -20853,3 +20853,47 @@ canvas backing store followed, 1582 → 2902 px.
 
 **If you disagree, say so and I will put the cap back** — it is two selectors, and the redraw
 work is worth keeping either way.
+
+## The guidebook voice gets a ratchet, and it caught me first (2026-08-31)
+
+The guard I said was the next one, from increment 19. It is in, and the first thing it found was
+my own prose.
+
+**Why a ratchet and not a rule.** The voice regressed twice. A sweep on 2026-08-26 took the 52
+chapters then written from 324 em dashes to 12 and it HELD; by 2026-08-28 the book carried 295
+again, and 93% of those sat in prose authored after that sweep. A sweep leaves nothing behind that
+a later chapter has to pass, so the third round was only a matter of time. The gate now counts, and
+a chapter that drifts fails by name.
+
+**It cannot judge an individual dash, and it does not try.** The 35 survivors are every one inside
+an `<i>"…"</i>` quotation of the application, a `<pre class="equations">` block of the app's own
+output, or a menu label you have to match on screen ("TOC — Passey"). Rewriting one of those would
+make the quote *wrong*, which is the bug the second sweep had to fix in the Curve Catalog
+quotation. So the count is the contract: a dash added to prose fails, and a dash inside a genuine
+new quotation means raising the number deliberately, in a diff you can see.
+
+**Two things you left to me, and what I chose.**
+
+- **Hard failure, not a printed warning.** Your worry was that it would block unrelated commits. It
+  cannot: it only fires when the guidebook's dash count *rises*, and a commit that does not touch
+  the chapters cannot raise it. A warning would also have been ignored, which is what the second
+  regression already demonstrates.
+- **An upper bound only.** I did not make it ratchet *downward* — that version fails when the count
+  drops, forcing you to lower the number, which is the half that would genuinely block a commit
+  that only cleaned prose. Say the word and it is one line.
+
+**It caught me first, which is the honest part.** Counting only the literal character gave 33.
+Counting the entity encoding as well gave **42** — and 7 of the 9 entity dashes were in
+`tool_shf_fit.html`, the chapter I rewrote three days ago in a session that knew about the sweep.
+None was a quotation; all seven were connectors. They are recast, which is why the ceiling is 35
+and not 42. The gate counts the literal character, `&mdash;` and `&#8212;`, because a gate that
+reads only one encoding is walked around by typing another.
+
+- [ ] **Read the SHF Fit chapter again.** Seven sentences were recast — a colon where a list
+      follows, a full stop where the second half explains the first. Nothing else changed; the
+      numbers, the equation and the picks are untouched.
+- [ ] **En dashes are deliberately not counted.** There are 53 of them and they are ranges
+      (`0.87–0.97`, `1528.0–1544.0`) — correct typography, not the voice.
+- [ ] **If you want to see it fail**, put an em dash in any chapter and run the gate; it names the
+      chapter and tells you to recast it or raise the number. I proved it from both sides before
+      committing rather than trusting a test that had only ever passed.
