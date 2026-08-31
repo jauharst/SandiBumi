@@ -1524,51 +1524,92 @@ never an agent's.**
       0.026 degF/ft" (= 0.0474 °C/m). The 0.03 °C/m writer's default is brought into agreement.
       Finding 30 is now executable.
 
-**P0 — increment 1 (rulings already exist; execution was missing):**
-- [ ] **#1** `modules.rs:4848` — phi_son Wyllie Cp INFLATES porosity for DT_SH<100; DEC-012 says
-      refuse the run. Includes REWRITING `phi_son_wyllie_cp_opt_in_only_scales_wyllie`, which
-      pins the ruled-against behaviour green.
+**P0 / P1 / P2 — physics, units, limits, agreement (audit findings 1–28, 63, 64)**
 
-**P1:**
-- [ ] **#2** `modules.rs:4767` — "RHG" label on a non-RHG transform; DEC-017: real RHG or a
-      separately named `FIELD_OBSERVED` method, never a rename-around.
-- [ ] **#3** `montecarlo.rs:1161` — MC bypasses the declared-range guard; a bad SWT_IRR draw or
-      zone param ABORTS the process at `satheight.rs:248`'s clamp.
-- [ ] **#4** `modules.rs:7032` — SWE_SIM "unlimited" twin is solver-capped at 1.0 (cosmetic);
-      sweep arm E is name-only for sw_sim/sw_indo.
-- [ ] **#5** `distribution.rs:323` — bin_by_depth f32 key round-trip fragments printed depth bins
-      >~1024 m; TS twin immune; one f64 cast + a non-exact-bin test.
-- [ ] **#6** `ingest.rs:1009` — standard six stored UNCONVERTED vs converted generic store
-      (viewer/plots/editor/reframe vs modules read different domains). Waits on R-1.
-- [ ] **#7** `export.rs:900` — LAS export labels canonical units over unconverted values. Waits on R-1.
-- [ ] **#8** `ingest.rs:1500` — deviation MD imported with NO depth-unit resolution (only depth
-      importer without one); ft survey into metric project corrupts TVD→FTEMP→Rw→Sw.
-- [ ] **#63** `axisRange.ts:325` — dead `??` fallback disables the PHIE unit-limit row; every
-      porosity axis silently autoscales (registry family is POR, row keyed PHIE).
-- [ ] **#64** `param_sources.rs:937` — three drifted topic tables; SHALE_REDUCTION_CLAMP's sourced
-      default yields NO disclosure; `topics()` test pins the omission — rewrite it.
+**Verified item by item against the tree on 2026-09-01** (master `5965818e`), because two
+consecutive picks off this list turned out to be work already done. **28 of the 30 were closed
+and the boxes had never been ticked.** The fixes arrived under their own decision ids — DEC-084,
+DEC-085, DEC-089, DEC-090, DEC-094, DEC-096, the units family — each of which ticked ITS entry,
+and every one of them cited the audit finding faithfully IN THE CODE. Nothing carried that
+citation back to the checkbox, so the record of what is DONE lived in the source while the record
+of what is LEFT lived here, and only one of the two was maintained. **A stale backlog is worse
+than no backlog** — every plan drawn from it is wrong, and the wasted pick is paid by whoever
+picks next. `governance_contracts::a_finding_the_code_says_it_closed_is_ticked_in_the_backlog`
+now fails when a finding cited by number in the tree is still unticked here, so the third round
+cannot happen quietly.
 
-**P2 (physics/units/limits/agreement — audit findings 9–28):**
-- [ ] **#9** `lrlc.rs:60` — sw_imts Qv volume-fraction form vs spec weight fractions (−24%→−4% φ-dependent bias)
-- [ ] **#10** `montecarlo.rs:776` — MC pay path never floors PHIE (DEC-084 item 5's rule, unapplied in MC)
-- [ ] **#11** `sandimin.rs:493` — sw_cond_root returns SWT=0.0 unflagged at n=1 when no root exists
-- [ ] **#12** `montecarlo.rs:1281` — MC ignores a step's MASK (2026-07-20 #1, alive inside MC, pinned as-is)
-- [ ] **#13** `ssc.rs:312` — two capillary-water rules not in the banked spec; PHIFF=0 on tight clean rock
-- [ ] **#14** `satheight.rs:113` — FWL declared "m", consumed project-unit (SB-SHR-004; 3 companion PRD claims stale)
-- [ ] **#15** `ribbon.ts:2230` — Well Header hard-labels TD/KB "(m)" regardless of project unit
-- [ ] **#16** `facies_tie.rs:283` — CORE_MATCH_TOL_M metre constant vs project-unit depths; "within 1 m" printed
-- [ ] **#17** `plugqc.rs:49` — DEFAULT_DEPTH_TOL 0.15 m vs project-unit depths; feeds S-factor CEC fit
-- [ ] **#18** `modules.rs:6635` — FTEMP plain log_in defeats the computed_only contract; °F label holes
-- [ ] **#19** `unit_registry.rs:45` — %-delivered PHIE/VSH warned at import, consumed unconverted
-- [ ] **#20** `composite.rs:1139` — step curve holds one interval INTO a NaN gap in print, not on screen
-- [ ] **#21** `composite.rs:178` — log-track non-positives: screen clamps, print breaks; min=0 prints nothing
-- [ ] **#22** `composite.rs:1534` — show_samples honoured on screen, ignored in print
-- [ ] **#23** `composite.rs:1969` — blocks track prints a numeric scale it does not use
-- [ ] **#24** `composite.rs:1434` — plate near a page break dropped from the PDF, never carried forward
-- [ ] **#25** `db.rs:4216/:3345` — non-MD datum refusal on one side of each pair, opposite directions
-- [ ] **#26** `logViewPanel.ts:722` — screen FACIES blocks from decimated data; QC'd column ≠ shipped column
-- [ ] **#27** `modules.rs:3758` — Larionov rounded 0.33/0.083 vs SB-CLY-004's exact normalised form
-- [ ] **#28** `modules.rs:7161` — perm coefficients bare literals; no citation in the distributed tree
+**Still open — both from the P2 physics block:**
+- [ ] **#16** `facies_tie.rs:283` — `CORE_MATCH_TOL_M: f32 = 1.0` is still a bare metre constant
+      compared against project-unit depths, and line 116 prints "within 1 m" whatever the project
+      is in. This is the `units::metres_in` rule (record_fixes) with one site left; #17's
+      `plugqc` twin was closed and is the worked example to copy.
+- [ ] **#21** `composite.rs:178` — log-track non-positives. **Unsettled by the same pass, leaning
+      closed**: print (`value_frac`, `composite.rs:194`) and screen (`logViewPanel.ts:1174`) now
+      return nothing for a non-positive on a log scale, so they agree — but no comment narrates a
+      fix, so agreement may be coincidence. Confirm before ticking.
+
+**Closed — verified 2026-09-01, evidence beside each:**
+- [x] **#1** phi_son Wyllie Cp inflated porosity for DT_SH < 100 — the run is now REFUSED
+      (DEC-012), `modules.rs:5268`.
+- [x] **#2** "RHG" label on a non-RHG transform — token retired; the method list is
+      WYLLIE / RHG80 / FIELD_OBSERVED and the old value no longer resolves, `modules.rs:5263`.
+- [x] **#3** MC bypassed the declared-range guard — the guard is resolved at the MC call site with
+      the deterministic runner's rule, message family and exemption, `montecarlo.rs:1172`.
+- [x] **#4** SWE_SIM "unlimited" twin was solver-capped — DEC-085 executed; the clipped entry
+      points are twins of one unclamped root, `modules.rs:7751` + `sandimin.rs:400`.
+- [x] **#5** bin_by_depth f32 key round-trip fragmented deep bins — keyed and regrouped in f64 on
+      the integer key, as the TS twin does, `distribution.rs:325`.
+- [x] **#6** standard six stored unconverted — R-1/DEC-089: the store is canonical, ONE conversion
+      at import, `ingest.rs:1012`.
+- [x] **#7** LAS export labelled canonical units over unconverted values — the writer has no unit
+      table and queries `curves::canonical_unit`, `export.rs:904`, pinned by two named tests.
+- [x] **#8** deviation MD imported with no depth-unit resolution — resolved, and the fix found two
+      further sites (SCAL Pc plug depths), `ingest.rs:1561`, `:2359`, `:2435`.
+- [x] **#9** sw_imts Qv volume-fraction vs weight-fraction basis — DEC-094; the clay grain density
+      entered `cec_theo_at` and a pre-change S calibration is REFUSED, `lrlc.rs:78`, `:431`.
+- [x] **#10** MC pay path never floored PHIE — floored in `zone_metrics` through the shared
+      `paysummary::floored_phie`, idempotent so it covers every pay path, `montecarlo.rs:805`.
+- [x] **#11** sw_cond_root returned SWT = 0.0 unflagged at n = 1 — the `g(0) > 0` arm is handled
+      as its own case, `sandimin.rs:607`.
+- [x] **#12** MC ignored a step's MASK — the MASK is now READ, fetched once per well,
+      `montecarlo.rs:2703`, `workflow.rs:2347`.
+- [x] **#13** two SSC capillary-water rules absent from the banked spec — both are IN the spec,
+      `docs/method_ssc_sspw.md:59`, `:63`.
+- [x] **#14** FWL declared "m", consumed project-unit — the `FT_PER_M` constant is gone; conversion
+      goes through `units.rs`, `satheight.rs:23`.
+- [x] **#15** Well Header hard-labelled TD/KB "(m)" — the row is built as `TD (${du})` from the
+      project's own depth unit, `ribbon.ts:2334`.
+- [x] **#17** DEFAULT_DEPTH_TOL metre constant vs project-unit depths — the constant is
+      `#[cfg(test)]`-only and renamed `_METRES`; every live path resolves `default_depth_tol`,
+      which asks the project, `plugqc.rs:57`.
+- [x] **#18** FTEMP plain log_in defeated the computed_only contract — declared
+      `log_in_computed`; "the one saturation-side hole in it", `modules.rs:7271`.
+- [x] **#19** %-delivered PHIE/VSH warned at import then consumed unconverted — percent is a
+      reviewed conversion for every fraction family, `curves.rs:1128`.
+- [x] **#20** step curve held one interval INTO a NaN gap in print but not on screen — **closed in
+      the opposite direction to the finding**: the print's hold IS the stated contract, and the
+      SCREEN was brought to match it (`LogCanvasRenderer.ts:349`). Skipping the interval drew the
+      last sample before every gap as a zero-length tick, so a blocked VSH ended one sample short
+      of every washout and a zone-constant curve lost the bottom of its interval.
+- [x] **#22** show_samples honoured on screen, ignored in print — pinned by a named test that it
+      reaches the deliverable, `composite.rs:3026`.
+- [x] **#23** blocks track printed a numeric scale it does not use — a class-blocks track prints no
+      value axis and never borrows another curve's, `composite.rs:3075`.
+- [x] **#24** plate near a page break dropped from the PDF — DEC-090: it slides clear and draws a
+      leader callout back to its true depth, `composite.rs:1575`.
+- [x] **#25** non-MD datum refusal on one side of each pair — the guard is on the print reader too,
+      `db.rs:3825`.
+- [x] **#26** screen FACIES blocks from decimated data — a class index has no envelope, so min/max
+      decimation no longer applies to it, `equations.rs:204`, `:2529`.
+- [x] **#27** Larionov rounded 0.33/0.083 vs the exact normalised form — DEC-096 ships BOTH: the
+      exact `LARINOV1_NORM`/`LARINOV2_NORM` and the published-decimal pair kept for vendor parity,
+      labelled with what they read at IGR = 1, `modules.rs:13526`.
+- [x] **#28** perm coefficients bare literals — cited from the commissioned research session,
+      `modules.rs:12372`.
+- [x] **#63** dead `??` fallback disabled the PHIE unit-limit row — the unreachable PHIE arm is
+      gone and the reason recorded; the SW arm that IS reachable stays, `axisRange.ts:325`.
+- [x] **#64** three drifted topic tables — SHALE_REDUCTION_CLAMP carries its two Geolog readings,
+      `param_sources.rs:1754`.
 
 **P2 (structure — audit findings 49–59, proposals):**
 - [ ] **#49** `workflow.rs` — two zero-coupled subsystems, 15.7k lines; paysummary.rs split
