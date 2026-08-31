@@ -81,3 +81,73 @@ fn characterizes_the_tier_c_register_as_shipped_policy_with_asset_specific_desig
     assert!(policy.contains("Fallback options"));
     assert!(policy.contains("underlying primary publications and tool-physics papers"));
 }
+
+/// The guidebook's voice regressed twice because nothing measured it. A sweep on 2026-08-26 took
+/// the 52 chapters then written from 324 em dashes to 12 and HELD; by 2026-08-28 the book carried
+/// 295 again, and 274 of them (93%) sat in prose authored after that sweep. A second sweep cleaned
+/// it; a third would have followed, because a sweep leaves nothing behind that a later chapter has
+/// to pass.
+///
+/// So this is a RATCHET, not a style rule. It has no opinion on any individual dash - it cannot,
+/// because it cannot tell a connector from a quotation, and the survivors below are exactly that
+/// distinction: every one sits inside an `<i>"..."</i>` quote of the application, a
+/// `<pre class="equations">` block of the app's own output, or a menu label the reader has to
+/// match on screen ("TOC - Passey"). Rewriting one of those would make the quote WRONG, which is
+/// the bug the second sweep had to fix in the Curve Catalog quotation. The count is therefore the
+/// contract: adding a dash to PROSE fails the gate, and adding one inside a genuine new quotation
+/// means raising this constant deliberately, in a diff a reviewer sees.
+///
+/// EN dashes are not counted. `0.87-0.97` and `1528.0-1544.0` are numeric ranges and correct
+/// typography; there are 53 of them and they are not the voice this measures.
+const GUIDEBOOK_EM_DASH_CEILING: usize = 35;
+
+/// Both encodings count, and so does the numeric one. A gate that only reads the literal character
+/// is walked around by typing the entity instead - which is not hypothetical: of the 42 found when
+/// this was written, 9 were entities, and 7 of those were one chapter rewritten three days earlier.
+fn em_dashes(text: &str) -> usize {
+    text.matches('\u{2014}').count() + text.matches("&mdash;").count() + text.matches("&#8212;").count()
+}
+
+#[test]
+fn the_guidebook_chapters_do_not_drift_back_into_the_em_dash_voice() {
+    let chapters = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the repository root is the crate's parent")
+        .join("docs/guide/chapters");
+
+    let mut per_chapter: Vec<(usize, String)> = Vec::new();
+    let mut total = 0;
+    for entry in std::fs::read_dir(&chapters).expect("read docs/guide/chapters") {
+        let path = entry.expect("read a chapter entry").path();
+        if path.extension().and_then(|value| value.to_str()) != Some("html") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).expect("read a UTF-8 chapter");
+        let count = em_dashes(&text);
+        total += count;
+        if count > 0 {
+            let name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("?")
+                .to_string();
+            per_chapter.push((count, name));
+        }
+    }
+
+    // Sorted heaviest first, because the chapter that pushed the count over is the one to open.
+    per_chapter.sort_by(|left, right| right.0.cmp(&left.0).then(left.1.cmp(&right.1)));
+    let listing = per_chapter
+        .iter()
+        .map(|(count, name)| format!("{count} {name}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    assert!(
+        total <= GUIDEBOOK_EM_DASH_CEILING,
+        "the guidebook chapters carry {total} em dashes, above the ratchet of {GUIDEBOOK_EM_DASH_CEILING}. \
+Recast the new ones as a colon, a full stop, or a bracketed clause - the guidebook's voice does not use \
+the em dash as a connector. If a new one is inside a genuine quotation of the application, raise \
+GUIDEBOOK_EM_DASH_CEILING in this file and say so in the commit. By chapter: {listing}"
+    );
+}

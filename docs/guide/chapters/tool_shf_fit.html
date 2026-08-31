@@ -9,7 +9,7 @@ level, so saturation can be carried away from well control. Reach for it when
 the study needs volumetrics between the wells, or a saturation model for a
 simulator that will never see a log.</p>
 
-<p>Five families are offered &mdash; Cuddy's FOIL, Brooks-Corey,
+<p>Five families are offered: Cuddy's FOIL, Brooks-Corey,
 Skelt-Harrison, Thomeer's hyperbola, and Leverett's J-function. This chapter
 fits the <b>Leverett J-function</b>, for two reasons. It is the only one of
 the five that carries rock quality explicitly, through a permeability and
@@ -51,8 +51,8 @@ shape.</p>
 <ul>
   <li><b>Inputs are curves, not core</b>: porosity, water saturation and a
     TVDSS curve, plus permeability for this family. The fit refuses, naming
-    the reason, when the wells carry no usable TVDSS samples &mdash; a project
-    with no deviation surveys has no height axis to fit against.</li>
+    the reason, when the wells carry no usable TVDSS samples. A project with no
+    deviation surveys has no height axis to fit against.</li>
   <li><b>The fluid system fills in its own constants.</b> Choosing Water-Gas
     sets &sigma;cos&theta; to 50 and the hydrocarbon density to 0.2&nbsp;g/cc;
     Water-Oil sets 26 and 0.7. Both are the app's shipped values for those
@@ -73,8 +73,8 @@ shape.</p>
   <li><b>Free-water level 1520.1&nbsp;m TVDSS</b>: the mean of the three
     gas-water contact picks in the <a href="tool_fluid_contacts.html">fluid
     contacts registry</a>, which fits them as one flat surface with no well
-    flagged. The pane does not pick a contact for you, and should not &mdash;
-    a contact comes from pressures, from the resistivity collapse, or from a
+    flagged. The pane does not pick a contact for you, and should not: a contact
+    comes from pressures, from the resistivity collapse, or from a
     registry of picks somebody made and can defend. Mind the depth reference:
     this field is TVDSS, and on these three wells measured depth runs exactly
     30&nbsp;m deeper throughout, so the same contact is 1550.1&nbsp;m MD.</li>
@@ -91,8 +91,8 @@ shape.</p>
 
 <ol>
   <li>Open the pane from the workspace &#65291; menu (<b>SHF Fit (Cuddy
-    FOIL)</b> &mdash; the menu is named for the default family, and the form
-    select changes it).</li>
+    FOIL)</b>: the menu is named for the default family, and the form select
+    changes it).</li>
   <li>Set <b>SHF form</b> to Leverett-J, point the four selects at the
     study's PHIE, SWE, TVDSS and PERM, and choose the fluid system.</li>
   <li>Enter the free-water level and the porosity cutoff, tick <b>Fit per
@@ -108,8 +108,8 @@ R&sup2;&nbsp;0.639 with an rms of 0.270 over 503 points. B is negative, which
 is the first thing to check: saturation must fall as J rises, because J rises
 with height above the contact. Of the 1,164 samples the wells offered, 590
 fell below the porosity cutoff, 65 sat at or below the free-water level, 4
-carried a saturation of zero or less and 2 had no permeability &mdash; each
-counted rather than quietly dropped.</p>
+carried a saturation of zero or less and 2 had no permeability. Each is counted
+rather than quietly dropped.</p>
 
 <p>The per-class tabs are where the reading actually happens:</p>
 
@@ -124,7 +124,7 @@ law</b>: 449 of the 503 points, a steeper B and a better fit than the pool,
 and it is the best rock in the ladder, so it deserves to dominate. <b>RT 2 is
 a real statement, not a failed fit</b>: B is effectively zero and saturation
 sits flat near 0.89 whatever the height, which is what capillary-bound rock
-looks like &mdash; it has no transition zone to model, and the rms of 0.034
+looks like: it has no transition zone to model, and the rms of 0.034
 says the flatness is tight rather than noisy. <b>RT 3 is not a law at all</b>:
 B comes back positive, which would mean saturation rising as you climb away
 from the water, and five points is simply not enough to ask. Quote RT 1,
@@ -139,8 +139,8 @@ describe RT 2, and throw RT 3 away.</p>
     is unusual.</li>
   <li><b>The free-water level is an input, not an output.</b> The pane will
     scan for one, but a scan minimises a residual and a contact is a physical
-    surface &mdash; take it from pressures or from the contacts registry, and
-    let the fit be a test of that pick rather than a substitute for it.</li>
+    surface. Take it from pressures or from the contacts registry, and let the
+    fit be a test of that pick rather than a substitute for it.</li>
   <li><b>Fit above the free-water level only, and read the exclusions.</b> A
     fit dominated by near-contact points measures the transition zone's noise
     instead of its shape, and the counters are how you notice.</li>
