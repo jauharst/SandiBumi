@@ -8,11 +8,13 @@ verifies what the running app does in your hands, with real field data.
 ## How to use this plan
 
 1. **Never test against your live project database.** Make a copy of a real project `.duckdb`
-   (while the app is CLOSED) or build a fresh UAT project from the Balam South LAS set. Several
-   tests import/edit/delete data.
-2. Work through sections in order — they're sequenced so earlier tests create the data later
-   tests need (imports before modules, modules before pay summary, SCAL before Pc/SHF fits).
-   Within a section, tests are ordered cheap-smoke first.
+   (while the app is CLOSED) or build a fresh UAT project from the example set in
+   `dataset for test/examples/` (SANDI-01, SANDI-02, SANDI-03 and their companion files — the run
+   order below is written against it). Several tests import/edit/delete data.
+2. Follow **The run order** below: eighteen numbered steps in the order the data builds up, each
+   naming the tests to run there and what must exist before and after. The sections are grouped
+   by tool and remain the reference for each test's steps and expected result; within a section
+   tests are ordered cheap-smoke first.
 3. Each test ends in a **Pass / Fail / Blocked** checklist — tick exactly one, and jot anything
    odd in Notes, including rough timings on the PERF tests (ROADMAP's Performance tier #128–132
    is explicitly waiting on those numbers). These are standard markdown task boxes
@@ -102,6 +104,119 @@ It reads the marks back and prints this table filled in (per-section Pass / Fail
 Untested), then the **Fail / Blocked list with each test's Notes** — which is exactly what
 step 6 above asks you to hand back for fixing. A test with more than one box ticked is listed
 separately and counted in no column, so a contradictory mark can never be scored as a pass.
+
+---
+
+## The run order — follow it step by step (added 2026-09-02)
+
+The sections below were written tool by tool, and each one assumes data that some other section
+made. This is the same set of tests in the order the DATA builds up, so that every step's
+preconditions were made by the step before it. Each step says what must be on the table before
+you start, which tests to run there (in that order), and what must exist when you finish. Tick the
+boxes under the tests as you go — `tools\testplan-tally.ps1` reads the same boxes whichever order
+you ran them in.
+
+**Data.** Everything is written against the example set in `dataset for test/examples/` —
+`SANDI-01.las`, `SANDI-02.las`, `SANDI-03.las` and their companion files (core, tops, deviation,
+perforations, XRD, SCAL, well locations, and the deliberately broken `bad_*` files) — so every
+step can be reproduced from a fresh clone. The tests that need a judgement about real rock (SSC on
+a laminated well, gas correction on a gas well, rock typing against your own core, the performance
+tests on the big field project) say **your data**; run them on a COPY of one of your projects,
+never the live one.
+
+**Five sittings.** A: steps 1–6 (shell, imports, wells, tops — about two hours). B: steps 7–9
+(conditioning, core petrophysics, the viewer's tools). C: steps 10–11 (the Advance methods and rock
+typing — your data). D: steps 12–14 (equations and ML, batch, reporting). E: steps 15–18 (sessions,
+the big project, the packaged build, and the clean-machine installation — the last one needs the
+clean machine from Section INS and a day).
+
+**Where a test's own text has gone stale, the step says so.** The plan keeps the original text and
+adds a dated Update or STALE block under it, so the record of what you saw survives.
+
+1. **Launch the dev build.** *Before:* nothing running on port 1420. *Run:* T-SHELL-01, T-SHELL-02,
+   T-SHELL-03 (all three passed on 2026-07 — re-run only after a shell change), then T-AUX-01
+   (Performance pane) and T-AUX-02 (Help). *After:* the app is open and the ribbon walks.
+2. **A fresh UAT project and the first import.** *Before:* a path for `uat.duckdb`; the example
+   folder on disk. *Run:* T-INT-01 (it asks for four LAS files — the example set has three; the
+   fourth can be any LAS of yours, or run it with three and say so in Notes), T-IMP-01, T-IMP-02
+   and T-INT-02 (re-import the same file), T-IMP-03 with `bad_dup_depth.las`, T-IMP-04 with
+   `bad_null_depth.las` and `bad_truncated.las`, T-IMP-17, then T-IMP-05 — **its Expected line is
+   stale; read the STALE block under it before marking.** *After:* three wells with GR, RHOB, NPHI
+   and resistivity.
+3. **Project lifecycle.** *Before:* step 2. *Run:* T-SHELL-04, T-SHELL-05, T-SHELL-06,
+   T-SHELL-07, T-SHELL-09 and T-SHELL-16 — all passed on 2026-07; re-run the two project tests if
+   you want the recents list exercised on this machine, otherwise move on. The session tests and
+   the two shell cross-checks come later, in the steps where their data exists. *After:* a second
+   project exists in Recent.
+4. **Wells pane, selection and the first log view.** *Before:* three wells. *Run:* T-WELL-01,
+   T-WELL-02, T-PLOT-01, T-PLOT-02, T-PLOT-03, T-PLOT-04, T-PLOT-05, T-PLOT-09. *After:* a saved
+   layout, and you know the pin and the readout.
+5. **Tops, zones and well groups.** *Before:* `tops_multiwell.csv`. *Run:* T-IMP-10, T-INT-03,
+   T-WELL-10, T-WELL-11, T-WELL-12, T-WELL-15, T-PLOT-07, T-WELL-13, T-WELL-14, then the groups:
+   T-WELL-03, T-WELL-04, T-WELL-05, T-WELL-06, T-INT-09, T-INT-10, T-AUX-15. *After:* every well
+   has tops and zones; two groups exist; one is active.
+6. **The other deliveries.** *Before:* `core_rcal_SANDI-01.csv`, `core_rcal_multiwell.csv`,
+   `deviation_SANDI-02.csv`, `perforations_SANDI-01.csv`, `xrd_SANDI-01.csv`, the three
+   `scal_*_SANDI-01.csv`, `well_locations.csv`, `bad_core_no_depth.csv`, `bad_dev_no_md.csv`,
+   `bad_scal_empty.csv`; a `.dlis` of your own and a text file renamed `garbage.dlis`. *Run:*
+   T-IMP-07, T-IMP-08, T-IMP-09 (core), T-IMP-12 (deviation), T-IMP-11 (perforations and XRD),
+   T-IMP-14 (SCAL), T-IMP-13 then T-WELL-07, T-WELL-08, T-WELL-09 (locations and the field map),
+   T-AUX-19, T-IMP-06 and T-AUX-18 (DLIS), T-AUX-03 (well header), T-AUX-06 (the well diagram from
+   the perforations). *After:* SANDI-01 carries core, SCAL, perforations and XRD; SANDI-02 has a
+   survey with TVD and TVDSS; every well has a location.
+7. **Conditioning.** *Before:* steps 5 and 6. *Run:* T-INT-04, then T-PREP-01 to T-PREP-19 in
+   order (T-PREP-04 and T-PREP-12 ask for mud data and a gas well — run the mechanics on SANDI-01
+   and the plausibility on **your data**), then T-WELL-16, T-WELL-17 (a zone override drives a
+   run) and T-SHELL-15 (History attribution). *After:* FTEMP, BADHOLE, the condition flags and
+   GRN exist on the wells.
+8. **Core petrophysics by hand.** *Before:* step 7. *Run:* T-PLOT-10 first (the histogram picks
+   give GR_MA and GR_SH), T-PLOT-14 (the Pickett gives Rw), then T-INT-05 and T-PETRO-01 to
+   T-PETRO-19 in order — **T-PETRO-02's Larionov labels were corrected in the text on 2026-07-31;
+   use the text, not your memory** — then T-PLOT-11, T-PLOT-12, T-PLOT-13 (crossplots with the
+   core), T-PLOT-08 (core overlays), and now that computed curves exist, T-IMP-15 and T-IMP-16
+   (LAS export and the round trip). *After:* VSH, PHIT, PHIE, SWT, SWE and PERM on every well.
+9. **Curve editing and the viewer's tools.** *Before:* step 8. *Run:* T-PLOT-18, T-PLOT-19,
+   T-AUX-04, T-AUX-05 (highlights), T-AUX-13 (undo depth), T-AUX-14 (two views of one well),
+   T-PLOT-16 (hover sync), T-PLOT-17 (export), T-PLOT-20, T-SHELL-17. *After:* nothing new — this
+   step only reads and undoes.
+10. **The Advance methods — your data.** *Before:* a copy of a project with a laminated (LRLC)
+    well carrying GRN, RHOB, NPHI and RES_DEEP; one well that only SSPW can run; one deviated well
+    with its survey; Pre-Calculation already run on them, as step 7 did on the example set. *Run:*
+    T-ADV-01 to T-ADV-19 in order — **T-ADV-13's Known issue is superseded; the text says do not
+    act on it.** *After:* PHIT_SSC, SW_RTC, SW_IMTS and the SM_* curves.
+11. **Rock typing.** *Before:* SANDI-01 with PHIE and a permeability (step 8), its SCAL Pc (step
+    6), and SANDI-02's TVDSS (step 6); for T-RT-06 a carbonate well of **your data**. *Run:*
+    T-RT-01 to T-RT-15 in order, T-RT-16, then T-RT-17 and T-RT-18 — **the module they test was
+    retired on 2026-07-31: mark both Blocked unless you hold a saved chain from before then.**
+    *After:* RT_LOG, HFU and the fitted Pc and SHF curves.
+12. **Equations, facies and ML.** *Before:* a Python 3.10+ with numpy, scipy and scikit-learn that
+    the Inspector reports as the engine. *Run:* T-MLEQ-01 to T-MLEQ-18 in order, T-PLOT-06 right
+    after T-MLEQ-07 (the FACIES block track), T-AUX-16, T-AUX-17, T-AUX-20. *After:* PHIE_TEST,
+    FACIES, FACIES_GMM and the ML curves, and a saved model.
+13. **Batch and the field.** *Before:* step 8 on all three wells; for T-AUX-10 and T-AUX-11 a
+    project with fifteen to twenty wells — **your data**, a copy. *Run:* T-BATCH-01 to T-BATCH-19
+    in order, T-INT-06, T-INT-07, T-INT-11 (versioning round trip), T-AUX-10, T-AUX-11, T-AUX-12.
+    *After:* UAT_CHAIN4 saved; PAYFLAG and the pay summary on every well; a Monte Carlo result.
+14. **Reporting and the database.** *Before:* step 13. *Run:* T-INT-08, then T-REP-01 to T-REP-19
+    in order, T-AUX-07 (the well diagram in the composite), T-PLOT-15 (correlation), T-AUX-08,
+    T-AUX-09 (contacts). *After:* a PDF, a Word file, a workbook and a deck on disk, all from the
+    same pay table.
+15. **Sessions, and the last shell test.** *Before:* a busy workspace. *Run:* T-INT-12, then any
+    of T-SHELL-08 and T-SHELL-10 to T-SHELL-14 you want re-marked, then T-SHELL-18 **last in the
+    sitting** — it kills the app. *After:* the workspace comes back.
+16. **Performance on the big project — your data.** *Before:* a copy of the 100+-well project, the
+    dev server already compiled once. *Run:* T-PERF-01 to T-PERF-08 in order; T-PERF-08 last, and
+    only while the Processing pane is idle. *After:* timings in Notes — ROADMAP's Performance tier
+    is waiting on those numbers.
+17. **The packaged build.** *Before:* `npm run tauri build` in the pinned shell. *Run:* T-SHIP-01
+    to T-SHIP-07. *After:* a built `sandibumi.exe` that launches under the hardened CSP.
+18. **Installation, offline runtime and recovery — Gate 3.** *Before:* the clean Windows 11 machine
+    and the media described at the top of Section INS. *Run:* T-INS-01 to T-INS-15 in order;
+    T-INS-08 to T-INS-11 are one lifecycle on one machine. *After:* the first column of the Gate 3
+    matrix, and a Blocked mark with a date wherever the thing measured does not exist yet.
+
+Every one of the 265 tests appears in exactly one step above. If you find one that does not, that
+is a defect in this list — note it in the nearest step's test and carry on.
 
 ---
 
