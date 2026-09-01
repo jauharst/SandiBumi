@@ -1617,37 +1617,78 @@ cannot happen quietly.
 - [x] **#64** three drifted topic tables — SHALE_REDUCTION_CLAMP carries its two Geolog readings,
       `param_sources.rs:1754`.
 
-**P2 (structure — audit findings 49–59, proposals):**
-- [ ] **#49** `workflow.rs` — two zero-coupled subsystems, 15.7k lines; paysummary.rs split
-- [ ] **#50** `workflow.rs:2430` — 940-line runner, four module names inside, 7-tuple ×3
-- [ ] **#51** `modules.rs:6923` — sw_indo duplicates sandimin::sw_indonesia. Waits on R-2.
-- [ ] **#52** `db.rs:5371` — one integrity class ×4 shapes on a PK-less table; positional misattribution
-- [ ] **#53** `equations.rs` — ancestry/log-set subsystem (~2.6k lines) → ancestry.rs + logset.rs
-- [ ] **#54** `workflow.rs:847` — eight reserved-key guard copies (legacy-check asymmetry unreadable)
-- [ ] **#55** `workflow.rs:4226` — stringly cutoff slots; silent `_ => perm` fallback (the fail-active slot)
-- [ ] **#56** `parsers.rs` — 12 of 23 public parsers lose the filename (wrapper-pair shape: check SB-DIO-061)
-- [ ] **#57** 3 plot panels — reloadContext triplicated; createContextLoader extraction
-- [ ] **#58** `modules.rs:1695` — shale/clay contract table: unlisted arg silently never validated
-- [ ] **#59** `check.ps1:52` — twelve gate blocks all fail as "takeover ledger"
+**P2 and P3 — structure, slop and the long tail (audit findings 29-48, 49-62, 65-85)**
 
-**P2 (slop hiding structure/provenance hazards — audit findings 65–71):**
-- [ ] **#65** 13+ sites — orphaned doc comments; provenance blocks on the wrong items (mechanical sweep)
-- [ ] **#66** `workflow.rs:4587` — comment asserts overwrite-in-place above the refusal forbidding it
-- [ ] **#67** `plotting.rs` — 13 cfg(test) production-shaped items invisible to gate2-hygiene
-- [ ] **#68** `ipc.ts`+`axisRange.ts` — twelve dead new TS exports; no gate covers exports
-- [ ] **#69** `ingest.rs:589` — ImportResult literal ×14; constructor precedent exists
-- [ ] **#70** `equations.rs:2394` — INSERT INTO log_sets ×4; restore_log_set divergence unassessed
-- [ ] **#71** `runCustody.ts:78` — misplaced doc + vestigial let-close stub
+**Verified item by item on 2026-09-02**, the second half of the pass that closed the physics block
+above. **53 of the 54 were already closed.** Forty-two of them cite the audit finding BY NUMBER in
+the code that fixed it, so the citation IS the evidence and
+`grep -rn "AUDIT-2026-08-20 finding <n>" src-tauri/src src` reproduces it for any of them; the other
+eleven were confirmed by probing the code each finding named. Both big restructurings landed: **#49**
+carved `paysummary.rs` out of `workflow.rs`, **#53** carved `ancestry.rs` out of `equations.rs`.
 
-**P3 (audit findings 29–48, 60–62, 72–85 — see the report; cheap systematic sweeps first):**
-- [ ] **#72+#73** cargo fmt sweep (92 sites, zero baseline) + `cargo fmt --check` in the gate;
-      the mangling reaches operator-facing messages (#73)
-- [ ] **#32** P_LOW/P_HIGH cites a nonexistent path ×4 — point at `docs/workflow_standards.md:17-20`
-- [ ] **#29 #31 #33 #34 #35 #36 #37 #38 #39 #40 #41 #42 #43 #44 #45 #46 #47 #48** — limits/agreement/
-      provenance long tail (report carries each)
-- [ ] **#60 #61 #62 #74 #75 #76 #77 #78 #79 #80 #81 #82 #83 #84 #85** — structure/slop long tail
-- [ ] **PL-1** `sandimin.rs:2367` — PLAUSIBLE: solve_bounded_lsq quality-gating on budget
-      exhaustion/singular sub-solve unestablished — needs its own dedicated pass
+**#33 was the one real defect** - `sandimin::CORE_MATCH_TOL_M`, finding 16's twin in a second file -
+and it is fixed in the same increment as this verification. With it, **every numbered finding of the
+85 is closed**; only the PLAUSIBLE item below stays open.
+
+- [ ] **PL-1** `sandimin.rs` - PLAUSIBLE, never confirmed: `solve_bounded_lsq` quality-gating on
+      budget exhaustion / a singular sub-solve is unestablished. Needs its own dedicated pass, and
+      is deliberately NOT ticked by this one - a plausible finding is not a verified one.
+
+**Closed - verified 2026-09-02, evidence beside each:**
+- [x] **#29** Coates squared PHIE twice, so a vendor porosity reading -0.05 returned a real permeability - `modules.rs`.
+- [x] **#31** bound VALUES restated in prose beside the ladder arms that own them - `modules.rs`.
+- [x] **#32** a citation that points at nothing - `core_ancestry_tests.rs`.
+- [x] **#33** the core tie tolerance was a bare metre constant - **fixed in this increment** - `sandimin.rs`.
+- [x] **#34** the dual-water alpha ceiling became a declared parameter (DEC-095) - `sandimin.rs`.
+- [x] **#35** the SSC/SSPW gas weight is the user parameter GAS_C (0-2) in code and in the spec alike - `ssc.rs + method_ssc_sspw.md`.
+- [x] **#36** a duplicate row on the deliberately PK-less computed_curves - `core_ancestry_tests.rs`.
+- [x] **#37** sweep arm E could not notice a saturation producer that is not a registered module - `modules.rs`.
+- [x] **#38** the PHIE range closed at the bottom (DEC-091) - `modules.rs`.
+- [x] **#39** the stored matrix gated on the SAME population as the percentile curves - `montecarlo.rs`.
+- [x] **#40** the viewer divided the visible window and the print divided the page - `distribution.rs`.
+- [x] **#41** an interval straddling a page break was drawn by neither page - `composite.rs`.
+- [x] **#42** a PDF-only constraint decided when the shared draw ops were built - `composite.rs`.
+- [x] **#43** floor(v + 0.5) rather than f32::round, matching the viewer at exactly -0.5 - `composite.rs`.
+- [x] **#44** one percentile definition rather than two - `distribution.rs`.
+- [x] **#45** a unit UNION cannot say which unit a supplied number is in - `modules.rs`.
+- [x] **#46** an import dialog default that was also a valid answer - `ui/followCore.ts`.
+- [x] **#47** the SCAL parsers ran the magnitude heuristic while holding header context - `parsers.rs`.
+- [x] **#48** UNIT_RULES naming a family that does not exist - QV is deliberate now, documented and tested - `curves.rs + tools/unit-registry.mjs`.
+- [x] **#49** workflow.rs split; paysummary.rs carved out of its lower 2,082 lines - `paysummary.rs`.
+- [x] **#50** a generic runner matching on module NAME inside the run path - `modules.rs`.
+- [x] **#51** sw_indo transcribed the equation sandimin::sw_indonesia already held - `modules.rs`.
+- [x] **#52** one prunable integrity class hand-transcribed in four shapes - `db.rs`.
+- [x] **#53** equations.rs split; ancestry.rs carved out of its middle ~2,900 lines - `ancestry.rs`.
+- [x] **#54** nine copies of the reserved-provenance-key guard, only two consulting the same thing - `workflow.rs`.
+- [x] **#55** stringly cut-off slots with a catch-all arm that swallowed a typo - `paysummary.rs`.
+- [x] **#56** a public parser refusal that did not name the file it refused - `parsers.rs`.
+- [x] **#57** reloadContext triplicated across three plot panels - `ui/plotAsync.ts`.
+- [x] **#58** the shale/clay contract table could not reject a module missing FROM it - `modules.rs`.
+- [x] **#59** twelve gate blocks that all failed under one name - `check.ps1, pinned by every_stage_one_gate_fails_under_its_own_name`.
+- [x] **#60** a test-only serializer seam threaded through two production signatures - `gone from the tree`.
+- [x] **#61** an INFINITY reported as inside a finite bound, unflagged - `paysummary.rs`.
+- [x] **#62** ten identical panics with nothing to say which had been reached - `modules.rs`.
+- [x] **#65** a doc block, R-B backup guarantee included, drifted onto the wrong function - `db.rs`.
+- [x] **#66** a comment asserting overwrite-in-place above the refusal forbidding it - `gone from the tree`.
+- [x] **#67** cfg(test) production-shaped items invisible to the hygiene gate - `source_hygiene_tests.rs`.
+- [x] **#68** twelve dead TypeScript exports and no gate that could see them - `tools/frontend-exports.mjs, a gate stage now`.
+- [x] **#69** a twenty-field literal written out at fourteen sites - `ingest.rs`.
+- [x] **#70** one INSERT typed four times, two of which had stopped agreeing - `ancestry.rs`.
+- [x] **#71** a misplaced doc block and a vestigial let-close stub - `ui/runCustody.ts`.
+- [x] **#72** punctuation stranded by a dropped line continuation - `source_hygiene_tests.rs`.
+- [x] **#73** the same tear inside the text an operator reads - `source_hygiene_tests.rs`.
+- [x] **#74** a run prefix that must be trimmed, uppercased and empty-means-none - `workflow.rs`.
+- [x] **#75** three density-porosity modules declaring the PHIE floor separately - `modules.rs`.
+- [x] **#76** the clay-quantity contract checked in more than one place - `workflow.rs`.
+- [x] **#77** three producers each carrying their own copy of the ancestry-insert ORDER - `ancestry.rs`.
+- [x] **#78** the same top/bottom swap restated four times, two answering different questions - `curve_edit.rs`.
+- [x] **#79** an identical statement re-prepared inside a per-entry loop - `gone from the tree`.
+- [x] **#80** two consecutive branches returning the same answer, the first wholly subsumed - `parsers.rs`.
+- [x] **#81** the dialog re-encoded solver selectability as string literals - `sandimin.rs`.
+- [x] **#82** an absent cut-off serialized as a bare null on three of the four slots - `montecarlo.rs`.
+- [x] **#83** an is_none/continue/unwrap where the same function uses let-else - `gone from the tree`.
+- [x] **#84** a queued flag provably redundant with current - `gone from the tree`.
+- [x] **#85** the legend record-limit logic pasted verbatim into three panels - `ui/plotCommon.ts`.
 
 ## B2. Interpretation-workflow open items (§4)
 

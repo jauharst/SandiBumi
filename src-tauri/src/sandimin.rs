@@ -1677,22 +1677,37 @@ fn bndwat_soft_rows(
 // Core calibration — does the solved model reproduce an independent measurement?
 // ---------------------------------------------------------------------------
 
-/// Max |depth difference| for tying a core plug to a log sample. Matches the 1.0 m convention
-/// already used for core-plug tie-in in `facies_tie.rs`.
-const CORE_MATCH_TOL_M: f32 = 1.0;
+/// Max |depth difference| for tying a core plug to a log sample, as a PHYSICAL SIZE: one metre of
+/// hole, the same convention `facies_tie.rs` uses for the same pairing problem.
+///
+/// AUDIT-2026-08-20 finding 33, which is finding 16's twin - the doc here used to say "the 1.0 m
+/// convention already used in `facies_tie.rs`" and cite a file that has since stopped working that
+/// way. Both shipped as a bare `f32` compared against depths in whatever unit the project stores,
+/// so a FOOT project tied plugs within 1 ft, under a third of the rock, while the dialog went on
+/// printing "within 1 m". Quieter than finding 16 only because nothing is written: a plug that
+/// fails to tie is dropped from the core RMS and bias, so the calibration silently answers over
+/// fewer plugs than the operator believes it read.
+const CORE_MATCH_TOL_METRES: f64 = 1.0;
 
-/// Index of the SOLVED log sample closest to `target` within `CORE_MATCH_TOL_M`, or None.
+/// [`CORE_MATCH_TOL_METRES`] restated in the unit a project stores its depths in.
+fn core_match_tol_in(unit: crate::units::DepthUnit) -> f32 {
+    crate::units::metres_in(CORE_MATCH_TOL_METRES, unit) as f32
+}
+
+/// Index of the SOLVED log sample closest to `target` within `tol`, or None.
 /// Unsolved samples (NaN) are skipped rather than matched, so a plug either lands on a real
 /// solved value or is dropped from the statistic. Linear scan: plug counts are in the tens, and
 /// this assumes nothing about the depth grid being ascending.
-fn nearest_solved(depth: &[f32], model: &[f32], target: f32) -> Option<usize> {
+///
+/// `tol` is passed rather than read from a constant so it arrives in the SAME unit as `depth`.
+fn nearest_solved(depth: &[f32], model: &[f32], target: f32, tol: f32) -> Option<usize> {
     let mut best: Option<usize> = None;
     for i in 0..depth.len().min(model.len()) {
         if !model[i].is_finite() {
             continue;
         }
         let dd = (depth[i] - target).abs();
-        if dd > CORE_MATCH_TOL_M {
+        if dd > tol {
             continue;
         }
         if best.map_or(true, |b| dd < (depth[b] - target).abs()) {
@@ -1704,12 +1719,12 @@ fn nearest_solved(depth: &[f32], model: &[f32], target: f32) -> Option<usize> {
 
 /// RMS and mean signed error of `model` against core plugs `(depth, value)`, over the plugs that
 /// tie to a solved sample. None when nothing matched.
-fn core_fit(depth: &[f32], model: &[f32], plugs: &[(f32, f32)]) -> Option<CoreFit> {
+fn core_fit(depth: &[f32], model: &[f32], plugs: &[(f32, f32)], tol: f32) -> Option<CoreFit> {
     let mut n = 0usize;
     let mut sse = 0.0f64;
     let mut sum = 0.0f64;
     for &(d, cv) in plugs {
-        let Some(i) = nearest_solved(depth, model, d) else { continue;
+        let Some(i) = nearest_solved(depth, model, d, tol) else { continue;
         };
         let e = model[i] as f64 - cv as f64;
         sse += e * e;
@@ -1979,6 +1994,11 @@ pub fn run_sandimin(
 
     let n_wells = req.apply_well_ids.len();
     let conn = db.lock().unwrap();
+    // AUDIT-2026-08-20 finding 33: the core tie tolerance is one metre of hole, restated in the
+    // unit this project stores its depths in before it ever meets a depth.
+    let core_tol = core_match_tol_in(
+        crate::units::project_depth_unit(&conn).ok().flatten().unwrap_or_default(),
+    );
     for (wi, well_id) in req.apply_well_ids.iter().enumerate() {
         // Cooperative cancel + live per-well progress into the Processing panel. The panel polls
         // the (separate) jobs registry, so these updates land even while this holds the DB lock.
@@ -2417,7 +2437,8 @@ pub fn run_sandimin(
         // --- Core calibration -------------------------------------------------
         // RECON only says the model reproduces the logs it was fitted to; core plugs are an
         // INDEPENDENT measurement. Plugs sit on their own sparse depths, so each ties to the
-        // nearest solved sample within CORE_MATCH_TOL_M. A well with no core (or an all-NULL
+        // nearest solved sample within `core_tol`, one metre of hole in the project's own unit.
+        // A well with no core (or an all-NULL
         // column) simply leaves these None — nothing is reported as a zero.
         // A refusal is CARRIED, not swallowed into an empty plug list — `unwrap_or_default` made a
         // cross-datum core indistinguishable from a well that was never cored, and the dialog hides
@@ -2475,7 +2496,7 @@ pub fn run_sandimin(
                         f32::NAN
                     }
                 });
-                core_gd = core_fit(&depth, &gd, &gd_plugs);
+                core_gd = core_fit(&depth, &gd, &gd_plugs, core_tol);
             }
         }
 
@@ -2498,8 +2519,8 @@ pub fn run_sandimin(
             // Core φ against BOTH porosities — the drying protocol decides which one a plug should
             // match, so report the bracket instead of picking one for the analyst.
             if !por_plugs.is_empty() {
-                core_phie = core_fit(&depth, &phie, &por_plugs);
-                core_phit = core_fit(&depth, &phit, &por_plugs);
+                core_phie = core_fit(&depth, &phie, &por_plugs, core_tol);
+                core_phit = core_fit(&depth, &phit, &por_plugs, core_tol);
             }
             let produced: Vec<bool> = swe.iter().map(|value| value.is_finite()).collect();
             let method_flag = saturation_method_flag_curve(&prefix, model, &produced);
@@ -5036,6 +5057,33 @@ mod tests {
         }
     }
 
+    /// AUDIT-2026-08-20 finding 33, finding 16's twin in a second file. Pinned from BOTH sides,
+    /// because the lazier implementation - the one that shipped - passes the metre half perfectly:
+    /// it returned 1.0 whatever the project was in.
+    #[test]
+    fn the_core_tie_tolerance_is_one_metre_of_hole_in_whatever_unit_the_project_stores() {
+        use crate::units::DepthUnit;
+
+        // A metre project states it unchanged.
+        assert_eq!(core_match_tol_in(DepthUnit::Metres), 1.0);
+
+        // A foot project states the same PHYSICAL DISTANCE, which is a different NUMBER. Reusing
+        // 1.0 there tied plugs within one foot - under a third of the rock - and every plug in the
+        // other two thirds was DROPPED from the core RMS and bias rather than reported, so the
+        // calibration answered over fewer plugs than the operator believed it had read.
+        let ft = core_match_tol_in(DepthUnit::Feet);
+        assert!((ft - 3.280_84).abs() < 1e-4, "one metre in feet, got {ft}");
+        assert!(ft > 3.0, "an exact conversion, never the metre number reused");
+
+        // And it is the tie that changes, not just the constant: a plug 2 ft from its sample is
+        // outside a metre-project tolerance and inside a foot-project one.
+        let depth = [2000.0f32, 2002.0];
+        let model = [0.20f32, 0.25];
+        assert_eq!(nearest_solved(&depth, &model, 2002.0, core_match_tol_in(DepthUnit::Metres)), Some(1));
+        assert!(nearest_solved(&depth, &model, 2003.5, core_match_tol_in(DepthUnit::Metres)).is_none());
+        assert_eq!(nearest_solved(&depth, &model, 2003.5, core_match_tol_in(DepthUnit::Feet)), Some(1));
+    }
+
     #[test]
     fn core_fit_rms_bias_tolerance_and_nan_skip() {
         // Hand-computed NUMERIC LITERALS so a slip in the RMS/bias expression fails here rather
@@ -5048,7 +5096,7 @@ mod tests {
             //                        e = 0.30 − 0.26 = +0.04
             (2500.0, 0.50), // nothing within 1.0 m → dropped entirely
         ];
-        let f = core_fit(&depth, &model, &plugs).expect("two plugs should match");
+        let f = core_fit(&depth, &model, &plugs, 1.0).expect("two plugs should match");
         assert_eq!(f.n, 2, "the out-of-tolerance plug must be dropped, not matched");
         // sse = 0.0004 + 0.0016 = 0.002 → rms = sqrt(0.001)
         assert!((f.rms - 0.031_622_78).abs() < 1e-5, "rms {}", f.rms);
@@ -5057,17 +5105,17 @@ mod tests {
 
         // The NaN sample is skipped, never matched: a plug essentially on top of it ties to the
         // nearest SOLVED neighbour (2001.5 at 0.48 beats 2000.5 at 0.52) instead of being lost.
-        assert_eq!(nearest_solved(&depth, &model, 2001.02), Some(3));
+        assert_eq!(nearest_solved(&depth, &model, 2001.02, 1.0), Some(3));
         // Exactly equidistant between two solved samples, the first wins — deterministic, so the
         // statistic never depends on iteration order.
-        assert_eq!(nearest_solved(&depth, &model, 2001.0), Some(1));
+        assert_eq!(nearest_solved(&depth, &model, 2001.0, 1.0), Some(1));
 
         // No plugs, and plugs that all miss, report absence — not a zero that would read as a
         // perfect fit.
-        assert!(core_fit(&depth, &model, &[]).is_none());
-        assert!(core_fit(&depth, &model, &[(3000.0, 0.2)]).is_none());
+        assert!(core_fit(&depth, &model, &[], 1.0).is_none());
+        assert!(core_fit(&depth, &model, &[(3000.0, 0.2)], 1.0).is_none());
         // An all-NaN model can never match.
-        assert!(core_fit(&depth, &[f32::NAN; 4], &[(2000.0, 0.2)]).is_none());
+        assert!(core_fit(&depth, &[f32::NAN; 4], &[(2000.0, 0.2)], 1.0).is_none());
     }
 
     #[test]
