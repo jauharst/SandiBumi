@@ -31,7 +31,7 @@ import { openLayoutPropsDialog, type PointSuggestion } from "./layoutPropsDialog
 import type { CurveSuggestion } from "./layoutPropsDialog";
 import { trackCurveKey, type TrackCurveRequest } from "../trackCurveRequest";
 import { formRow, openModal } from "./modal";
-import { canvasFont, readTheme } from "./plotCanvas";
+import { canvasFont, readTheme, scaleHasPositions, valueFrac } from "./plotCanvas";
 import { coreOverlayItem, loadCurveUnits } from "./plotCommon";
 import { HighlightsOverlay } from "./highlightsOverlay";
 import { TopsEditor } from "./topsEditor";
@@ -878,9 +878,9 @@ export class LogViewPanel {
         if (!series || series.depth.length === 0) continue;
 
         const log = track.scale_type === "log";
-        const lo = log ? Math.log10(Math.max(curve.min, 1e-6)) : curve.min;
-        const hi = log ? Math.log10(Math.max(curve.max, 1e-6)) : curve.max;
-        if (hi === lo) continue;
+        // A curve whose scale can place nothing lets the next curve with a counterpart win the
+        // track - the `break` below would otherwise stop at a curve that drew nothing.
+        if (!scaleHasPositions(curve.min, curve.max, log)) continue;
         const left = range.leftFrac * w;
         const span = (range.rightFrac - range.leftFrac) * w;
         ctx.fillStyle = curve.color;
@@ -890,9 +890,10 @@ export class LogViewPanel {
           if (d < top || d > bottom) continue;
           const v = series.value[i];
           if (!Number.isFinite(v)) continue;
-          const tv = log ? Math.log10(Math.max(v, 1e-6)) : v;
-          const frac = (tv - lo) / (hi - lo);
-          if (frac < 0 || frac > 1) continue;
+          // Same rule as the curve it overlays: no position for a non-positive value or scale
+          // end on a log axis, and an off-scale plug is SKIPPED, never clamped to the edge.
+          const frac = valueFrac(v, curve.min, curve.max, log);
+          if (frac == null || frac < 0 || frac > 1) continue;
           const x = left + frac * span;
           const y = ((d - top) / (bottom - top)) * h;
           ctx.beginPath();
@@ -1163,17 +1164,15 @@ export class LogViewPanel {
       for (const [styleIndex, style] of track.arrays.entries()) {
         const series = this.arrayLogs.get(style.curve_name.trim().toUpperCase());
         if (!series) continue;
-        if (!Number.isFinite(style.min) || !Number.isFinite(style.max) || (log && (style.min <= 0 || style.max <= 0))) continue;
-        const lo = log ? Math.log10(style.min) : style.min;
-        const hi = log ? Math.log10(style.max) : style.max;
-        if (hi === lo) continue;
+        if (!scaleHasPositions(style.min, style.max, log)) continue;
         // CLAMPED at the track edge, unlike a point sample. The rule follows what the data is:
         // a discrete plug drawn at a value it never had is a lie, while a continuous reading
-        // running past the scale is the ordinary log-display convention.
+        // running past the scale is the ordinary log-display convention. Where a value sits is
+        // the print's question (`composite.rs::draw_array_series`, through `value_frac`), asked
+        // through `valueFrac` like every other builder of a log track.
         const xOf = (v: number): number | null => {
-          if (!Number.isFinite(v) || (log && v <= 0)) return null;
-          const tv = log ? Math.log10(v) : v;
-          return left + Math.min(1, Math.max(0, (tv - lo) / (hi - lo))) * span;
+          const frac = valueFrac(v, style.min, style.max, log);
+          return frac == null ? null : left + Math.min(1, Math.max(0, frac)) * span;
         };
         // Only the depths on screen — a 2000-sample matrix zoomed to 10 m must cost 10 m of work.
         const rows: number[] = [];
@@ -1389,14 +1388,12 @@ export class LogViewPanel {
       const log = track.scale_type === "log";
 
       for (const style of track.points) {
-        const lo = log ? Math.log10(Math.max(style.min, 1e-6)) : style.min;
-        const hi = log ? Math.log10(Math.max(style.max, 1e-6)) : style.max;
-        if (hi === lo) continue;
-        // Returns null (not a clamped edge position) for anything off-scale.
+        // Shared with the print (`composite.rs::draw_point_series`, through `value_frac`): null -
+        // not a clamped edge position - for anything off-scale, and for a log axis whose value or
+        // scale end is non-positive, so a plug at 0 mD is a gap on both, never a mark at the edge.
         const xOf = (v: number): number | null => {
-          const tv = log ? Math.log10(Math.max(v, 1e-6)) : v;
-          const frac = (tv - lo) / (hi - lo);
-          return frac < 0 || frac > 1 ? null : left + frac * span;
+          const frac = valueFrac(v, style.min, style.max, log);
+          return frac == null || frac < 0 || frac > 1 ? null : left + frac * span;
         };
         const samples = this.pointSamples(style);
         if (samples.depth.length === 0) continue;

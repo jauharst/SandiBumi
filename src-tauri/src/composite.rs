@@ -191,9 +191,12 @@ fn nice_step(target: f64) -> f64 {
 
 /// Maps a curve value to an x fraction [0,1] across a track for the given scale, honoring
 /// reversed min/max (min > max ⇒ the axis runs the other way, e.g. porosity). Returns
-/// None for NaN or non-positive values on a log scale.
+/// None for a value or scale end that is not finite, and for non-positive values on a log scale.
 fn value_frac(v: f32, min: f32, max: f32, scale: ScaleType) -> Option<f64> {
-    if v.is_nan() {
+    // Infinity is not a reading. The screen (`plotCanvas.ts::valueFrac`) has refused it since
+    // finding 21; the print clamped an infinite sample to the track edge until the 2026-09-02
+    // review of that finding's residual caught the two disagreeing.
+    if !v.is_finite() || !min.is_finite() || !max.is_finite() {
         return None;
     }
     let (v, min, max) = (v as f64, min as f64, max as f64);
@@ -2720,7 +2723,7 @@ mod tests {
         let at = ts.find("export function valueFrac").expect("plotCanvas.ts declares valueFrac");
         // Taken by CHARS, never by byte offset - this file carries non-ASCII and a fixed byte
         // window can land mid-character.
-        let body: String = ts[at..].chars().take(400).collect();
+        let body: String = ts[at..].chars().take(900).collect();
         assert!(
             body.contains("if (v <= 0 || min <= 0 || max <= 0) return null;"),
             "the screen no longer refuses a non-positive value or scale end on a log axis, so it \
@@ -2730,6 +2733,66 @@ mod tests {
             body.contains("Math.log(max) - Math.log(min)"),
             "the screen must still PLACE a valid log reading, not merely refuse the bad ones",
         );
+
+        // Neither side places a value or a scale end that is not finite: infinity is not a
+        // reading, and until 2026-09-02 the print clamped one to the track edge while the screen
+        // left a gap.
+        assert!(value_frac(f32::INFINITY, 0.0, 1.0, ScaleType::Linear).is_none());
+        assert!(value_frac(f32::NEG_INFINITY, 0.2, 2000.0, ScaleType::Log).is_none());
+        assert!(value_frac(0.5, f32::NAN, 1.0, ScaleType::Linear).is_none());
+        assert!(value_frac(10.0, 0.2, f32::INFINITY, ScaleType::Log).is_none());
+        assert!(
+            body.contains("!Number.isFinite(min) || !Number.isFinite(max)"),
+            "the screen must refuse a scale end that is not a number, as the print does",
+        );
+
+        // And every screen BUILDER of a log track asks that one function, rather than keeping
+        // log arithmetic of its own. The 2026-09-02 closure critique found three that still
+        // substituted 1e-6 before the logarithm - the crossover fill, the point tracks and the
+        // core overlay - so a track whose minimum was 0 shaded on screen while the PDF left it
+        // empty, and a point series left at its seeded minimum of 0 drew plugs on screen and
+        // printed none; the review of that fix found a fourth, the array tracks, right by
+        // coincidence rather than by construction. The shipped substitution had one spelling
+        // and is refused file-wide; each builder is then read on its own, from its declaration
+        // to its closing brace, and must take no logarithm of its own while asking valueFrac.
+        let renderer = include_str!("../../src/LogCanvasRenderer.ts").replace("\r\n", "\n");
+        let panel = include_str!("../../src/ui/logViewPanel.ts").replace("\r\n", "\n");
+        // The renderer's two builders share one helper, `ndcX`, which is the one that asks; a
+        // builder may call either, and the helper itself must still ask.
+        let helper = renderer.find("function ndcX(").expect("LogCanvasRenderer.ts declares ndcX");
+        let helper_body: String = renderer[helper..].chars().take(600).collect();
+        assert!(
+            helper_body.contains("valueFrac("),
+            "ndcX no longer asks valueFrac where a value sits, so neither renderer builder does",
+        );
+        for (file, src) in [("LogCanvasRenderer.ts", &renderer), ("logViewPanel.ts", &panel)] {
+            assert!(
+                !src.contains("Math.log10(Math.max("),
+                "{file} substitutes a floor before a logarithm again, so it will place a value the print says has no position",
+            );
+        }
+        for (file, src, builder) in [
+            ("LogCanvasRenderer.ts", &renderer, "private buildCurveGeometry("),
+            ("LogCanvasRenderer.ts", &renderer, "private buildCrossoverGeometries("),
+            ("logViewPanel.ts", &panel, "private drawCoreOverlay("),
+            ("logViewPanel.ts", &panel, "private drawPointTracks("),
+            ("logViewPanel.ts", &panel, "private drawArrayTracks("),
+        ] {
+            let at = src.find(builder).unwrap_or_else(|| panic!("{file} declares {builder}"));
+            let rest = &src[at..];
+            // A class method closes at two-space indent; the first such brace after the
+            // declaration is the builder's own, so the window is the builder and nothing past it.
+            let end = rest.find("\n  }\n").map(|e| e + 5).unwrap_or(rest.len());
+            let body = &rest[..end];
+            assert!(
+                body.contains("valueFrac(") || body.contains("ndcX("),
+                "{file}: {builder} no longer asks valueFrac (or ndcX) where a value sits",
+            );
+            assert!(
+                !body.contains("Math.log10(") && !body.contains("Math.log("),
+                "{file}: {builder} takes a logarithm of its own instead of asking valueFrac",
+            );
+        }
     }
 
     /// A colour theme recolours the APPLICATION, never the DATA.

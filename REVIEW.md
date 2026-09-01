@@ -21170,9 +21170,13 @@ is applied per METRE on a metre project unless you convert it yourself (the mani
 other temperature writer converts for you), and a project whose one-time unit migration fails opens
 with the old split and says so only in a boot note.
 
-- [ ] **The crossover residual, to see it once.** On a log-scaled resistivity track with crossover
-      shading between two resistivity curves, set the track minimum to 0 in the layout. The screen
-      goes on shading; export the same layout to PDF and the shading is gone. After the fix both
-      should show nothing until the minimum is positive again.
+- [ ] **The crossover residual, fixed — see both sides agree.** On a log-scaled resistivity track
+      with crossover shading between two resistivity curves, set the track minimum to 0 in the
+      layout: the screen now shades nothing, and the PDF of the same layout shades nothing; set it
+      back to 0.2 and both shade again. Then add a core-porosity point series to a log-scaled track
+      and leave its seeded minimum of 0 with the display set to **points**: no plugs on screen and
+      none in the PDF; give it a positive minimum and the plugs appear on both sides. (The
+      **histogram** display bins on the linear scale on both sides and goes on drawing bars — that
+      is not the residual, and it is the same on paper.)
 - [ ] **Spot-check an anchor.** Pick any closed finding in `ROADMAP.md` §B1c and open the file at
       the line it names — the fix should be there, in production code, not only in a test.
