@@ -2679,6 +2679,59 @@ mod tests {
         );
     }
 
+    /// AUDIT-2026-08-20 finding 21. Where a LOG track has NO position is decided twice - here in
+    /// `value_frac` for the print, and in `plotCanvas.ts::valueFrac` for the screen - and the
+    /// finding was that the two disagreed: the screen clamped where the print broke, and a track
+    /// whose minimum was 0 printed nothing while the screen still drew.
+    ///
+    /// They agree today, condition for condition, and the 2026-09-01 backlog pass could not tell
+    /// whether that was a fix or a coincidence, because nothing held them together. This is what
+    /// holds them - the `the_screen_and_the_print_paint_the_same_facies_the_same_colour` idiom
+    /// applied to the other rule those two files both own.
+    ///
+    /// A disagreement is a wrong deliverable of the quietest kind. The log view shows a
+    /// resistivity curve, the PDF prints an empty track, both halves are internally consistent,
+    /// and nothing downstream can catch it - the reader's only clue is a gap where rock was.
+    ///
+    /// Pinned from BOTH sides: "make them agree" is satisfied perfectly by a pair that never
+    /// returns a position at all, so the second half requires a legitimate reading to still land,
+    /// and to land in the right place.
+    #[test]
+    fn the_screen_and_the_print_agree_on_where_a_log_track_has_no_position() {
+        // A non-positive VALUE has no logarithm, so it is a gap - not a sample clamped to an edge.
+        assert!(value_frac(0.0, 0.2, 2000.0, ScaleType::Log).is_none());
+        assert!(value_frac(-1.0, 0.2, 2000.0, ScaleType::Log).is_none());
+        // A non-positive SCALE END has none either, so the whole track has no position - which is
+        // the "min = 0 prints nothing" half of the finding, and it must be true of both or neither.
+        assert!(value_frac(10.0, 0.0, 2000.0, ScaleType::Log).is_none());
+        assert!(value_frac(10.0, 0.2, 0.0, ScaleType::Log).is_none());
+        // A scale with no span cannot place anything.
+        assert!(value_frac(10.0, 2.0, 2.0, ScaleType::Log).is_none());
+
+        // The other side: a legitimate reading still lands, and lands where it belongs. A pair
+        // that agreed by refusing everything would satisfy every assertion above.
+        let f = value_frac(20.0, 0.2, 2000.0, ScaleType::Log)
+            .expect("a positive reading inside a positive scale has a position");
+        assert!((f - 0.5).abs() < 1e-9, "20 is the geometric middle of 0.2 to 2000, got {f}");
+
+        // And the screen decides it the same way. Read rather than merged: a Rust `fn` cannot call
+        // a `.ts` one, and cross-file pinning is already this repo's answer to that.
+        let ts = include_str!("../../src/ui/plotCanvas.ts").replace("\r\n", "\n");
+        let at = ts.find("export function valueFrac").expect("plotCanvas.ts declares valueFrac");
+        // Taken by CHARS, never by byte offset - this file carries non-ASCII and a fixed byte
+        // window can land mid-character.
+        let body: String = ts[at..].chars().take(400).collect();
+        assert!(
+            body.contains("if (v <= 0 || min <= 0 || max <= 0) return null;"),
+            "the screen no longer refuses a non-positive value or scale end on a log axis, so it \
+             will draw a curve where the print prints an empty track. Screen body: {body}"
+        );
+        assert!(
+            body.contains("Math.log(max) - Math.log(min)"),
+            "the screen must still PLACE a valid log reading, not merely refuse the bad ones",
+        );
+    }
+
     /// A colour theme recolours the APPLICATION, never the DATA.
     ///
     /// `--accent`/`--accent2` are chrome and every colour theme re-rolls them, so painting a

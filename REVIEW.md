@@ -21001,3 +21001,46 @@ something nothing was measured against.
 - [ ] **Proved from both sides before committing.** Putting the old behaviour back (return 1.0
       whatever the unit) fails the new test with "one metre in feet, got 1", rather than trusting
       a test that had only ever passed.
+
+## The log view and the printed track agree about a zero, and now cannot drift (2026-09-02)
+
+**Audit finding #21**, the last of the thirty and the one the verification pass could not settle
+either way. Settled here, and the answer is that they already agreed — but nothing was holding
+them there, which is why the pass could not tell a fix from a coincidence.
+
+**What the question was.** A resistivity track is drawn on a log scale, and a logarithm has no
+answer at zero or below. Two things can hit that: a *reading* of zero or less (a bad-hole
+artefact, a bad splice), and a *scale* whose minimum is set to zero. The finding said the screen
+clamped where the print broke, and that a track with min = 0 printed nothing while the screen still
+drew — the kind of disagreement that produces a deliverable quietly at odds with the QC you signed
+off, because both halves look right on their own.
+
+**They agree, condition for condition.** I read both. A non-positive reading is a **gap** on
+screen and in print — not a sample pinned to the left edge, which would draw a resistivity the
+tool never measured. A non-positive scale end refuses the whole track on both. A log axis with no
+span refuses on both.
+
+**What was missing was anything holding them there.** Both files own this rule separately, and
+until now a reader had to notice. `the_screen_and_the_print_agree_on_where_a_log_track_has_no_position`
+now fails the build if either side moves — the same guard the facies palette already has, for the
+same reason: two internally consistent halves that disagree with each other cannot be caught by
+anything downstream.
+
+**One thing I did not change, and it is a question for you.** Setting a log track's minimum to
+**0** draws an **empty track with no explanation**, on screen and in print alike. That is
+consistent, which is all finding #21 asked for, and it is arguably the only honest arithmetic —
+there is no such thing as the log of zero. But this app refuses things *by name* everywhere else,
+and an empty track where rock should be looks like missing data rather than an impossible axis.
+Say the word and it gets a named refusal instead of silence; I have left it alone because changing
+what a track does is your call, not mine.
+
+- [ ] **Put a log track's minimum to 0** and confirm the log view and the PDF do the same thing —
+      both blank. That is the behaviour being pinned, not endorsed; see the question above.
+- [ ] **A resistivity zero reads as a gap**, not as a value at the left edge. Check one against a
+      washout if you have a well with a bad splice.
+- [ ] **Proved from both sides.** Loosening the screen's guard so it no longer refuses a
+      non-positive scale end fails the new test with the reason spelled out, rather than trusting a
+      test that had only ever passed.
+- [ ] **§4c's physics block is now closed in full** — all 30 findings, each with the file and line
+      that proves it. What remains in that section is the structure and slop blocks, which have not
+      had this pass.
