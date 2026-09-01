@@ -915,6 +915,9 @@ export const REJECT_COLOR = "#9aa0a6";
  *  continuous curve clamps at the track edge, a point sample is skipped. */
 export function valueFrac(v: number, min: number, max: number, isLog: boolean): number | null {
   if (!Number.isFinite(v)) return null;
+  // A scale end that is not a number places nothing either - without this the arithmetic below
+  // returned NaN, which is not null, and a builder pushed NaN vertices for it.
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
   if (isLog) {
     if (v <= 0 || min <= 0 || max <= 0) return null;
     const span = Math.log(max) - Math.log(min);
@@ -923,6 +926,13 @@ export function valueFrac(v: number, min: number, max: number, isLog: boolean): 
   }
   if (Math.abs(max - min) < 1e-12) return null;
   return (v - min) / (max - min);
+}
+
+/** Whether a scale can place ANY value: false for a non-positive end on a log axis, a scale with
+ *  no span, or an end that is not a number. A builder asks this once per series so a scale that
+ *  places nothing is skipped as a whole, the way the print skips it. */
+export function scaleHasPositions(min: number, max: number, isLog: boolean): boolean {
+  return valueFrac(min, min, max, isLog) != null;
 }
 
 /** Color for a single facies/cluster index (rounded, wraps). A NEGATIVE class is one the algorithm

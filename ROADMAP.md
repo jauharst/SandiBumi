@@ -1639,7 +1639,7 @@ list.
       gone and the reason recorded; the SW arm that IS reachable stays, `axisRange.ts:325`.
 - [x] **#64** three drifted topic tables — SHALE_REDUCTION_CLAMP carries its two Geolog readings,
       `param_sources.rs:1754`.
-- [ ] **Finding 21, residual — three screen builders keep their own log arithmetic (2026-09-02 critique, P2).**
+- [x] **Finding 21, residual — three screen builders keep their own log arithmetic (2026-09-02 critique, P2).**
       `LogCanvasRenderer.ts:562-566`: `buildCrossoverGeometries` maps a value with
       `Math.log10(Math.max(v, 1e-6))` on a log-scaled track, so an exactly-zero sample — or a track
       whose min is set to 0 — SHADES the interval on screen, while the print's `draw_crossover`
@@ -1654,8 +1654,16 @@ list.
       the pin compares only the two `value_frac` twins, so it cannot see any builder. Fix shape: route
       all three through `valueFrac`, keep each builder's own off-scale rule (the crossover clamps like
       the curve; points and plugs skip, like the print), then extend the pin to refuse the
-      `Math.log10(Math.max(` spelling and require `valueFrac(` inside both builders. Fix follows in
-      the PR stacked on the critique. `AUDIT-GATE2-2026-09-02.md` F-1.
+      `Math.log10(Math.max(` spelling and require `valueFrac(` inside both builders. **Fixed
+      2026-09-02** in the PR stacked on the critique: all five builders of a log track ask
+      `valueFrac` — the curve line `LogCanvasRenderer.ts:345` and the crossover `:570` through one
+      `ndcX` helper, the core overlay `logViewPanel.ts:895`, the array band `:1174` and the point
+      tracks `:1395` — and the pin
+      `the_screen_and_the_print_agree_on_where_a_log_track_has_no_position` (`composite.rs:2703`)
+      refuses the spelling in both files and reads each builder from its declaration to its
+      closing brace: it must ask `valueFrac` and take no logarithm of its own. The fix's own review
+      added the array band (right by coincidence until then) and restored the guard that lets the
+      next curve win a track whose first scale places nothing. `AUDIT-GATE2-2026-09-02.md` F-1.
 - [ ] **The print rules a decade grid its own mapper refuses (2026-09-02 critique, P3).**
       `composite.rs:1097-1100` (`draw_vgrid`) floors a non-positive log minimum to 0.01 and rules
       decades from there, while `value_frac` (`:195`) places no sample on that track — a labelled,
@@ -1663,12 +1671,13 @@ list.
       is what keeps the decade loop finite, so the fix is to draw no grid where no sample can be
       placed, or to refuse the track by name — not to delete the line. The screen's grid was not
       compared. `AUDIT-GATE2-2026-09-02.md` F-2.
-- [ ] **An infinite value or scale end printed at the track edge while the screen left a gap (2026-09-02 fix review, P3).**
+- [x] **An infinite value or scale end printed at the track edge while the screen left a gap (2026-09-02 fix review, P3).**
       `composite.rs:195` `value_frac` refused only NaN, so ±∞ — a divide-by-zero in a user
       equation, which rule 2 never turns into NaN — clamped to the edge in the PDF, while
       `plotCanvas.ts:916` `valueFrac` refuses every non-finite value. A NaN scale END slipped past
       both and came back as NaN rather than "no position". Fix: both refuse a non-finite value or
-      scale end, pinned by the finding-21 test. `AUDIT-GATE2-2026-09-02.md` F-3.
+      scale end, pinned by the finding-21 test. **Fixed 2026-09-02** in the same PR as F-1.
+      `AUDIT-GATE2-2026-09-02.md` F-3.
 - [ ] **A track switched to Logarithmic with a non-positive scale end empties silently (2026-09-02 fix review, P3).**
       `layoutPropsDialog.ts:272` changes the scale type without looking at min/max, and the
       finding-21 rule then places nothing — curve, crossover, plugs, points and the print all go

@@ -4,6 +4,16 @@ import { appState } from "./state";
 import { pxPerUnitAt1to1 } from "./units";
 import { trackCurveKey } from "./trackCurveRequest";
 
+/** Where a value sits across a track, in NDC, or null when it has no position at all. The
+ *  question is the print's (`composite.rs::value_frac`) and is asked through `valueFrac`, so the
+ *  screen and the deliverable cannot disagree about it; a continuous reading then CLAMPS at the
+ *  track edge - only its existence is in question. */
+function ndcX(v: number, min: number, max: number, isLog: boolean, leftNdc: number, rightNdc: number): number | null {
+  const f = valueFrac(v, min, max, isLog);
+  if (f == null) return null;
+  return leftNdc + Math.max(0, Math.min(1, f)) * (rightNdc - leftNdc);
+}
+
 const VERTEX_SHADER = /* wgsl */ `
 struct Transform {
   topDepth: f32,
@@ -331,13 +341,8 @@ export class LogCanvasRenderer {
     // real answer: a non-positive sample on a log axis has no position, and the substitution
     // this used to make (`Math.max(v, 1e-6)`) drew a permeability of zero as a continuous dip
     // to the track edge - a measurement that was never made - while the print showed a gap.
-    const valueToNdcX = (v: number): number | null => {
-      const f = valueFrac(v, style.min, style.max, scaleType === "log");
-      if (f == null) return null;
-      // A continuous curve CLAMPS at the track edge; only its existence is in question above.
-      const clamped = Math.max(0, Math.min(1, f));
-      return trackLeftNdc + clamped * (trackRightNdc - trackLeftNdc);
-    };
+    const valueToNdcX = (v: number): number | null =>
+      ndcX(v, style.min, style.max, scaleType === "log", trackLeftNdc, trackRightNdc);
 
     // "step": the sample's value holds all the way down to the next sample before it jumps,
     // so each interval draws two segments (a vertical hold, then a horizontal jump) instead
@@ -558,18 +563,11 @@ export class LogCanvasRenderer {
     trackRightNdc: number,
     seriesKey: string,
   ): CurveGeometry[] {
-    const toNdc = (v: number, min: number, max: number): number => {
-      let frac: number;
-      if (scaleType === "log") {
-        const logMin = Math.log10(Math.max(min, 1e-6));
-        const logMax = Math.log10(Math.max(max, 1e-6));
-        frac = (Math.log10(Math.max(v, 1e-6)) - logMin) / (logMax - logMin);
-      } else {
-        frac = (v - min) / (max - min);
-      }
-      frac = Math.max(0, Math.min(1, frac));
-      return trackLeftNdc + frac * (trackRightNdc - trackLeftNdc);
-    };
+    // Shared with the print (`composite.rs::draw_crossover`, through `value_frac`), like the
+    // curve line above: a non-positive value or scale end on a log axis has NO position, so the
+    // interval is left unshaded rather than shaded against a floor the data never had.
+    const toNdc = (v: number, min: number, max: number): number | null =>
+      ndcX(v, min, max, scaleType === "log", trackLeftNdc, trackRightNdc);
 
     const sampleRef = makeSampler(reference.series);
     const step = style.draw_style === "step";
@@ -587,21 +585,21 @@ export class LogCanvasRenderer {
     for (let i = 0; i < n - 1; i++) {
       const d0 = series.depth[i];
       const d1 = series.depth[i + 1];
-      const va0 = series.value[i];
-      const vb0 = sampleRef(d0);
-      if (Number.isNaN(va0) || Number.isNaN(vb0)) continue;
-      const a0 = toNdc(va0, style.min, style.max);
-      const b0 = toNdc(vb0, reference.min, reference.max);
+      // A NaN on either curve, or a value with no position, leaves the interval unshaded - a
+      // crossover is never inferred across a gap.
+      const a0 = toNdc(series.value[i], style.min, style.max);
+      const b0 = toNdc(sampleRef(d0), reference.min, reference.max);
+      if (a0 == null || b0 == null) continue;
       let a1 = a0;
       let b1 = b0;
       if (!step) {
         // A stepped curve holds its value across the interval, so both edges stay vertical
         // and the pair can never cross inside one interval.
-        const va1 = series.value[i + 1];
-        const vb1 = sampleRef(d1);
-        if (Number.isNaN(va1) || Number.isNaN(vb1)) continue;
-        a1 = toNdc(va1, style.min, style.max);
-        b1 = toNdc(vb1, reference.min, reference.max);
+        const na1 = toNdc(series.value[i + 1], style.min, style.max);
+        const nb1 = toNdc(sampleRef(d1), reference.min, reference.max);
+        if (na1 == null || nb1 == null) continue;
+        a1 = na1;
+        b1 = nb1;
       }
       const s0 = a0 - b0;
       const s1 = a1 - b1;
