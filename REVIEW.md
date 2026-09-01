@@ -20957,3 +20957,47 @@ them is its own increment, and each one that closes lowers the number.
 - [ ] **The gate anchors on the audit's own name**, because `docs/review_triage.md` numbers findings
       too. An unanchored scan read *its* "finding 16" as this audit's and would have reported the
       one genuinely open item as closed.
+
+## Core plugs stopped being dropped on a foot project (2026-09-02)
+
+The one real defect the backlog audit turned up, fixed. **Audit finding #16.**
+
+**What it did.** The Facies Tie QC pairs each core plug with the nearest log sample, and drops a
+plug that has no sample close enough — that is the honest rule, and the count of dropped plugs is
+reported so a variance reduction computed on nine plugs is never quoted as if it came from ninety.
+"Close enough" was written as `1.0` and compared against whatever unit the project stores its
+depths in.
+
+On a **metre** project that is one metre of hole, which is what was intended — about three samples
+at a normal half-foot sampling. On a **foot** project the same `1.0` is one *foot*: under a third
+of the rock. Every plug between one foot and one metre from its nearest sample was dropped as
+unmatched, and the note printed beside the result still said **"within 1 m"**.
+
+That is the shape that makes this class of bug expensive: nothing errors, nothing looks broken.
+The result reads as a core delivery that misses the log — a depth-registration problem you would
+go and investigate — when what actually shrank was the tolerance.
+
+**The fix** is the one the plug-QC tool already uses for the same defect (finding #17, fixed
+earlier). The tolerance is now stated as what it always was — *one metre of hole* — and restated
+into the project's own unit before it ever meets a depth. It is passed into the matching function
+rather than read from a constant, so it cannot arrive in a different unit from the depths it is
+compared against. And the note quotes the distance the join actually measured: **"within 1.00 m"**
+on a metre project, **"within 3.28 ft"** on a foot one.
+
+**Why 3.28 and not a round 3 ft.** An exact conversion, deliberately. `plugqc`'s tolerance is
+0.15 m / 0.5 ft because six inches is a real anchor — one standard log sample — so half a foot is
+the honest foot value, not a rounding. One metre has no such anchor, and writing "3 ft" would be
+choosing a *new* tolerance rather than restating the one that was chosen.
+
+**Where no join happened**, the note no longer quotes a distance at all. An argument refusal never
+had a project unit in hand, and printing a tolerance for a comparison that never ran states
+something nothing was measured against.
+
+- [ ] **Open Facies Tie on a foot project** and read the match note under the result. It should
+      say "within 3.28 ft". On a metre project it should say "within 1.00 m".
+- [ ] **Watch the unmatched count on a foot project.** If plugs were being dropped for this reason
+      it will fall, and the k-variance-reduction number will be computed over more of your core —
+      so it may move. That movement is the bug leaving, not a new one arriving.
+- [ ] **Proved from both sides before committing.** Putting the old behaviour back (return 1.0
+      whatever the unit) fails the new test with "one metre in feet, got 1", rather than trusting
+      a test that had only ever passed.

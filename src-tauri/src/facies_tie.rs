@@ -101,7 +101,7 @@ pub struct FaciesConfusionResult {
     pub k_var_reduction: f64,
     /// Core plugs that contributed to `k_var_reduction` (valid k, matched to a predicted class).
     pub n_core_plugs: usize,
-    /// Plugs with a usable permeability that found NO log sample inside `core_match_tol_m`, and so
+    /// Plugs with a usable permeability that found NO log sample inside the join tolerance, and so
     /// contributed to nothing. Reported rather than absorbed: a variance reduction computed on
     /// nine of ninety plugs is a different statement from one computed on ninety (SB-MLA-054).
     pub n_core_unmatched: usize,
@@ -111,11 +111,19 @@ pub struct FaciesConfusionResult {
 }
 
 /// How the core-to-log depth join is done, stated with the result rather than left in the source.
-fn core_match_note() -> String {
-    format!(
-        "core plugs joined to the NEAREST log sample within {CORE_MATCH_TOL_M} m; no interpolation, \
-         and a plug with no sample inside that distance is dropped rather than stretched to one"
-    )
+///
+/// The distance is quoted in the unit the PROJECT stores its depths in, because that is the unit
+/// the join measured in. `None` is the honest reading where no join was attempted - an argument
+/// refusal, or a result built before any plug was read: there is no project unit in hand at that
+/// point, and quoting a number for a comparison that never ran would state a tolerance nothing
+/// was measured against. One sentence either way, because two copies of it are two places for the
+/// wording to drift.
+fn core_match_note(unit: Option<crate::units::DepthUnit>) -> String {
+    let distance = match unit {
+        Some(unit) => format!("{:.2} {}", core_match_tol_in(unit), unit.label()),
+        None => format!("{CORE_MATCH_TOL_METRES:.2} m of hole, restated in the project's own depth unit"),
+    };
+    format!("core plugs joined to the NEAREST log sample within {distance}; no interpolation, and a plug with no sample inside that distance is dropped rather than stretched to one")
 }
 
 fn confusion_err(msg: &str) -> FaciesConfusionResult {
@@ -137,7 +145,7 @@ fn confusion_err(msg: &str) -> FaciesConfusionResult {
         k_var_reduction: f64::NAN,
         n_core_plugs: 0,
         n_core_unmatched: 0,
-        core_match_note: core_match_note(),
+        core_match_note: core_match_note(None),
         error: Some(msg.to_string()),
     }
 }
@@ -249,7 +257,7 @@ pub fn build_confusion(pairs: &[(i64, i64)]) -> FaciesConfusionResult {
         k_var_reduction: f64::NAN,
         n_core_plugs: 0,
         n_core_unmatched: 0,
-        core_match_note: core_match_note(),
+        core_match_note: core_match_note(None),
         error: None,
     }
 }
@@ -279,11 +287,27 @@ fn judge(res: &mut FaciesConfusionResult, threshold: Option<f64>) {
     }
 }
 
-/// Max |depth difference| (m) for matching a core plug to the nearest log sample.
-const CORE_MATCH_TOL_M: f32 = 1.0;
+/// Max |depth difference| for matching a core plug to the nearest log sample, as a PHYSICAL SIZE:
+/// one metre of hole, about three log samples at a normal half-foot sampling.
+///
+/// It is never compared against a depth directly. AUDIT-2026-08-20 finding 16: this shipped as a
+/// bare `CORE_MATCH_TOL_M: f32 = 1.0` measured against depths in whatever unit the project stores,
+/// so a FOOT project paired plugs within 1 ft - a third of the rock the note promises - and booked
+/// every plug in the other two thirds as unmatched, which reads as a core delivery that misses the
+/// log rather than as a tolerance that shrank. `plugqc`'s `default_depth_tol` is the same fix for
+/// the same class (finding 17); the two differ only in that six inches is a real anchor there and
+/// one metre is not one here, so this converts EXACTLY rather than picking a round foot number.
+const CORE_MATCH_TOL_METRES: f64 = 1.0;
 
-/// Index of the sample in ascending `depth` nearest to `target`, if within tolerance.
-fn nearest_within(depth: &[f32], target: f32) -> Option<usize> {
+/// [`CORE_MATCH_TOL_METRES`] restated in the unit a project stores its depths in.
+fn core_match_tol_in(unit: crate::units::DepthUnit) -> f32 {
+    crate::units::metres_in(CORE_MATCH_TOL_METRES, unit) as f32
+}
+
+/// Index of the sample in ascending `depth` nearest to `target`, if within `tol`.
+///
+/// `tol` is passed rather than read from a constant so it arrives in the SAME unit as `depth`.
+fn nearest_within(depth: &[f32], target: f32, tol: f32) -> Option<usize> {
     if depth.is_empty() || !target.is_finite() {
         return None;
     }
@@ -292,7 +316,7 @@ fn nearest_within(depth: &[f32], target: f32) -> Option<usize> {
     for cand in [pos.wrapping_sub(1), pos] {
         if cand < depth.len() {
             let dd = (depth[cand] - target).abs();
-            if dd <= CORE_MATCH_TOL_M && best.map_or(true, |b| dd < (depth[b] - target).abs()) {
+            if dd <= tol && best.map_or(true, |b| dd < (depth[b] - target).abs()) {
                 best = Some(cand);
             }
         }
@@ -320,8 +344,14 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
     // Wells whose core could not be READ at all — a cross-datum delivery, chiefly. Kept apart
     // from `core_unmatched`, which counts plugs that WERE read and found no log sample nearby.
     let mut core_refusals: Vec<String> = Vec::new();
+    // The unit this project stores its depths in, read once and carried out of the lock: it sets
+    // the join tolerance below AND the note that reports it, so the two cannot disagree.
+    let depth_unit;
     {
         let conn = db.lock().unwrap();
+        depth_unit = crate::units::project_depth_unit(&conn).ok().flatten().unwrap_or_default();
+        // AUDIT-2026-08-20 finding 16: one metre of hole, restated before it meets a depth.
+        let core_tol = core_match_tol_in(depth_unit);
         let names = vec![pred.clone(), refc.clone()];
         for well_id in &req.well_ids {
             let Ok((d, cols)) = crate::equations::fetch_curve_frame_from_set(&conn, well_id, &names, req.input_set.as_deref(), None) else { continue };
@@ -358,7 +388,7 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
                 if !(k.is_finite() && k > 0.0) {
                     continue;
                 }
-                let Some(idx) = nearest_within(&d, plug.depth) else {
+                let Some(idx) = nearest_within(&d, plug.depth, core_tol) else {
                     core_unmatched += 1;
                     continue;
                 };
@@ -371,6 +401,9 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
         }
     }
     let mut res = build_confusion(&pairs);
+    // This run DID have a project unit in hand, so the note quotes the distance the join actually
+    // measured. `build_confusion` cannot: it is handed pairs, never a connection.
+    res.core_match_note = core_match_note(Some(depth_unit));
     res.k_var_reduction = variance_reduction(&core_groups);
     res.n_core_plugs = core_groups.len();
     res.n_core_unmatched = core_unmatched;
@@ -385,6 +418,34 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::units::DepthUnit;
+
+    /// AUDIT-2026-08-20 finding 16. Pinned from BOTH sides, because the lazier implementation -
+    /// the one that shipped - passes the metre half perfectly: it returned 1.0 always.
+    #[test]
+    fn the_core_match_tolerance_is_one_metre_of_hole_in_whatever_unit_the_project_stores() {
+        // A metre project states it unchanged.
+        assert_eq!(core_match_tol_in(DepthUnit::Metres), 1.0);
+
+        // A foot project states the same PHYSICAL DISTANCE, which is a different NUMBER. Reusing
+        // 1.0 there paired plugs within one foot - under a third of the rock the note promises -
+        // and booked every plug in the other two thirds as unmatched, which reads as a core
+        // delivery that misses the log rather than as a tolerance that quietly shrank.
+        let ft = core_match_tol_in(DepthUnit::Feet);
+        assert!((ft - 3.280_84).abs() < 1e-4, "one metre in feet, got {ft}");
+        assert!(ft > 3.0, "an exact conversion, never the metre number reused");
+
+        // And the note reports the distance in the unit the join measured in, both ways - so a
+        // reader cannot be told "within 1 m" about a comparison that ran in feet.
+        assert!(core_match_note(Some(DepthUnit::Metres)).contains("within 1.00 m;"));
+        assert!(core_match_note(Some(DepthUnit::Feet)).contains("within 3.28 ft;"));
+
+        // Where no join was attempted there is no project unit, and the note quotes no number it
+        // could not have measured against.
+        let unjoined = core_match_note(None);
+        assert!(unjoined.contains("restated in the project's own depth unit"));
+        assert!(!unjoined.contains("within 1.00 m;"), "no distance for a join that never ran");
+    }
 
     #[test]
     fn confusion_tallies_and_scores_purity() {
