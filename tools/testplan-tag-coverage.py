@@ -53,6 +53,7 @@ NAMES = {
     "AUX": "Cross-cutting & auxiliary",
     "INT": "End-to-end integration",
     "SHIP": "Shipping checks",
+    "INS": "Installation & recovery",
 }
 
 
@@ -192,10 +193,12 @@ def index_block(kind, section, passed):
 
 def main(md_path: Path):
     src = io.open(md_path, encoding="utf-8", newline="").read()
-    lines = src.split("\r\n")
+    # The blob is LF; autocrlf may or may not have put CRLF on disk. Keep whichever is there.
+    eol = "\r\n" if "\r\n" in src else "\n"
+    lines = src.split(eol)
     kind, section, passed = classify(lines)
-    if len(kind) != 250:
-        print("WARNING: found %d tests, expected 250" % len(kind))
+    if len(kind) != 265:
+        print("WARNING: found %d tests, expected 265" % len(kind))
 
     lines = [("%s  [%s]" % (TAG.sub("", ln).rstrip(), kind[HEAD.match(ln).group(1)])
               if HEAD.match(ln) else ln) for ln in lines]
@@ -213,7 +216,7 @@ def main(md_path: Path):
                         if lines[i].startswith("### What you have already marked")), first_sec)
         lines[start:keep_at] = block
 
-    io.open(md_path, "w", encoding="utf-8", newline="").write("\r\n".join(lines))
+    io.open(md_path, "w", encoding="utf-8", newline="").write(eol.join(lines))
     tally = defaultdict(int)
     for t in kind.values():
         tally[t] += 1

@@ -166,8 +166,8 @@ def prior_marks(out_path: Path):
 
 def build(md_path: Path, out_path: Path):
     sections, tests = parse(md_path)
-    if len(tests) != 250:
-        print(f"WARNING: parsed {len(tests)} tests, expected 250")
+    if len(tests) != 265:
+        print(f"WARNING: parsed {len(tests)} tests, expected 265")
 
     # The markdown wins where it states a mark — it is the declared source of truth and
     # testplan-tally.ps1 scores it. Where it is silent, an existing workbook entry is
@@ -232,7 +232,7 @@ def build(md_path: Path, out_path: Path):
     # dropdown", so False is what puts the arrow in the cell. showErrorMessage must be set
     # explicitly: openpyxl leaves it off, and without it Excel accepts any typed value and the
     # list is merely advisory (verified via Excel COM: ShowError came back False).
-    # showInputMessage stays off on purpose — a tooltip firing on every one of 250 cells during
+    # showInputMessage stays off on purpose — a tooltip firing on every one of 265 cells during
     # a long click-through is an irritation, and the arrow is self-explanatory.
     dv = DataValidation(
         type="list",

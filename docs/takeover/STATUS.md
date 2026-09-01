@@ -7,16 +7,16 @@ This is the one-minute program dashboard. Requirement evidence lives in
 ## Now
 
 - Product target: paid offline Windows pilot
-- Current gate: `G2 — SILENT-WRONGNESS CLOSURE — COMPLETE` (formally closed 2026-08-20 by DEC-083; counsel items deferred by name to first commercial sale)
+- Current gate: `G3 — WINDOWS/OFFLINE DEPLOYMENT AND RECOVERY — STARTED 2026-09-02` (G2 formally closed 2026-08-20 by DEC-083 and re-verified physically on the tree 2026-09-02, `AUDIT-GATE2-2026-09-02.md`; counsel items deferred by name to first commercial sale)
 - Gate 2 requirement progress: `222 / 222 handled — 222 DONE, 0 BLOCKED, 0 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: DEC-083 formal closure - `DONE`; SB-PLT-024 and SB-CORE-044 closed with every engineering arm complete and the fail-closed release-inventory proof landed (`tools/release-inventory.test.mjs`, in the green gate: the chartdig-banner sweep, the deferral pin, the README-claim/catalog cross-check; four mutation witnesses RED at four distinct assertions). The counsel items (CLAIM-012/013, dependency attention items) are NOT resolved - they are deferred by name to first commercial sale and pinned so they cannot silently vanish.
+- Active increment: Gate 3 program defined — [GATE3_PROGRAM.md](./GATE3_PROGRAM.md): the 18 `later_gate_only` rows owned by G3 scoped, the nine-scenario clean-machine matrix stated with the scenario ids `installation.rs` already carries, seven increments G3-01 to G3-07 in order, and fifteen manual tests T-INS-01 to T-INS-15 in `docs/manual_test_plan.md` Section INS. No Gate 3 evidence exists yet; every validator in the tree has only ever been fed a fixture.
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
 - Automated gate: `every_chained_module_reads_one_shared_matrix_density_and_still_discloses_the_position_it_did_not_take` pins one default, one range and one evidence set across all four chained consumers, and refuses any porosity module that reintroduces a second value. Two mutations produced RED at two different assertions: reverting `phi_den` to 2.645, and deleting the Geolog position from the disclosed evidence. All 1011 pre-existing Rust tests passed unchanged, so nothing had encoded the old default. Visual, Manual and Field evidence remain open.
 - Pilot field evidence: `OPEN`
 - Open blockers: `0 requirements are BLOCKED and 0 remain unhandled; the approved 222-row Gate 2 scope closed COMPLETE on 2026-08-20 (DEC-083), while 20 approved requirements are owned by Gate 3 or Gate 4.` See the [Gate 2 blocker decision packet](./GATE2_BLOCKERS.md) for the formal-closure record and the first-sale deferred register.
 - Named residuals carried forward, not claimed as covered: `ssc`/`sspw` parameters remain unsourced for SB-POR-007 beyond the `RHO_W` added here. The same primary tier is spelled `T1p` in the porosity chapter, `T1′` in registry rows pinned by earlier CLY/CORE increments and `T1-prime` in a frontend fixture; Jauhar approved unifying it as its own increment, queued behind the remaining rows. `montecarlo.rs:1287` remains the SB-POR-006 residual. A `DEC` row recording the 2026-08-16 `ssc.rs` authorization still needs adding to `DECISIONS.md`, which is outside this program's allowed paths.
-- Next increment: `Gate 3 (Windows/offline deployment and recovery). Before first commercial sale, outside engineering: counsel dispositions for CLAIM-012/013 and the dependency attention items - the deferred register in GATE2_BLOCKERS.md.`
+- Next increment: `G3-01 — a release candidate that exists: build the MSI from a genuinely clean clone on the reference machine, record digest/version/identifier/commit, keep that clone's full-gate receipt (SB-CORE-041 T13, SB-INS-001 first half; manual T-INS-01). Before first commercial sale, outside engineering: counsel dispositions for CLAIM-012/013 and the dependency attention items - the deferred register in GATE2_BLOCKERS.md.`
 
 ## Gate dashboard
 
@@ -24,7 +24,7 @@ This is the one-minute program dashboard. Requirement evidence lives in
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
 | G2 — Silent-wrongness closure | COMPLETE (DEC-083, 2026-08-20) | 222/222 accounted, 0 blocked; final live classes 0 implement-or-refuse / 0 remediate / 6 prove / 216 retain; the last two rows closed by owner decision with counsel items deferred by name to first sale, pinned by `tools/release-inventory.test.mjs` |
-| G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
+| G3 — Windows/offline deployment and recovery | STARTED 2026-09-02 — program in [GATE3_PROGRAM.md](./GATE3_PROGRAM.md); 0 of 18 rows evidenced | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |
 

@@ -89,7 +89,8 @@ and it worked." The two are deliberately different things.
 | AUX   | Cross-cutting & auxiliary features                                 | 20      | 2                        |
 | INT   | End-to-end integration & performance                               | 20      | 2                        |
 | SHIP  | Session 2026-07-29 shipping checks (CSP, R30, R-A, R-B, R-C, gate) | 7       | 0                        |
-|       | **Total**                                                          | **250** | **33**                   |
+| INS   | Installation, offline runtime & recovery (Gate 3, added 2026-09-02) | 15      | 0                        |
+|       | **Total**                                                          | **265** | **33**                   |
 
 **Result summary — don't count by hand.** Tick the boxes as you go, then run:
 
@@ -138,11 +139,12 @@ one you would reach for. Your tick is the only thing that says that.
 | AUX — Cross-cutting & auxiliary | **14** | 5 | 1 | 0 | 20 |
 | INT — End-to-end integration | **15** | 3 | 2 | 0 | 20 |
 | SHIP — Shipping checks | **4** | 0 | 3 | 0 | 7 |
-| | **138** | **40** | **52** | **20** | **250** |
+| INS — Installation & recovery | **13** | 2 | 0 | 0 | 15 |
+| | **151** | **42** | **52** | **20** | **265** |
 
 ### The `[YOURS]` list, section by section
 
-These 138 are the ones to work through first. Nothing in the repo checks any of them.
+These 151 are the ones to work through first. Nothing in the repo checks any of them.
 
 - **IMP** (6) — T-IMP-05-07, 09, 13, 17
 - **WELL** (8) — T-WELL-07-14
@@ -157,10 +159,11 @@ These 138 are the ones to work through first. Nothing in the repo checks any of 
 - **AUX** (14) — T-AUX-04-06, 08-14, 16, 18-20
 - **INT** (15) — T-INT-01, 04-05, 07-08, 10, 12; T-PERF-01-08
 - **SHIP** (4) — T-SHIP-01-02, 06-07
+- **INS** (13) — T-INS-01-02, 04-07, 09-15
 
 If you are working in `manual_test_plan.xlsx` instead, the **Coverage** column carries the
 same three values — filter it to `YOURS` and the sheet shows the work queue. That filter
-returns **146**, not 138: the tag describes coverage and stays on a test after you mark it,
+returns **159**, not 151: the tag describes coverage and stays on a test after you mark it,
 and the difference is tests you have already passed. The Summary sheet's **Yours left**
 column is close to this table but not identical — it counts a `YOURS` row as left when
 its Result is blank, so a test you marked **Fail** leaves that count while staying in the
@@ -5930,6 +5933,324 @@ project copy that still has the old computed_curves PRIMARY KEY.
    failing scenario (import → ✕ → relaunch: well persists, no WAL, no corrupt-backup). Run it
    once on real data for confidence.
    **Result — T-SHIP-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+---
+
+# Section INS — Installation, offline runtime & recovery (Gate 3)
+
+### Cluster INS — the installed product on a machine that is not this one
+
+Added 2026-09-02 when Gate 3 opened (`docs/takeover/GATE3_PROGRAM.md`). Everything above this
+section runs against `npm run tauri dev` on the reference machine; everything here runs against the
+BUILT installer on a clean Windows 11 x64 machine or VM, and that difference is the whole point —
+Gate 2 proved the arithmetic, Gate 3 has to prove the product survives being installed by somebody
+else's IT. Shared preconditions: a release candidate built by T-INS-01; a clean Windows 11 x64
+(Pro or Enterprise) machine or VM with **no developer tools and no Python**, an administrator
+account and a separate standard-user account; the example set from `dataset for test/examples/`
+(`SANDI-01.las`, `SANDI-02.las`, `SANDI-03.las` and their core/tops/deviation files) on removable
+media. Two paths recur: the per-user config folder `%APPDATA%\SandiBumi\` (`projects.json`,
+`trusted-code.json`, `crash-log.txt`) and the settings folder `%APPDATA%\com.sandibumi.petro\`
+(`settings.json`). Several of these tests will be **Blocked** today because the thing they measure
+has not been built yet (the signed pack, the migration report, the matrix runner); a Blocked mark
+with the date is exactly the evidence the program needs, so mark it and move on. Run in order:
+T-INS-01 builds what T-INS-02 installs, and T-INS-08 to T-INS-11 are one lifecycle on one machine.
+
+### T-INS-01 — Build the release candidate from a clean clone, and keep the receipt  [YOURS]
+
+**Tool/panel:** `git clone`, `tools\check.ps1`, `npm run tauri build` (CLAUDE.md §Dev commands)
+**Preconditions:** reference machine; the accepted commit hash written down; an empty folder outside every existing checkout (e.g. `C:\sb-clean`); no other cargo build running.
+**Steps:**
+
+1. Clone the repository into the empty folder and check out the accepted commit; run `npm install` there.
+2. From a vcvars-pinned shell in that clone, run the green gate: `powershell -ExecutionPolicy Bypass -File tools\check.ps1`. Keep the whole log.
+3. In the same shell run `npm run tauri build`.
+4. Record in Notes: the path of the `.msi` under `src-tauri\target\release\bundle\msi\`, its SHA-256 (`certutil -hashfile <msi> SHA256`), the `package.json` version, the identifier `com.sandibumi.petro`, and the commit hash.
+   **Expected:** The gate log ends **GATE GREEN in …s** from the clean clone — that is SB-CORE-T13, and until now it has only ever been run in an existing worktree. The build produces exactly one `.msi`; launching the built `sandibumi.exe` shows the launch card with the same version as `package.json`. **Known gap:** the MSI is unsigned today — signing is SB-INS-001's remaining half. Write "unsigned" in Notes; it is not a Fail of this test.
+   **Automation note:** `a_signed_clean_machine_msi_must_match_the_installed_identity_and_version` (installation.rs) checks evidence handed to it and has never seen a real MSI; the four values you record here are what it will be fed.
+
+   **Result — T-INS-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-02 — Clean-machine install by IT, launch as a standard user (standard_user, locked_down_user)  [YOURS]
+
+**Tool/panel:** `msiexec`, Windows **Settings ▸ Apps ▸ Installed apps**, the launch card
+**Preconditions:** the clean machine; the MSI from T-INS-01 on media; an admin account, a standard-user account, and a locked-down account (no admin, no write access to Program Files).
+**Steps:**
+
+1. As the administrator install silently: `msiexec /i <msi> /qn /l*v C:\sb-install.log`. Per machine is the decided scope, and it comes from Tauri's own WiX template (`InstallScope="perMachine"`, embedded in the `@tauri-apps/cli` binary that builds the MSI), not from anything on this command line or in `tauri.conf.json`; confirm it from the log's property dump (`ALLUSERS = 1`) and record the install directory the log names (`INSTALLDIR`) — nothing in the tree fixes that path.
+2. Sign in as the standard user; launch SandiBumi from the Start menu.
+3. **Settings ▸ Apps ▸ Installed apps**: read SandiBumi's version.
+4. Read the version on the launch card (or the first line of **Project ▸ Monitor ▸ Diagnostics…** after **Build report** — there is no About item).
+5. Project ▸ **New Project…** into the user's Documents; Data ▸ **Import Logs ▾ ▸ Import LAS…** `SANDI-01.las` from the media; Plot ▸ **New Log View**.
+6. Sign out; sign in as the locked-down user and repeat steps 2 and 5.
+   **Expected:** The install log ends with return value 0 and no dialog appeared. The app launches under the standard account without an elevation prompt, and without any network — the WebView2 offline install mode means launch never fetches a runtime. The version in Apps equals the launch-card version equals `package.json`. The project opens, the LAS imports and the log view draws; nothing new appears under the install directory afterwards. The locked-down user gets the same result.
+
+   **Result — T-INS-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-03 — No Python at all: the native core still works (no_python_core_use)  [PART-AUTOMATED]
+
+**Tool/panel:** Log View, Petrophysics ▸ VSH ▾ ▸ VSH from Gamma Ray, Data ▸ Export LAS…, Plot ▸ Histogram, Data ▸ Curve Catalog (the Inspector pane) ▸ Equation Editor tab
+**Preconditions:** the T-INS-02 machine with NO Python: `where python` and `where py` both find nothing, `SANDIBUMI_PYTHON` unset.
+**Steps:**
+
+1. Open the T-INS-02 project; select SANDI-01; open a Log View; run **Petrophysics ▸ VSH ▾ ▸ VSH from Gamma Ray**; **Data ▸ Export LAS…**; open **Plot ▸ Histogram** of GR.
+2. Open **Data ▸ Curve Catalog**, switch to the **Equation Editor** tab and set **Language** to **Python (numpy)**: the note under the language selector is where the engine says which interpreter it found.
+3. Try **Data ▸ Import Logs ▾ ▸ Import DLIS…** — pick any file and accept the set name — then, back in the Equation Editor, press **Run** on a one-line Python equation.
+   **Expected:** All four native operations in step 1 succeed. The language note carries a ⚠ saying no interpreter was found, by name. DLIS import shows its file dialog and set-name prompt as normal and refuses AFTER them but BEFORE any parsing — the `dlisio` preflight runs ahead of the parser subprocess (pinned by the ordering assertion in installation.rs) — naming `dlisio` and that no interpreter was found. The Equation Editor's Run is NOT refused up front: the run starts and fails with the engine's own message naming the missing interpreter. That is the residual `sb-ins.md` records for SB-INS-006 ("product-wide action gating is incomplete"); write the message in Notes, it is not a Fail. No crash, and no message tells you to install Python for a native feature.
+   **Automated coverage - pinned, with a residual (Gate 3, 2026-09-02):** `missing_python_does_not_block_project_open_native_computation_plotting_or_native_export` (installation.rs) drives the four native paths and the Python-only unavailable side in a test process. What stays yours: that the INSTALLED build on a machine with no interpreter behaves the same, and the wording of each refusal.
+
+   **Result — T-INS-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-04 — Every prerequisite surface tells the same truth  [YOURS]
+
+**Tool/panel:** **Project ▸ Help ▸ Prerequisites** — the button opens the dialog titled *Capability prerequisites* (`installationSupportDialog.ts`) — `docs/INSTALLATION_PREREQUISITES.md`, README
+**Preconditions:** the T-INS-03 machine (no Python); later the T-INS-05 machine (pack installed).
+**Steps:**
+
+1. Open **Project ▸ Help ▸ Prerequisites** and read every row of the Capability prerequisites dialog.
+2. On the media open `docs/INSTALLATION_PREREQUISITES.md` and the README's prerequisites paragraph.
+3. Repeat step 1 on the pack machine after T-INS-05.
+   **Expected:** The dialog lists six capabilities — Python equations, DLIS import, Spreadsheet plate extraction, Workbook export, Document export, Deck export — each **unavailable**, each naming the package it needs. No surface says the product has no runtime dependency. On the pack machine the same rows read **available** with the interpreter path. Dialog and fragment agree row for row. **Known gap (SB-INS-004):** the manifest is six rows and other Python-backed actions exist — the image-conditioning Pillow path is one. Write down every Python-backed action you can find that the dialog does not name; that list is the evidence SB-INS-004 and SB-INS-026 are waiting for.
+
+   **Result — T-INS-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-05 — Offline install with the Python pack, network blocked (offline_install)  [YOURS]
+
+**Tool/panel:** `msiexec`, the pack installer, a packet capture (`pktmon`), Project ▸ Help ▸ Prerequisites
+**Preconditions:** the signed Python pack from increment G3-03 — **if it does not exist yet, mark Blocked with the date and stop**; a clean machine with every network adapter disabled or all outbound traffic blocked, and a capture running; MSI and pack on media.
+**Steps:**
+
+1. Install the MSI per machine, then the pack, both silently.
+2. Sign in as the standard user; confirm the system environment variable `SANDIBUMI_PYTHON` points inside the pack.
+3. Open **Project ▸ Help ▸ Prerequisites**.
+4. Run one of each: a Python equation, a DLIS import, **Workbook…**, the report pane's **Save Word…**, and **Deck…**.
+5. Stop the capture and look for any outbound request from `sandibumi.exe` or the pack's `python.exe`.
+   **Expected:** Every capability row reads available with the pack's interpreter; all five actions succeed; the capture holds zero outbound requests; nothing asks for the internet at any point.
+
+   **Result — T-INS-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-06 — A missing package is refused before work, by name, with the fix — then re-probed (missing_package)  [YOURS]
+
+**Tool/panel:** Equation Editor, Data ▸ Import Logs ▾ ▸ Import DLIS…, Plot ▸ Deliverables ▸ Workbook…, report pane **Save Word…**, Project ▸ Help ▸ Prerequisites
+**Preconditions:** a machine with a Python 3.10+ that has numpy but NOT scipy, NOT dlisio, NOT xlsxwriter and NOT python-docx (`pip uninstall` them); `SANDIBUMI_PYTHON` pointing at it.
+**Steps:**
+
+1. In the Equation Editor write an equation that calls `signal.savgol_filter(GR, 11, 2)` and run it.
+2. **Data ▸ Import Logs ▾ ▸ Import DLIS…**.
+3. **Plot ▸ Deliverables ▸ Workbook…**; then render a report and press **Save Word…**.
+4. Copy the pip command out of one of the messages, run it for python-docx, then open **Project ▸ Help ▸ Prerequisites** and look for a re-probe control inside the dialog; close and reopen it.
+   **Expected:** Step 1: the editor is available and the run fails AT the scipy name with a message that names the interpreter path and the pip command — never a bare `NameError`. Step 2: the file dialog and set-name prompt appear, then the import is refused before the file is parsed, naming `dlisio` and the interpreter. Step 3: **Workbook…** refuses BEFORE its save dialog, naming `xlsxwriter` and the interpreter; **Save Word…** does NOT — its save dialog opens first and the refusal naming `python-docx` arrives only after a path is picked. That is the gap `sb-ins.md` names for SB-INS-006 ("including the document-deliverable surface"); write it in Notes, it is not a Fail. Step 4: there is no re-probe control inside the dialog (Close is its only button) — that is SB-INS-007's open half, write "no re-probe control" in Notes; after closing and reopening, the Document export row reads available without a restart, because packages are probed on every open. Only the choice of INTERPRETER is fixed for the session: a Python installed on a machine that had none is seen after a restart, not before.
+
+   **Result — T-INS-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-07 — Interpreter precedence and the override (supported_external_python)  [YOURS]
+
+**Tool/panel:** Data ▸ Curve Catalog ▸ Equation Editor tab (Language = Python), Project ▸ Help ▸ Prerequisites, the `SANDIBUMI_PYTHON` environment variable
+**Preconditions:** two interpreters on one machine: A earlier in the discovery order (e.g. `%LOCALAPPDATA%\Programs\Python\Python313` WITHOUT numpy) and B later (Python312 WITH numpy); `SANDIBUMI_PYTHON` unset to start.
+**Steps:**
+
+1. Launch; read the Equation Editor's language note (Language set to Python) and the Prerequisites dialog — its first line names the session Python and the rule that selected it, and every candidate follows as Selected or Rejected with a reason.
+2. Set `SANDIBUMI_PYTHON` (user environment) to B's `python.exe`; relaunch; read both again.
+3. Set it to a path that does not exist; relaunch.
+   **Expected:** Step 1: B is selected — A was found first and rejected for missing numpy — and the dialog names both candidates and the rejection reason. Step 2: every probe reports exactly B's path. Step 3: the app still launches; the override is the FIRST candidate and is listed Rejected with its path and reason — but it does not switch discovery off, it only goes first, so B is selected after it and the Python-backed rows read available with B's path. If the rows read unavailable, or the override's rejection is missing from the list, that is a Fail. No crash.
+
+   **Result — T-INS-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-08 — The installed settings template never changes; the user's copy does  [PART-AUTOMATED]
+
+**Tool/panel:** Project ▸ Theme, Project ▸ Language, `%APPDATA%\com.sandibumi.petro\settings.json`
+**Preconditions:** the T-INS-02 machine; a user account that has NEVER launched SandiBumi.
+**Steps:**
+
+1. Find the settings template shipped inside the install directory recorded in T-INS-02 (search it for `settings*.json`; it is `resources/install/settings-template.json` in the bundle) and note its SHA-256.
+2. Launch as that user; switch the theme to **Dark** and the language to **Bahasa Indonesia**; close the app.
+3. Open `%APPDATA%\com.sandibumi.petro\settings.json` in a text editor; re-hash the installed template.
+4. Relaunch.
+   **Expected:** The installed template's hash is unchanged. The user copy exists, records the template version and digest it was made from, and carries both edits. The relaunch comes up Dark and in Bahasa Indonesia.
+   **Automated coverage - pinned, with a residual (Gate 3, 2026-09-02):** `first_run_materialises_a_user_copy_with_the_immutable_template_version_and_digest` (installation.rs) pins first-run creation, later-edit preservation, template byte identity and the version/digest provenance in a temp folder. What stays yours: the real paths on an installed machine, and that the app reads the copy back.
+
+   **Result — T-INS-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-09 — Upgrade in place keeps settings and both projects byte-identical (upgrade)  [YOURS]
+
+**Tool/panel:** `msiexec`, `certutil -hashfile`
+**Preconditions:** the T-INS-08 machine with two project files (`uat-a.duckdb`, `uat-b.duckdb`, each opened once and the app closed) and the user settings; a NEWER candidate MSI — bump the version in `package.json`, `src-tauri/tauri.conf.json` AND `src-tauri/resources/install/settings-template.json` (`template_version`) on a throwaway branch, rebuild, and never commit the bump. The template version must equal the application version or the first launch under any FRESH profile refuses at setup (`materialize_user_settings` in installation.rs); an existing user copy is left alone, so a forgotten template bump would pass this test and only show on the next fresh account.
+**Steps:**
+
+1. Hash both projects and `settings.json`.
+2. Install the newer MSI per machine over the old one.
+3. Launch as the user; open both projects; close.
+4. Re-hash all three.
+   **Expected:** The install succeeds with no prompt about user data. Both projects open. All three hashes are identical after the upgrade AND after being opened (a normal open writes nothing — T-SHIP-05). Apps shows the new version. **Known gap (SB-INS-011, ABSENT):** there is no migration report saying which settings were accepted, renamed, defaulted or rejected. If none appears, mark **Blocked** and write "no migration report (SB-INS-011)" — that mark is the evidence.
+
+   **Result — T-INS-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-10 — Rollback to the older candidate (rollback)  [YOURS]
+
+**Tool/panel:** Settings ▸ Apps, `msiexec`, `certutil -hashfile`
+**Preconditions:** T-INS-09 done.
+**Steps:**
+
+1. Uninstall the newer version from **Settings ▸ Apps** with the default choices.
+2. Reinstall the older MSI per machine.
+3. Launch as the user; open both projects; re-hash.
+   **Expected:** The uninstall leaves `%APPDATA%\SandiBumi\`, `%APPDATA%\com.sandibumi.petro\` and both project files in place. The older build opens both projects and the hashes are unchanged. If the newer build had migrated the project schema, the older build must say so BY NAME rather than crash — write down exactly what it says.
+
+   **Result — T-INS-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-11 — Uninstall with default choices leaves user data in place (uninstall_preservation)  [YOURS]
+
+**Tool/panel:** Settings ▸ Apps, Explorer
+**Preconditions:** T-INS-10 done.
+**Steps:**
+
+1. Uninstall SandiBumi from **Settings ▸ Apps** with the default choices.
+2. Check the install directory, `%APPDATA%\SandiBumi\projects.json`, `trusted-code.json`, `%APPDATA%\com.sandibumi.petro\settings.json`, and both project files.
+   **Expected:** The install directory is gone. Every user file listed remains, byte-identical to its hash. No default step offered to delete user data. Whether a SEPARATE, explicit removal consent exists is SB-INS-022's design question — write down whether you saw one.
+
+   **Result — T-INS-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-12 — Recovery on the installed build: force-close while idle, then read the diagnostics  [YOURS]
+
+**Tool/panel:** Task Manager, the recovery offer at launch, **Project ▸ Monitor ▸ Diagnostics…**
+**Preconditions:** a freshly reinstalled build (repeat T-INS-02); a project with a well; the app IDLE — nothing importing, running or exporting. This is the installed-build twin of T-SHELL-18 and T-PERF-08; the same rule applies: never kill during a write.
+**Steps:**
+
+1. Arrange a distinctive workspace (two panes, a non-default well) and wait 30 s for autosave.
+2. Task Manager ▸ **End task** on SandiBumi.
+3. Relaunch.
+4. **Project ▸ Monitor ▸ Diagnostics…** and read the report in the pane.
+   **Expected:** The relaunch offers to recover the workspace and restores it on accept; the project opens. No `.corrupt-backup-*` file appears beside the project (an idle kill leaves a clean WAL) — if one does, recovery ran and the app still opened: note it. The report carries no crash record for this kill — an End task is not a panic; a real panic would have been written to `%APPDATA%\SandiBumi\crash-log.txt` and appear in the report, redacted and dated.
+
+   **Result — T-INS-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-13 — The support report from the installed build: complete, and redacted  [YOURS]
+
+**Tool/panel:** **Project ▸ Help ▸ Prerequisites** (the SB-INS-021 support payload, `installation_support`), **Project ▸ Monitor ▸ Diagnostics…** (`diagnostics.rs`, the sendable report)
+**Preconditions:** any installed machine with a project holding wells and with whatever Python state that machine has.
+**Steps:**
+
+1. Open **Project ▸ Help ▸ Prerequisites** and copy down by hand what it shows: the session Python and its rule, every candidate with its verdict and reason, each capability row with its package and version.
+2. Open **Diagnostics…**, press **Build report**, read the pane, press **Save…**, and open the saved text file.
+3. Search the file for every well name in the project and for the project's folder path.
+   **Expected:** Step 1 is the support report as adjudicated, and it is read off the screen because the dialog has no save or copy control — Close is its only button. **Known gap (SB-INS-021, PARTIAL):** it carries no application/build digest, no installer type, no OS architecture and no configuration-layer digests, and it cannot be exported — list which of these you found missing; that list is the evidence. Step 2: the file opens with the version line, names module ids, durations and counts, the OS and architecture, whether an interpreter was found (`found (numpy present)` / `not found`) and the scipy version — never the interpreter path, which carries a username and is left out on purpose, so there is no path to compare with step 1; compare found/not-found instead. Every well name appears as `WELL-1`, `WELL-2`… and the project path is masked; no curve values and no project samples anywhere; above the Save… button the pane says that parameter VALUES travel.
+
+   **Result — T-INS-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-14 — The clean-machine matrix record, and the refusal that guards a release  [YOURS]
+
+**Tool/panel:** the results of T-INS-02 to T-INS-11; `installation.rs` (`CLEAN_MACHINE_SCENARIOS`)
+**Preconditions:** the candidate's MSI digest, pack digest and commit (T-INS-01, T-INS-05); results for every (feature release × edition) you actually ran.
+**Steps:**
+
+1. On the release date, capture Microsoft's list of serviced Windows 11 x64 feature releases; write the list and the date in Notes — it is captured then, never hard-coded.
+2. Fill one row per (feature release, edition, scenario) for the nine scenario ids — `standard_user`, `locked_down_user`, `offline_install`, `no_python_core_use`, `supported_external_python`, `missing_package`, `upgrade`, `rollback`, `uninstall_preservation` — with pass/fail and the three digests.
+3. Feed the record to the validator. The runner is increment G3-07; until it lands, run `cargo test one_failing_clean_machine_scenario_blocks_release_and_names_the_scenario` in the pinned shell to see the shape of the refusal.
+   **Expected:** A missing or failing cell is refused BY NAME — release, edition and scenario — and a complete green record is accepted and filed with the candidate. Until G3-07 exists there is no runner: mark **Blocked** and attach the filled table; the table is the evidence. (SB-CORE-042's "a machine enforces the gate on every change" is Jauhar's decision before this test can have a Pass.)
+
+   **Result — T-INS-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:**
+
+### T-INS-15 — The third-party inventory names the pack and fails on an unknown licence  [YOURS]
+
+**Tool/panel:** `node tools/gen-third-party-licenses.mjs`, `THIRD-PARTY-LICENSES.md`
+**Preconditions:** a repo checkout with `npm install` done; the pack's lock file if it exists.
+**Steps:**
+
+1. Run `node tools/gen-third-party-licenses.mjs` (no flag): it rewrites the file and prints one line — `N crates, M npm packages, K copyleft, U undeclared`. Write the four numbers in Notes.
+2. Run it again with `--check` and read the exit code: it is 1 only when the file on disk is stale against a regeneration, 0 when current — a staleness gate, not a licence gate.
+3. Open `THIRD-PARTY-LICENSES.md`: read its preamble on Python packages; does it enumerate the Python pack's runtime and packages, and does it record a legal approval state?
+   **Expected today (SB-INS-024, PRESENT-DIVERGENT):** an `undeclared` count above 0 fails nothing — the generator counts unknown licences and carries on; the preamble states that Python packages are not distributed with SandiBumi, a statement the pack decision has made false; no pack inventory and no approval state exist. Write down the counts and exactly what the preamble says. **After G3-07:** an unknown licence makes it exit non-zero and names the package; the pack's runtime and packages are enumerated with versions and digests; legal approval is recorded separately as a human act, never inferred.
+
+   **Result — T-INS-15:**
 
 - [ ] Pass
 - [ ] Fail

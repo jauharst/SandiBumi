@@ -21180,3 +21180,31 @@ with the old split and says so only in a boot note.
       is not the residual, and it is the same on paper.)
 - [ ] **Spot-check an anchor.** Pick any closed finding in `ROADMAP.md` §B1c and open the file at
       the line it names — the fix should be there, in production code, not only in a test.
+
+## Gate 3 opens for testing: the deployment program and fifteen installation tests (2026-09-02)
+
+Gate 2 is closed and its closure re-verified, so the next gate on the ladder opens: Windows/offline
+deployment and recovery. Nothing here is a new feature — it is the plan for proving the product
+survives being installed by somebody else's IT on a machine that is not yours.
+
+**What exists now.** `docs/takeover/GATE3_PROGRAM.md` scopes the 18 requirements Gate 2 handed
+forward, restates what you already decided (a per-machine MSI installed by IT, a signed
+application-local Python pack, every serviced Windows 11 x64 Pro/Enterprise release), lists the
+six decisions still yours by name without answering any of them, lays out the nine-scenario
+clean-machine matrix using the scenario ids the code already carries, and proposes seven
+increments in the order the evidence can actually be produced — the release candidate first,
+because every validator in the tree has only ever been fed a fixture. `docs/manual_test_plan.md`
+gains **Section INS** with T-INS-01 to T-INS-15, written step by step for the built installer on a
+clean machine; several will be **Blocked** today (no signed pack, no migration report, no matrix
+runner) and a Blocked mark with the date is exactly the evidence the program needs. The
+verification matrix gains an installation capability, so this evidence stops being "0/0 and not
+listed". `STATUS.md` now shows G3 started with 0 of 18 rows evidenced.
+
+- [ ] **Read the program once** (`docs/takeover/GATE3_PROGRAM.md`) and say whether the seven
+      increments are in the order you would run them — the release candidate first is the
+      proposal, not a decision.
+- [ ] **Answer, or defer by name, the six decisions in its §2** — configuration precedence, the
+      corporate policy layer, configuration packs, the migration/inventory route, CI before the
+      pilot, legal approval. Each one blocks a named test; none is answered on your behalf.
+- [ ] **Run T-INS-01** when you have an afternoon: a clean clone, the green gate from it, and the
+      MSI build. That receipt has never existed, and it is the first cell of the matrix.
