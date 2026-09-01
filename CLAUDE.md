@@ -1446,10 +1446,23 @@ cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxi
 npm install                   # install frontend deps (already done)
 npm run tauri dev             # full desktop app (use the pinned command above)
 npx tsc --noEmit              # fast frontend type check
-cd src-tauri && cargo check   # fast Rust-only compile check (no vcvars needed)
+cd src-tauri && cargo check   # fast Rust-only compile check - RUN IT INSIDE VCVARS TOO (see below)
 npm run tauri build           # production bundle (size-optimized [profile.release])
 powershell -ExecutionPolicy Bypass -File tools\check.ps1   # THE GREEN GATE: npm build + cargo test (vcvars-pinned), non-zero on first failure
 ```
+
+**`cargo check` outside vcvars is not free — it costs the NEXT gate run.** This line used to read
+"no vcvars needed", which is true of the Rust type check and false of what it leaves behind.
+`libduckdb-sys` declares `cargo:rerun-if-env-changed=VCINSTALLDIR` (and `VSCMD_ARG_TGT_ARCH`), so a
+check run from a plain shell has them UNSET, the build script's fingerprint changes, and cargo
+invalidates it. The check itself finishes in seconds on cached artifacts and looks perfectly clean
+— the damage is invisible until the next `tools\check.ps1`, which then recompiles the whole bundled
+DuckDB C++ tree and, measured 2026-09-02, dies part way through with `fatal error C1060: compiler is
+out of heap space` as the parallel `cl.exe` workers exhaust the compiler heap. It reads like a flaky
+gate or a broken toolset and is neither. Wrap `cargo check` in the same vcvars command as
+`cargo test`; if it has already happened, re-run the gate with `CARGO_BUILD_JOBS=2` so the rebuild
+fits in heap. The tell in the log is `Compiling libduckdb-sys` appearing at all — a warm tree never
+touches it.
 
 Verify every change: `npx tsc --noEmit` + `cargo check` + a browser functional test — and
 before a commit that claims "verified", `tools\check.ps1` is the one-command version of the
