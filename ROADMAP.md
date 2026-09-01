@@ -1509,11 +1509,21 @@ green first (gate 190s, 38/38 ignored tests, zero skips). **Restructurings (49�
 requiring behaviour-preserving proof; parameter conflicts (30, 51's clamp) are Jauhar's rulings,
 never an agent's.**
 
-**CLOSED 2026-09-02.** All 85 numbered findings and the one PLAUSIBLE item (PL-1) are ticked below,
-each with its evidence beside it. Nothing in this section is open. The state is checkable rather
-than claimed: `awk '/^## B1c[.]/{f=1} f&&/^## /&&!/B1c/{exit} f&&/^- \[ \]/' ROADMAP.md` returns
-nothing - anchored on the headings rather than on line numbers, so it stays true as the file moves -
-and
+**Every finding the audit itself raised is closed** - all 85 numbered items and the one PLAUSIBLE
+item (PL-1) - each ticked below with its evidence beside it. **The section is not empty**, because
+the 2026-09-02 Gate 2 closure critique (`AUDIT-GATE2-2026-09-02.md`) read the closures back against
+the tree and reopened four, all in the physics block: the residual of #21 the curve-path fix never
+reached, and three neighbours of it in the same screen-vs-print log arithmetic.
+
+That distinction is the whole point of keeping the count checkable rather than claimed. This block
+said "nothing in this section is open" for one commit, and it was wrong the moment the critique
+landed; what caught it was its own command, not a reading:
+
+    awk '/^## B1c[.]/{f=1} f&&/^## /&&!/B1c/{exit} f&&/^- \[ \]/' ROADMAP.md
+
+It is anchored on the headings rather than on line numbers, so it stays true as the file moves, and
+it prints the open items rather than a number - a status line that cannot go stale because it is not
+a status line. Alongside it,
 `governance_contracts::a_finding_the_code_says_it_closed_is_ticked_in_the_backlog` fails the build
 if a fix ever cites a finding this section still shows open.
 
@@ -1548,13 +1558,19 @@ picks next. `governance_contracts::a_finding_the_code_says_it_closed_is_ticked_i
 now fails when a finding cited by number in the tree is still unticked here, so the third round
 cannot happen quietly.
 
-**Nothing open — all 30 are closed as of 2026-09-02.**
+**All 30 are closed as of 2026-09-02**, and were re-verified anchor by anchor on 2026-09-02 against
+master `88932d19` by the Gate 2 closure critique (`AUDIT-GATE2-2026-09-02.md`): every fix is still
+in the tree and reachable in production, none was weakened by a later merge, twelve anchors had
+moved and are corrected below, and ONE residual of #21 — the crossover fill's own log-scale
+arithmetic, which the curve-path fix never reached — is reopened as its own item at the end of this
+list.
 
-**Closed — verified 2026-09-01, evidence beside each:**
+**Closed — verified 2026-09-01, anchors re-verified 2026-09-02, evidence beside each:**
 - [x] **#1** phi_son Wyllie Cp inflated porosity for DT_SH < 100 — the run is now REFUSED
-      (DEC-012), `modules.rs:5268`.
+      (DEC-012), `modules.rs:5462` (the refusal; manifest text `:5268`, pinned `:11407`).
 - [x] **#2** "RHG" label on a non-RHG transform — token retired; the method list is
-      WYLLIE / RHG80 / FIELD_OBSERVED and the old value no longer resolves, `modules.rs:5263`.
+      WYLLIE / RHG80 / FIELD_OBSERVED and the old value no longer resolves, `modules.rs:5277` (the
+      option list; `:5447` on why the retired value never reaches the runner).
 - [x] **#3** MC bypassed the declared-range guard — the guard is resolved at the MC call site with
       the deterministic runner's rule, message family and exemption, `montecarlo.rs:1172`.
 - [x] **#4** SWE_SIM "unlimited" twin was solver-capped — DEC-085 executed; the clipped entry
@@ -1562,7 +1578,8 @@ cannot happen quietly.
 - [x] **#5** bin_by_depth f32 key round-trip fragmented deep bins — keyed and regrouped in f64 on
       the integer key, as the TS twin does, `distribution.rs:325`.
 - [x] **#6** standard six stored unconverted — R-1/DEC-089: the store is canonical, ONE conversion
-      at import, `ingest.rs:1012`.
+      at import, `ingest.rs:1012`; an existing project is re-projected once at open, `project.rs:251`
+      → `equations::migrate_standard_curves_canonical` (`equations.rs:1013`).
 - [x] **#7** LAS export labelled canonical units over unconverted values — the writer has no unit
       table and queries `curves::canonical_unit`, `export.rs:904`, pinned by two named tests.
 - [x] **#8** deviation MD imported with no depth-unit resolution — resolved, and the fix found two
@@ -1574,17 +1591,19 @@ cannot happen quietly.
 - [x] **#11** sw_cond_root returned SWT = 0.0 unflagged at n = 1 — the `g(0) > 0` arm is handled
       as its own case, `sandimin.rs:607`.
 - [x] **#12** MC ignored a step's MASK — the MASK is now READ, fetched once per well,
-      `montecarlo.rs:2703`, `workflow.rs:2347`.
+      `montecarlo.rs:1222` (fetched), `:1501` / `:1531` (applied to inputs and outputs), pinned at
+      `:2703`; the shared helpers are `workflow.rs:2293` / `:2326` / `:2357` (`:2347` is their doc).
 - [x] **#13** two SSC capillary-water rules absent from the banked spec — both are IN the spec,
       `docs/method_ssc_sspw.md:59`, `:63`.
 - [x] **#14** FWL declared "m", consumed project-unit — the `FT_PER_M` constant is gone; conversion
       goes through `units.rs`, `satheight.rs:23`.
 - [x] **#15** Well Header hard-labelled TD/KB "(m)" — the row is built as `TD (${du})` from the
-      project's own depth unit, `ribbon.ts:2334`.
+      project's own depth unit, `src/ui/ribbon.ts:2339` (TD) and `:2349` (KB).
 - [x] **#16** `CORE_MATCH_TOL_M: f32 = 1.0` compared against project-unit depths — the tolerance is
       now a physical size (`CORE_MATCH_TOL_METRES`) restated by `units::metres_in` before it meets a
       depth, `nearest_within` takes it as an argument so it arrives in the same unit as the depths,
-      and `core_match_note` quotes the distance in the project's own unit (`facies_tie.rs:290`).
+      and `core_match_note` quotes the distance in the project's own unit (`facies_tie.rs:300`,
+      applied with the project's unit at `:352-354`).
       Pinned from both sides by
       `the_core_match_tolerance_is_one_metre_of_hole_in_whatever_unit_the_project_stores`.
 - [x] **#17** DEFAULT_DEPTH_TOL metre constant vs project-unit depths — the constant is
@@ -1593,7 +1612,9 @@ cannot happen quietly.
 - [x] **#18** FTEMP plain log_in defeated the computed_only contract — declared
       `log_in_computed`; "the one saturation-side hole in it", `modules.rs:7271`.
 - [x] **#19** %-delivered PHIE/VSH warned at import then consumed unconverted — percent is a
-      reviewed conversion for every fraction family, `curves.rs:1128`.
+      reviewed conversion for every fraction family, `generated/unit_registry.rs:151-159` (the
+      UNIT_RULES row naming NPHI, POR, VSH, VSH_UNCLIPPED and VCL, factor 0.01), consumed at
+      `curves.rs:279`, `:456` and `:653`; pinned at `curves.rs:1128`.
 - [x] **#20** step curve held one interval INTO a NaN gap in print but not on screen — **closed in
       the opposite direction to the finding**: the print's hold IS the stated contract, and the
       SCREEN was brought to match it (`LogCanvasRenderer.ts:349`). Skipping the interval drew the
@@ -1604,26 +1625,66 @@ cannot happen quietly.
       `plotCanvas.ts::valueFrac` both refuse a non-positive value, a non-positive scale end and a
       zero-span log axis. The 2026-09-01 pass could not tell a fix from a coincidence because
       nothing held them together; `the_screen_and_the_print_agree_on_where_a_log_track_has_no_position`
-      now does, from both sides (`composite.rs:2682`).
-- [x] **#22** show_samples honoured on screen, ignored in print — pinned by a named test that it
-      reaches the deliverable, `composite.rs:3026`.
+      now does, from both sides (`composite.rs:2700`). **This is the CURVE path** — the screen's
+      curve renderer calls `valueFrac` at `LogCanvasRenderer.ts:335`; the crossover-fill builder does
+      not, and that residual is reopened at the end of this list.
+- [x] **#22** show_samples honoured on screen, ignored in print — drawn at `composite.rs:1814`,
+      pinned by a named test that it reaches the deliverable, `:3079`.
 - [x] **#23** blocks track printed a numeric scale it does not use — a class-blocks track prints no
-      value axis and never borrows another curve's, `composite.rs:3075`.
+      value axis and never borrows another curve's, `composite.rs:2150` (the header), pinned `:3137`.
 - [x] **#24** plate near a page break dropped from the PDF — DEC-090: it slides clear and draws a
       leader callout back to its true depth, `composite.rs:1575`.
-- [x] **#25** non-MD datum refusal on one side of each pair — the guard is on the print reader too,
-      `db.rs:3825`.
+- [x] **#25** non-MD datum refusal on one side of each pair — the guard is on BOTH sides of BOTH
+      pairs through one helper (`db::refuse_non_md_active_set`, `db.rs:4426`): images print
+      `db.rs:3837`, images screen `:3661`, core screen `equations.rs:393`.
 - [x] **#26** screen FACIES blocks from decimated data — a class index has no envelope, so min/max
       decimation no longer applies to it, `equations.rs:204`, `:2529`.
 - [x] **#27** Larionov rounded 0.33/0.083 vs the exact normalised form — DEC-096 ships BOTH: the
       exact `LARINOV1_NORM`/`LARINOV2_NORM` and the published-decimal pair kept for vendor parity,
-      labelled with what they read at IGR = 1, `modules.rs:13526`.
+      labelled with what they read at IGR = 1, `modules.rs:4135` (the option) and `:4263` (the
+      arithmetic), pinned `:13526`.
 - [x] **#28** perm coefficients bare literals — cited from the commissioned research session,
       `modules.rs:12372`.
 - [x] **#63** dead `??` fallback disabled the PHIE unit-limit row — the unreachable PHIE arm is
       gone and the reason recorded; the SW arm that IS reachable stays, `axisRange.ts:325`.
 - [x] **#64** three drifted topic tables — SHALE_REDUCTION_CLAMP carries its two Geolog readings,
       `param_sources.rs:1754`.
+- [ ] **Finding 21, residual — three screen builders keep their own log arithmetic (2026-09-02 critique, P2).**
+      `LogCanvasRenderer.ts:562-566`: `buildCrossoverGeometries` maps a value with
+      `Math.log10(Math.max(v, 1e-6))` on a log-scaled track, so an exactly-zero sample — or a track
+      whose min is set to 0 — SHADES the interval on screen, while the print's `draw_crossover`
+      (`composite.rs:1325`) takes `value_frac`'s None and leaves it unshaded. `logViewPanel.ts:1392-1397`
+      (`drawPointTracks`) skips a zero VALUE like the print does but substitutes the same `1e-6` for a
+      scale end of 0 — and 0 is the minimum every new point series is seeded with
+      (`layoutPropsDialog.ts:616-623`) — so on a log track the screen compresses the plug cloud
+      against the right edge while the print (`composite.rs:1699`) places nothing: an empty point
+      track under its header, in the deliverable. `logViewPanel.ts:881-893` (`drawCoreOverlay`) makes
+      the same swap and scatters plugs where the curve it overlays refuses to draw. The curve path at
+      `LogCanvasRenderer.ts:335` and the array tracks (`logViewPanel.ts:1166-1176`) are already right;
+      the pin compares only the two `value_frac` twins, so it cannot see any builder. Fix shape: route
+      all three through `valueFrac`, keep each builder's own off-scale rule (the crossover clamps like
+      the curve; points and plugs skip, like the print), then extend the pin to refuse the
+      `Math.log10(Math.max(` spelling and require `valueFrac(` inside both builders. Fix follows in
+      the PR stacked on the critique. `AUDIT-GATE2-2026-09-02.md` F-1.
+- [ ] **The print rules a decade grid its own mapper refuses (2026-09-02 critique, P3).**
+      `composite.rs:1097-1100` (`draw_vgrid`) floors a non-positive log minimum to 0.01 and rules
+      decades from there, while `value_frac` (`:195`) places no sample on that track — a labelled,
+      ruled, empty track in the PDF, so the blank reads as deliberate rather than refused. The floor
+      is what keeps the decade loop finite, so the fix is to draw no grid where no sample can be
+      placed, or to refuse the track by name — not to delete the line. The screen's grid was not
+      compared. `AUDIT-GATE2-2026-09-02.md` F-2.
+- [ ] **An infinite value or scale end printed at the track edge while the screen left a gap (2026-09-02 fix review, P3).**
+      `composite.rs:195` `value_frac` refused only NaN, so ±∞ — a divide-by-zero in a user
+      equation, which rule 2 never turns into NaN — clamped to the edge in the PDF, while
+      `plotCanvas.ts:916` `valueFrac` refuses every non-finite value. A NaN scale END slipped past
+      both and came back as NaN rather than "no position". Fix: both refuse a non-finite value or
+      scale end, pinned by the finding-21 test. `AUDIT-GATE2-2026-09-02.md` F-3.
+- [ ] **A track switched to Logarithmic with a non-positive scale end empties silently (2026-09-02 fix review, P3).**
+      `layoutPropsDialog.ts:272` changes the scale type without looking at min/max, and the
+      finding-21 rule then places nothing — curve, crossover, plugs, points and the print all go
+      blank while the header still advertises the scale. Correct, and silent: Layout Properties
+      should refuse by name ("a log scale needs positive ends; set the minimum above 0"). Not
+      fixed; belongs with the decade-grid item above. `AUDIT-GATE2-2026-09-02.md` F-4.
 
 **P2 and P3 — structure, slop and the long tail (audit findings 29-48, 49-62, 65-85)**
 
@@ -1636,8 +1697,10 @@ carved `paysummary.rs` out of `workflow.rs`, **#53** carved `ancestry.rs` out of
 
 **#33 was the one real defect** - `sandimin::CORE_MATCH_TOL_M`, finding 16's twin in a second file -
 and it is fixed in the same increment as this verification. With it, **every numbered finding of the
-85 is closed**, and PL-1 below closed on 2026-09-02 in its own dedicated pass. **The audit backlog is
-empty.**
+85 is closed** as a numbered item, and PL-1 below closed on 2026-09-02 in its own dedicated pass.
+That is NOT the same as an empty backlog: the 2026-09-02 closure critique then reopened a residual
+of #21 (the crossover fill's log arithmetic) and three neighbours of it, all listed at the end of
+the physics block above. Four items are open.
 
 - [x] **PL-1** `sandimin.rs` - the dedicated pass ran 2026-09-02. **Confirmed as structure, measured
       as absent.** `solve_bounded_lsq` has five exits and only one - the KKT check finding no bound

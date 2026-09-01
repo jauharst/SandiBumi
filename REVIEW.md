@@ -21135,4 +21135,47 @@ two components whose response the inputs do not separate. Drop one, or add an in
 - [ ] **Provoke it if you want to see it**: build a model with two clays whose RHOB, NPHI and PEF
       endpoints are nearly identical and no log that separates them. If a caution line appears, it
       is naming a genuinely ambiguous model.
-- [ ] **The audit backlog is now empty.** All 85 numbered findings plus PL-1 are closed.
+- [ ] **Every finding the audit RAISED is now closed** - all 85 numbered ones plus PL-1. Read the
+      next entry before taking that as an empty backlog: the closure critique re-checked those
+      closures against the tree and reopened four, including a residual of #21 that my own fix for
+      it never reached.
+
+## Gate 2 closure critique: every closed finding re-checked on the tree, one log view crossover residual (2026-09-02)
+
+A hostile second look at Gate 2, which was closed formally on 2026-08-20 (DEC-083). The question
+was not whether the ledger says the 30 physics, units and agreement findings are fixed — it does —
+but whether today's code still honours each claim. The 2026-09-01 pass had found the drift running
+the other way (fixes in the tree, boxes unticked); this pass hunted the dangerous direction.
+
+**The closure holds.** All 30 fixes are still in the tree and reachable from a shipped build, and
+none was weakened by anything merged since. Twelve of the file:line anchors had drifted by a few
+lines and are corrected in `ROADMAP.md` §B1c. I also walked one number through a foot-unit project
+end to end — import, store, module, Monte Carlo, LAS export, printed composite — and the PHIE floor
+and the MASK rule through every path that consumes them. Every seam was in the unit or domain its
+consumer expects. The full record, with the refutation attempted on every claim, is
+`AUDIT-GATE2-2026-09-02.md`.
+
+**One claim over-reaches, and it is reopened.** #21 said the screen and the print now agree about a
+non-positive value on a log-scaled track. They do for the CURVE, and for the array tracks. They do
+not for the crossover SHADING: the screen's crossover builder still swaps a zero for 0.000001 before
+taking the log, so a zero sample — or a track whose minimum is set to 0 — shades on screen while the
+PDF leaves the interval empty. A POINT track (core plugs, aux samples) skips a zero value like the
+print does, but makes the same 0.000001 swap for a minimum of 0, so its plugs draw against a decade
+the print refuses — and there the PDF is the side that loses data: an empty point track under its
+header, from a series left at the minimum of 0 it is seeded with. The core-plug overlay makes the
+same swap and disagrees with the curve it is drawn over. It is a P2 by #21's own tier, and because
+a shipped default reaches it the fix is the next PR, stacked on this one, rather than a queue
+entry. One P3 on the print side is recorded beside it: on such a track the PDF still rules a decade
+grid from 0.01 that its own mapper refuses, so the blank track looks deliberate rather than refused.
+
+Two things are put to you as decisions rather than defects: `precalc`'s shipped 0.026 °F/ft gradient
+is applied per METRE on a metre project unless you convert it yourself (the manifest says so; the
+other temperature writer converts for you), and a project whose one-time unit migration fails opens
+with the old split and says so only in a boot note.
+
+- [ ] **The crossover residual, to see it once.** On a log-scaled resistivity track with crossover
+      shading between two resistivity curves, set the track minimum to 0 in the layout. The screen
+      goes on shading; export the same layout to PDF and the shading is gone. After the fix both
+      should show nothing until the minimum is positive again.
+- [ ] **Spot-check an anchor.** Pick any closed finding in `ROADMAP.md` §B1c and open the file at
+      the line it names — the fix should be there, in production code, not only in a test.
