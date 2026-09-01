@@ -1528,7 +1528,8 @@ never an agent's.**
 
 **Verified item by item against the tree on 2026-09-01** (master `5965818e`), because two
 consecutive picks off this list turned out to be work already done. **28 of the 30 were closed
-and the boxes had never been ticked.** The fixes arrived under their own decision ids — DEC-084,
+and the boxes had never been ticked.** #16 - the one real defect the pass turned up - was fixed on
+2026-09-02 and is ticked below, leaving #21. The fixes arrived under their own decision ids — DEC-084,
 DEC-085, DEC-089, DEC-090, DEC-094, DEC-096, the units family — each of which ticked ITS entry,
 and every one of them cited the audit finding faithfully IN THE CODE. Nothing carried that
 citation back to the checkbox, so the record of what is DONE lived in the source while the record
@@ -1538,11 +1539,7 @@ picks next. `governance_contracts::a_finding_the_code_says_it_closed_is_ticked_i
 now fails when a finding cited by number in the tree is still unticked here, so the third round
 cannot happen quietly.
 
-**Still open — both from the P2 physics block:**
-- [ ] **#16** `facies_tie.rs:283` — `CORE_MATCH_TOL_M: f32 = 1.0` is still a bare metre constant
-      compared against project-unit depths, and line 116 prints "within 1 m" whatever the project
-      is in. This is the `units::metres_in` rule (record_fixes) with one site left; #17's
-      `plugqc` twin was closed and is the worked example to copy.
+**Still open — one item, from the P2 physics block:**
 - [ ] **#21** `composite.rs:178` — log-track non-positives. **Unsettled by the same pass, leaning
       closed**: print (`value_frac`, `composite.rs:194`) and screen (`logViewPanel.ts:1174`) now
       return nothing for a non-positive on a log scale, so they agree — but no comment narrates a
@@ -1579,6 +1576,12 @@ cannot happen quietly.
       goes through `units.rs`, `satheight.rs:23`.
 - [x] **#15** Well Header hard-labelled TD/KB "(m)" — the row is built as `TD (${du})` from the
       project's own depth unit, `ribbon.ts:2334`.
+- [x] **#16** `CORE_MATCH_TOL_M: f32 = 1.0` compared against project-unit depths — the tolerance is
+      now a physical size (`CORE_MATCH_TOL_METRES`) restated by `units::metres_in` before it meets a
+      depth, `nearest_within` takes it as an argument so it arrives in the same unit as the depths,
+      and `core_match_note` quotes the distance in the project's own unit (`facies_tie.rs:290`).
+      Pinned from both sides by
+      `the_core_match_tolerance_is_one_metre_of_hole_in_whatever_unit_the_project_stores`.
 - [x] **#17** DEFAULT_DEPTH_TOL metre constant vs project-unit depths — the constant is
       `#[cfg(test)]`-only and renamed `_METRES`; every live path resolves `default_depth_tol`,
       which asks the project, `plugqc.rs:57`.
