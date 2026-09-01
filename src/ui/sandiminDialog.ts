@@ -23,6 +23,7 @@ import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 import { attachResizeRedraw, canvasFont, faciesColor, readTheme } from "./plotCanvas";
 import { requestRunCustody } from "./runCustody";
+import { metresInStored, storedDepthLabel } from "../depthUnitPref";
 
 /** Generalized Multimin dialog — commercial mineral-solver style.
  *
@@ -1288,7 +1289,9 @@ export async function buildSandiminContent(
       const coreCap = document.createElement("div");
       coreCap.className = "mc-chain-note";
       coreCap.textContent =
-        "Core calibration — RMS of (model − core) over plugs tied to a solved sample within 1 m; " +
+        // AUDIT-2026-08-20 finding 33: the backend ties within one metre of hole restated in the
+        // PROJECT's stored unit, so this has to say the same distance the tie actually used.
+        `Core calibration — RMS of (model − core) over plugs tied to a solved sample within ${Math.round(metresInStored(1) * 100) / 100} ${storedDepthLabel()}; ` +
         "bias is the mean signed error, so its sign says which way the model reads. Core φ is shown " +
         "against both porosities because the drying protocol decides which one a plug should match " +
         "(oven-dried drives off clay-bound water → PHIT; humidity-dried retains some → nearer PHIE).";

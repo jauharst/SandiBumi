@@ -21044,3 +21044,49 @@ what a track does is your call, not mine.
 - [ ] **§4c's physics block is now closed in full** — all 30 findings, each with the file and line
       that proves it. What remains in that section is the structure and slop blocks, which have not
       had this pass.
+
+## The 85-finding audit is closed, and SandiMin stops dropping core plugs (2026-09-02)
+
+The second half of the backlog pass. Findings **29–85** — the structure, slop and long-tail blocks —
+verified item by item, the same way the physics block was.
+
+**53 of the 54 were already closed.** Forty-two of them cite the audit finding *by number* in the
+code that fixed it, so the citation is the evidence and you can reproduce any of them with one grep.
+The other eleven I confirmed by going to the code each finding named. Both of the big
+restructurings had landed: `paysummary.rs` was carved out of `workflow.rs`, `ancestry.rs` out of
+`equations.rs`.
+
+**#33 was the one real defect, and it is the same one I fixed yesterday, in a second file.**
+
+SandiMin's core calibration is the honest check on a mineral solve — RECON only says the model
+reproduces the logs it was fitted to, while a core plug is an *independent* measurement. It ties
+each plug to the nearest solved sample and reports RMS and bias over the plugs that tied.
+
+"Nearest" was `1.0`, compared against depths in whatever unit the project stores. On a **foot**
+project that is one foot, under a third of the intended metre. Plugs further than a foot from their
+sample were dropped from the statistic — and the dialog caption went on saying **"within 1 m"**.
+
+This one is quieter than yesterday's because nothing is written to a curve. It is also worse in one
+respect: a dropped plug does not appear anywhere. The RMS and bias simply answer over fewer plugs
+than you believe they read, and a calibration computed on four plugs looks exactly like one computed
+on forty.
+
+Fixed the same way, and its own doc block had said *"matches the 1.0 m convention already used in
+`facies_tie.rs`"* — a convention that file had stopped following the day before. The caption now
+says **"within 1.00 m"** or **"within 3.28 ft"**, whichever the project is in.
+
+**Every numbered finding of the 85 is now closed.** The one thing still open is **PL-1**, which the
+audit itself marked *plausible* rather than confirmed — a question about SandiMin's solver quality
+gating that needs its own pass. I did not tick it, because a plausible finding is not a verified one.
+
+**The guard is now at zero.** The ratchet from three days ago counted findings the code says it
+closed while the backlog still showed them open. It started at 42; it is 0. A fix that cites its
+finding and forgets the checkbox now fails immediately instead of hiding inside a budget.
+
+- [ ] **Run SandiMin on a foot project with core** and read the caption under Core calibration —
+      it should say "within 3.28 ft". If plugs were being dropped for this reason, `n` will rise and
+      the RMS and bias will move. That movement is the bug leaving.
+- [ ] **Spot-check any closed finding.** `grep -rn "AUDIT-2026-08-20 finding 41" src-tauri/src` and
+      similar will land you on the code that fixed it, with its reasoning.
+- [ ] **PL-1 is the only thing left of the audit**, and it wants a dedicated look at
+      `solve_bounded_lsq` rather than a grep.

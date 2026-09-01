@@ -155,11 +155,15 @@ GUIDEBOOK_EM_DASH_CEILING in this file and say so in the commit. By chapter: {li
 /// How many §4c audit findings the CODE cites by number while the backlog still shows them open.
 ///
 /// A ratchet, for the reason the guidebook's em-dash ceiling is one: a sweep leaves nothing behind
-/// that the next session has to pass. Measured 2026-09-01 after verifying findings 1-28, 63 and 64
-/// item by item - 27 of those 30 were closed and had never been ticked. The rest of the section
-/// (the structure and slop blocks, findings 29-48 and 49-85) has NOT had that pass, which is what
-/// this number counts. Verify a block, tick what it closed, lower the constant.
-const AUDIT_CITED_BUT_UNTICKED_CEILING: usize = 42;
+/// that the next session has to pass. It started at 42 on 2026-09-01, when only findings 1-28, 63
+/// and 64 had been verified item by item.
+///
+/// **It is ZERO as of 2026-09-02**, because the second half of that pass covered findings 29-85 and
+/// every one of the 85 is now ticked with its evidence. Zero is the value to keep: a fix that cites
+/// its finding in the code and forgets the checkbox now fails immediately rather than hiding inside
+/// a budget. Raise it only to record a citation that is genuinely CONTEXT for another decision
+/// rather than a closure, and say which finding and why in the same commit.
+const AUDIT_CITED_BUT_UNTICKED_CEILING: usize = 0;
 
 fn find_from(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     if needle.is_empty() || hay.len() < needle.len() {
