@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
-Review sections counted toward no capability: **190** of 762,
+Review sections counted toward no capability: **190** of 763,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -48,7 +48,7 @@ this table, so every figure above reads low by whatever those sections cover.
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 30 | — | 8 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 78 | — | 19 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
-| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 86 | 2026-07-19 | 17 |
+| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 88 | 2026-07-19 | 18 |
 | `histogram` | Histogram | Partially exercised | 5 / 48 | 2026-07-20 | 11 |
 | `crossplot` | Crossplot | Partially exercised | 6 / 56 | 2026-07-20 | 15 |
 | `pickett` | Pickett plot | Not exercised | 0 / 30 | — | 8 |
