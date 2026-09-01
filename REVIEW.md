@@ -21208,3 +21208,30 @@ listed". `STATUS.md` now shows G3 started with 0 of 18 rows evidenced.
       pilot, legal approval. Each one blocks a named test; none is answered on your behalf.
 - [ ] **Run T-INS-01** when you have an afternoon: a clean clone, the green gate from it, and the
       MSI build. That receipt has never existed, and it is the first cell of the matrix.
+
+## Manual verification, step by step: the test plan gains a run order (2026-09-02)
+
+You asked to be able to follow the manual test plan one step at a time. The plan's 265 tests were
+written tool by tool, and each section quietly assumed data some other section had made — so the
+first thing a tester met was a precondition nobody had told them how to satisfy.
+
+**What changed.** `docs/manual_test_plan.md` now opens with **The run order**: eighteen numbered
+steps in the order the data builds up — launch, a fresh project and the first import, the other
+deliveries, conditioning, the interpretation by hand, the viewer's tools, the Advance methods,
+rock typing, equations and ML, batch, reporting, sessions, the big project, the packaged build,
+and last the clean-machine installation from Gate 3. Each step says what must be on the table
+before you start, which tests to run there in order, and what must exist when you finish; the
+steps are grouped into five sittings. Every one of the 265 tests appears in exactly one step. The
+steps are written against the example set in `dataset for test/examples/` (SANDI-01, SANDI-02,
+SANDI-03 and their companion files) so each can be reproduced from a fresh clone, and the tests
+that need a judgement about real rock are marked **your data**. Where a test's own text has gone
+stale — T-IMP-05's Expected line, the retired legacy module behind T-RT-17 and T-RT-18, the
+corrected Larionov labels in T-PETRO-02, the superseded known issue on T-ADV-13 — the step says
+so before you get there. The tests themselves, their steps, their expected results and your
+existing marks are untouched.
+
+- [ ] **Run sitting A** (steps 1–6, about two hours, the example set only) and say whether any
+      step asked for something the step before had not made. That is the only defect this list
+      can have, and you will find it faster than I can.
+- [ ] **Say whether five sittings is the right cut**, or whether you would rather have the steps
+      regrouped around the evenings you actually have.
