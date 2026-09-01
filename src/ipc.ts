@@ -2772,6 +2772,8 @@ export interface SandiminWellResult {
    *  as "this well has no core"; a cross-datum delivery is the opposite statement. */
   core_note: string | null;
   error: string | null;
+  /** Of `rows_solved`, how many came from a solve that stopped before the optimum (PL-1). */
+  unconverged: number;
 }
 
 export interface SandiminResult {
@@ -2784,6 +2786,9 @@ export interface SandiminResult {
   dof_note: string | null;
   /** Set when ALPHA_MAX held the diffuse-layer expansion down (DEC-095). */
   alpha_note: string | null;
+  /** Set when any sample's volumes came from a solve that never reached the optimum (PL-1).
+   *  Nothing else flags those samples — they are feasible, and RECON cannot separate them. */
+  convergence_note: string | null;
   error: string | null;
 }
 

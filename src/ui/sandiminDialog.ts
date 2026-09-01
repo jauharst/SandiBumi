@@ -1246,6 +1246,16 @@ export async function buildSandiminContent(
     }
     resultBox.appendChild(dofLine);
 
+    // PL-1: some volumes came from a search that had not finished. Warn-coloured like the other
+    // two qualifiers, because nothing in the table below can tell those samples apart.
+    if (res.convergence_note) {
+      const convLine = document.createElement("div");
+      convLine.className = "mc-chain-note";
+      convLine.style.color = "var(--warn)";
+      convLine.textContent = res.convergence_note;
+      resultBox.appendChild(convLine);
+    }
+
     // DEC-095: the run departed from the reference spec's uncapped α and says so.
     if (res.alpha_note) {
       const alphaLine = document.createElement("div");
@@ -1265,7 +1275,9 @@ export async function buildSandiminContent(
       const name = wells.find((x) => x.well_id === w.well_id)?.well_name || w.well_id;
       for (const cell of [
         name,
-        String(w.rows_solved),
+        // PL-1: the unconverged share rides in the count it qualifies, so a run with several
+        // degenerate wells shows every one of them - the note above can only name the worst.
+        w.unconverged > 0 ? `${w.rows_solved} (${w.unconverged} unconverged)` : String(w.rows_solved),
         Number.isFinite(w.mean_recon) ? w.mean_recon.toFixed(3) : "—",
         w.error ?? "—",
       ]) {
