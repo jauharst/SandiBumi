@@ -1509,6 +1509,14 @@ green first (gate 190s, 38/38 ignored tests, zero skips). **Restructurings (49â€
 requiring behaviour-preserving proof; parameter conflicts (30, 51's clamp) are Jauhar's rulings,
 never an agent's.**
 
+**CLOSED 2026-09-02.** All 85 numbered findings and the one PLAUSIBLE item (PL-1) are ticked below,
+each with its evidence beside it. Nothing in this section is open. The state is checkable rather
+than claimed: `awk '/^## B1c[.]/{f=1} f&&/^## /&&!/B1c/{exit} f&&/^- \[ \]/' ROADMAP.md` returns
+nothing - anchored on the headings rather than on line numbers, so it stays true as the file moves -
+and
+`governance_contracts::a_finding_the_code_says_it_closed_is_ticked_in_the_backlog` fails the build
+if a fix ever cites a finding this section still shows open.
+
 **Rulings this backlog waits on (fix nothing in these until the word comes):**
 - [x] **R-1 (findings 6, 7):** **RULED 2026-08-20 (DEC-085): CANONICAL** â€” "convert it to
       'default' active unit choosen to work in active project." Imports convert on the way in to
@@ -1628,11 +1636,26 @@ carved `paysummary.rs` out of `workflow.rs`, **#53** carved `ancestry.rs` out of
 
 **#33 was the one real defect** - `sandimin::CORE_MATCH_TOL_M`, finding 16's twin in a second file -
 and it is fixed in the same increment as this verification. With it, **every numbered finding of the
-85 is closed**; only the PLAUSIBLE item below stays open.
+85 is closed**, and PL-1 below closed on 2026-09-02 in its own dedicated pass. **The audit backlog is
+empty.**
 
-- [ ] **PL-1** `sandimin.rs` - PLAUSIBLE, never confirmed: `solve_bounded_lsq` quality-gating on
-      budget exhaustion / a singular sub-solve is unestablished. Needs its own dedicated pass, and
-      is deliberately NOT ticked by this one - a plausible finding is not a verified one.
+- [x] **PL-1** `sandimin.rs` - the dedicated pass ran 2026-09-02. **Confirmed as structure, measured
+      as absent.** `solve_bounded_lsq` has five exits and only one - the KKT check finding no bound
+      component that wants to move - proves anything. The other four (a vertex with nothing free
+      left, a singular sub-solve, a step that pinned nothing, the pass budget spent) return the last
+      feasible point the search accepted, and it IS feasible: inside every Max, on the unity plane,
+      shaped exactly like an interpretation. RECON cannot separate it either, because a model with
+      too many ways to fit its own logs fits them well. All five arrived at the caller as one
+      `Some`. Incidence, measured over 200,000 random response matrices: **zero**. A degenerate
+      model goes singular on pass one, before any iterate has been accepted, so it returns `None`
+      and the sample is skipped - the dangerous window is narrow by construction, and the hungriest
+      problem in the sweep converged in 15 passes against a budget of `8n+12` (36-60). So this is a
+      reporting fix for a failure mode that has not been seen, not a repair of an observed one:
+      `BoundedSolve.converged`, a per-well `unconverged` count, and a run-level `convergence_note`
+      that names the count and the worst well. Nothing written changes - an unfinished iterate is
+      still an answer, just not a proven one, and dropping those samples would blank an interval on
+      no evidence. Pinned by
+      `a_solve_that_stopped_early_is_reported_and_a_finished_one_is_not`.
 
 **Closed - verified 2026-09-02, evidence beside each:**
 - [x] **#29** Coates squared PHIE twice, so a vendor porosity reading -0.05 returned a real permeability - `modules.rs`.

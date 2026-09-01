@@ -21090,3 +21090,49 @@ finding and forgets the checkbox now fails immediately instead of hiding inside 
       similar will land you on the code that fixed it, with its reasoning.
 - [ ] **PL-1 is the only thing left of the audit**, and it wants a dedicated look at
       `solve_bounded_lsq` rather than a grep.
+
+## SandiMin says when a solve stopped before it found the answer (2026-09-02)
+
+PL-1 was the last thing left of the 85-finding audit, and the only one the audit itself had marked
+*plausible* rather than confirmed. It asked one question: when SandiMin's mineral inversion gives
+up on a sample, does anything say so? This is the dedicated pass it asked for, and the answer has
+two halves that point opposite ways.
+
+**The structure is real.** The solver searches for the mineral volumes by moving components on and
+off their `Max` limits until nothing wants to move any more. It has five ways to stop, and only one
+of them — the check that finds no component still pushing against its limit — actually proves it
+found the best fit. The other four are the search running out of room: every component pinned, two
+minerals the live logs cannot tell apart, a step that changed nothing, and the pass budget spent.
+
+What made this worth finding is that all four still hand back **a perfectly reasonable-looking
+answer**. The volumes are inside every `Max`, they sum to 1.000, and they plot like an
+interpretation. RECON does not catch it either — a model with too many ways to fit its own logs
+fits them *well*. All five stops arrived at the caller as one indistinguishable result.
+
+**The incidence is zero.** Before writing anything I ran 200,000 randomly-built response matrices
+through the solver. Not one came back as an unproven answer. The reason is reassuring: a genuinely
+degenerate model fails on the *first* pass, before any answer has been accepted, so the sample is
+skipped rather than filled in. The hungriest problem in the whole sweep finished in 15 passes
+against a budget of 36 to 60.
+
+So this is a **fix for something that has not happened**. I have said that plainly in the backlog
+rather than writing it up as a repair, because the difference matters if you ever decide the code
+is not worth carrying.
+
+**Nothing you have run will produce different numbers.** An unfinished search still returns a
+feasible answer, and throwing those samples away would blank an interval on no evidence. What is
+new is that the run counts them and says so — a line above the well table, in the same warning
+colour as the DOF and alpha notes, naming the count and the well with the worst share, and the
+per-well count riding in the "Samples solved" cell so a run with several bad wells shows all of
+them rather than just the worst.
+
+If it ever fires, it is telling you the model is asking the logs a question they cannot answer:
+two components whose response the inputs do not separate. Drop one, or add an input log.
+
+- [ ] **Run SandiMin as you normally would** and confirm the caution line does *not* appear, and
+      the "Samples solved" column reads exactly as it always did. On any real model that is the
+      expected result — silence here is the finding, not a missing feature.
+- [ ] **Provoke it if you want to see it**: build a model with two clays whose RHOB, NPHI and PEF
+      endpoints are nearly identical and no log that separates them. If a caution line appears, it
+      is naming a genuinely ambiguous model.
+- [ ] **The audit backlog is now empty.** All 85 numbered findings plus PL-1 are closed.

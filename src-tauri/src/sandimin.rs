@@ -1149,6 +1149,10 @@ pub struct CoreFit {
 pub struct SandiminWellResult {
     pub well_id: String,
     pub rows_solved: usize,
+    /// AUDIT-2026-08-20 PL-1: of `rows_solved`, how many came from a solve that stopped before it
+    /// could prove itself optimal. Counted per well because the cause is the MODEL against THIS
+    /// well's live tools - a run of ten wells where one is degenerate needs to name that well.
+    pub unconverged: usize,
     pub mean_recon: f32,
     /// Core calibration — RECON says the model reproduces its own input LOGS; these say whether it
     /// reproduces an INDEPENDENT measurement. Core φ is reported against both PHIE and PHIT because
@@ -1186,11 +1190,17 @@ pub struct SandiminResult {
     /// than the spec would, and that departure is stated rather than left in the arithmetic.
     /// (`dof_note`'s shape - the run succeeded, and this qualifies what it means.)
     pub alpha_note: Option<String>,
+    /// AUDIT-2026-08-20 PL-1: set when any sample's volumes came from a solve that stopped before
+    /// the optimum. Every such iterate is feasible, so nothing downstream can tell it from a
+    /// converged one - RECON cannot either, because a degenerate model fits its own logs well by
+    /// having too many ways to. Saying it once per run is `alpha_note`'s shape: the cause is the
+    /// model, not the depth, so repeating it per sample would print one fact thousands of times.
+    pub convergence_note: Option<String>,
     pub error: Option<String>,
 }
 
 fn fail(msg: &str) -> SandiminResult {
-    SandiminResult { swb_rule: None, outputs: vec![], wells: vec![], dof: 0, dof_note: None, alpha_note: None, error: Some(msg.to_string()) }
+    SandiminResult { swb_rule: None, outputs: vec![], wells: vec![], dof: 0, dof_note: None, alpha_note: None, convergence_note: None, error: Some(msg.to_string()) }
 }
 
 /// DEC-095: name the diffuse-layer ceiling when it bound. The reference spec's alpha is uncapped
@@ -2020,6 +2030,7 @@ pub fn run_sandimin(
                 wells.push(SandiminWellResult {
                     well_id: well_id.clone(),
                     rows_solved: 0,
+                    unconverged: 0,
                     mean_recon: f32::NAN,
                     core_phie: None,
                     core_phit: None,
@@ -2038,6 +2049,9 @@ pub fn run_sandimin(
         let mut vol: Vec<Vec<f32>> = vec![vec![f32::NAN; ns]; n];
         let mut recon = vec![f32::NAN; ns];
         let mut solved = 0usize;
+        // PL-1: samples whose volumes came from a solve that never reached the KKT optimum. They
+        // are written like any other - they are feasible - and counted so the run can say so.
+        let mut unconverged = 0usize;
         let mut recon_sum = 0.0f64;
         // Per-tool reconstruction QC (recon_qc): reconstructed measurement + σ-unit residual.
         let mut tool_rec: Vec<Vec<f32>> = if recon_qc { vec![vec![f32::NAN; ns]; tools.len()] } else { Vec::new() };
@@ -2174,10 +2188,12 @@ pub fn run_sandimin(
                 b.push(0.0);
             }
 
-            let mut x = match solve_bounded_lsq(&a, &b, unity_c.as_deref(), &hi, n) {
-                Some(x) => x,
+            let first = match solve_bounded_lsq(&a, &b, unity_c.as_deref(), &hi, n) {
+                Some(s) => s,
                 None => continue,
             };
+            let mut x = first.v;
+            let mut sample_converged = first.converged;
             // WATER MUD: for WBM, flushed-zone water cannot be less than unflushed water.
             if let Some(wm) = &water_mud_row {
                 let s: f64 = wm.iter().zip(&x).map(|(c, v)| c * v).sum();
@@ -2186,10 +2202,16 @@ pub fn run_sandimin(
                     let mut b2 = b.clone();
                     a2.push(wm.iter().map(|e| e * soft_weight).collect());
                     b2.push(0.0);
-                    if let Some(x2) = solve_bounded_lsq(&a2, &b2, unity_c.as_deref(), &hi, n) {
-                        x = x2;
+                    if let Some(s2) = solve_bounded_lsq(&a2, &b2, unity_c.as_deref(), &hi, n) {
+                        x = s2.v;
+                        sample_converged = s2.converged;
                     }
                 }
+            }
+            // PL-1: the re-solve, where it happened, is the one that produced these volumes, so its
+            // verdict is the one counted - the sample is tallied once, on the answer being kept.
+            if !sample_converged {
+                unconverged += 1;
             }
 
             // Post-solve shaly-sand Sw (Indonesia/Simandoux): the linear inversion above fixed φe and
@@ -2651,6 +2673,7 @@ pub fn run_sandimin(
         wells.push(SandiminWellResult {
             well_id: well_id.clone(),
             rows_solved: solved,
+            unconverged,
             mean_recon: if solved > 0 { (recon_sum / solved as f64) as f32 } else { f32::NAN },
             core_phie,
             core_phit,
@@ -2660,6 +2683,8 @@ pub fn run_sandimin(
         });
     }
 
+    let convergence_note = convergence_note(&wells);
+
     SandiminResult {
         // SB-SAT-023: the applied Swb rule travels with the result, never implicit.
         swb_rule: post_solve.then(|| effective_backout_rule(model).to_string()),
@@ -2668,8 +2693,38 @@ pub fn run_sandimin(
         dof,
         dof_note,
         alpha_note,
+        convergence_note,
         error: None,
     }
+}
+
+/// AUDIT-2026-08-20 PL-1: say, once for the run, that some volumes came from a search that had not
+/// finished. The count is the whole message - one sample in twenty thousand is a curiosity, a fifth
+/// of a well is a model that the live tools cannot separate - so it is reported rather than reduced
+/// to a yes/no, and the worst well is named because that is where the model has to be looked at.
+fn convergence_note(wells: &[SandiminWellResult]) -> Option<String> {
+    let bad: usize = wells.iter().map(|w| w.unconverged).sum();
+    if bad == 0 {
+        return None;
+    }
+    let solved: usize = wells.iter().map(|w| w.rows_solved).sum();
+    let pct = |part: usize, whole: usize| -> f64 {
+        if whole == 0 { 0.0 } else { 100.0 * part as f64 / whole as f64 }
+    };
+    let worst = wells
+        .iter()
+        .filter(|w| w.unconverged > 0)
+        .max_by(|a, b| pct(a.unconverged, a.rows_solved).total_cmp(&pct(b.unconverged, b.rows_solved)));
+    let where_ = match worst {
+        Some(w) if wells.len() > 1 => {
+            format!(" - worst in {} at {:.0}%", w.well_id, pct(w.unconverged, w.rows_solved))
+        }
+        _ => String::new(),
+    };
+    Some(format!(
+        "{bad} of {solved} solved samples ({:.1}%) came from a solve that stopped before reaching the optimum{where_}. Those volumes are feasible - they honour unity and every Max - but they are not the best fit this model can give, and RECON cannot tell you which ones they are. It is what a model the live input logs cannot separate looks like: drop a component whose response the inputs do not distinguish, or add an input log.",
+        pct(bad, solved)
+    ))
 }
 
 /// Rebuilds a tool's measurement in its DISPLAY domain from the solved native prediction:
@@ -2755,6 +2810,18 @@ enum BState {
     AtHi,
 }
 
+/// AUDIT-2026-08-20 PL-1: what a solve returned, and whether it is the ANSWER or merely the last
+/// place the search got to. Every iterate the solver holds is feasible - inside the box and on the
+/// unity plane - so a run that stops early still hands back volumes that look exactly like an
+/// interpretation. Only the KKT exit proves them optimal; the other four (a vertex with nothing
+/// left free, a singular sub-solve, a step that pinned nothing, and the iteration budget running
+/// out) return a point the search had not finished with. Without this flag those five are one
+/// value at the call site, which is the whole finding.
+struct BoundedSolve {
+    v: Vec<f64>,
+    converged: bool,
+}
+
 /// min‖Av−b‖² s.t. 0 ≤ v ≤ hi and (optionally) cᵀv = 1.
 /// Active-set: solve the KKT system on the free set (fixed components folded into the RHS),
 /// line-search from the current feasible point to the first bound crossing, and release
@@ -2765,7 +2832,27 @@ fn solve_bounded_lsq(
     unity_c: Option<&[f64]>,
     hi: &[f64],
     n: usize,
-) -> Option<Vec<f64>> {
+) -> Option<BoundedSolve> {
+    solve_bounded_lsq_within(a, b, unity_c, hi, n, active_set_passes(n))
+}
+
+/// How many active-set passes a model of `n` components is allowed. Each pass either frees one
+/// bound component or pins at least one, so a run of them terminates - unless the model is
+/// degenerate enough to cycle, which is the case this budget exists to stop and PL-1's flag exists
+/// to report. Named rather than inline so the exhausted branch can be reached from a test on a
+/// well-posed problem, instead of only by constructing one that cycles.
+fn active_set_passes(n: usize) -> usize {
+    8 * n + 12
+}
+
+fn solve_bounded_lsq_within(
+    a: &[Vec<f64>],
+    b: &[f64],
+    unity_c: Option<&[f64]>,
+    hi: &[f64],
+    n: usize,
+    max_outer: usize,
+) -> Option<BoundedSolve> {
     if a.is_empty() {
         return None;
     }
@@ -2811,12 +2898,13 @@ fn solve_bounded_lsq(
 
     let mut state = vec![BState::Free; n];
     let mut solved_once = false;
-    let max_outer = 8 * n + 12;
 
     for _ in 0..max_outer {
         let free: Vec<usize> = (0..n).filter(|&c| state[c] == BState::Free).collect();
         if free.is_empty() {
-            return if solved_once { Some(v) } else { None };
+            // Every component pinned: there is no free set left to test the KKT signs on, so this
+            // vertex is where the search ran out of room rather than where it finished.
+            return solved_once.then(|| BoundedSolve { v, converged: false });
         }
 
         // Contribution of components fixed at their upper bound.
@@ -2847,7 +2935,9 @@ fn solve_bounded_lsq(
         }
         let sol = match solve_linear_opt(mat, rhs) {
             Some(s) if s.iter().all(|x| x.is_finite()) => s,
-            _ => return if solved_once { Some(v) } else { None },
+            // Singular free set: two components the live tools cannot tell apart. Whatever the
+            // previous iteration reached is kept, but it was never tested against this system.
+            _ => return solved_once.then(|| BoundedSolve { v, converged: false }),
         };
         let mut u = vec![0.0f64; n];
         for (idx, &c) in free.iter().enumerate() {
@@ -2886,7 +2976,9 @@ fn solve_bounded_lsq(
             }
             match release {
                 Some(c) => state[c] = BState::Free,
-                None => return Some(v),
+                // The one exit that proves anything: feasible, and no bound component wants to
+                // move. This is the constrained least-squares optimum.
+                None => return Some(BoundedSolve { v, converged: true }),
             }
         } else {
             // Step from feasible v toward u until the first free component hits a bound.
@@ -2915,15 +3007,15 @@ fn solve_bounded_lsq(
                 }
             }
             if !any_fixed {
-                return if solved_once { Some(v) } else { None };
+                // The step left the box but pinned nothing: the active set cannot change, so the
+                // next iteration would repeat this one. Stop rather than spin.
+                return solved_once.then(|| BoundedSolve { v, converged: false });
             }
         }
     }
-    if solved_once {
-        Some(v)
-    } else {
-        None
-    }
+    // Iteration budget spent. `v` is the last feasible point the search accepted, which is an
+    // answer only in the sense that it is in the right shape.
+    solved_once.then(|| BoundedSolve { v, converged: false })
 }
 
 /// Gaussian elimination with partial pivoting. Returns None for a singular system.
@@ -3586,6 +3678,102 @@ mod tests {
         assert!(rms(&read(&["MB_RHOB_DIF"])["MB_RHOB_DIF"]) > 0.1, "the density misfit should show in MB_RHOB_DIF");
     }
 
+    /// AUDIT-2026-08-20 PL-1. `solve_bounded_lsq` has five ways out, and four of them hand back an
+    /// iterate the search had not finished with: a vertex with nothing free left, a singular
+    /// sub-solve, a step that pinned nothing, and the pass budget running out. Every one of those
+    /// points is FEASIBLE - it honours the box and sits on the unity plane - so downstream it is
+    /// shaped exactly like an answer, RECON cannot separate it from one, and before this the
+    /// caller saw a single `Some` for all five.
+    ///
+    /// A 200,000-model sweep over random response matrices found ZERO of these in production
+    /// shape: a degenerate model goes singular on pass one, before `solved_once` is ever set, so
+    /// it returns `None` and the sample is skipped. The hungriest problem in that sweep converged
+    /// in 15 passes against a budget of `8n+12`. So this pins a failure mode that has not been
+    /// observed, and the flag is what would let it be seen if it ever happened.
+    ///
+    /// The unfinished search is produced by CUTTING THE BUDGET rather than by fabricating a model
+    /// that cycles - same model, same data, one pass short - so what is measured is the reporting
+    /// and not two different problems. The minimum budget is searched for rather than written
+    /// down, so a solver change that made this model converge sooner cannot leave the test quietly
+    /// comparing a solve against itself: it fails on the `> 1` assertion instead.
+    ///
+    /// Pinned from both sides, because either half alone has a lazy implementation that passes it.
+    /// A flag hard-wired to `false` satisfies "the stopped search is reported" and would condemn
+    /// every good run; one hard-wired to `true` satisfies "a finished search stays silent" and
+    /// restores the finding exactly.
+    #[test]
+    fn a_solve_that_stopped_early_is_reported_and_a_finished_one_is_not() {
+        // RHOB / NPHI / U against quartz, illite, kaolinite, calcite, water and gas, with Max caps
+        // that bind. These are endpoint-SHAPED numbers picked to make the active set do work; the
+        // subject here is the solver's bookkeeping, not the mineral physics, and nothing in this
+        // test is a citable default.
+        let a = vec![
+            vec![2.65, 2.75, 2.60, 2.71, 1.00, 0.20],
+            vec![-0.02, 0.30, 0.37, 0.00, 1.00, 0.05],
+            vec![4.79, 8.60, 4.40, 13.80, 0.40, 0.10],
+        ];
+        let b = vec![2.20, 0.18, 4.20];
+        let unity = vec![1.0; 6];
+        let hi = vec![1.0, 0.15, 0.10, 0.20, 0.50, 0.50];
+        let feasible = |v: &[f64], label: &str| {
+            let sum: f64 = v.iter().sum();
+            assert!((sum - 1.0).abs() < 1e-9, "{label}: unity must hold, got {sum}");
+            assert!(
+                v.iter().zip(&hi).all(|(x, h)| *x >= -1e-9 && x <= h),
+                "{label}: every component inside its box, got {v:?}"
+            );
+        };
+
+        let full = solve_bounded_lsq(&a, &b, Some(&unity), &hi, 6).expect("the model is solvable");
+        assert!(full.converged, "a solvable model on the full budget reaches the KKT optimum");
+        feasible(&full.v, "converged");
+
+        // The smallest budget this model converges on. Cutting one pass off it is the whole seam.
+        let min_pass = (1..=active_set_passes(6))
+            .find(|&p| {
+                solve_bounded_lsq_within(&a, &b, Some(&unity), &hi, 6, p)
+                    .is_some_and(|s| s.converged)
+            })
+            .expect("some budget converges - the full one just did");
+        assert!(
+            min_pass > 1,
+            "this fixture must need more than one pass, or the cut below compares a solve to itself"
+        );
+
+        let cut = solve_bounded_lsq_within(&a, &b, Some(&unity), &hi, 6, min_pass - 1)
+            .expect("a stopped search still returns its last feasible point");
+        assert!(!cut.converged, "a search one pass short cannot prove optimality and must not claim to");
+        // The hazard restated as an assertion: the unfinished point passes every check a reader
+        // could apply to it, which is exactly why the flag has to travel separately.
+        feasible(&cut.v, "unconverged");
+
+        // And the run says so, once, with the count - because the count IS the message. One sample
+        // in twenty thousand is a curiosity; a tenth of a well is a model to go and look at.
+        let well = |id: &str, solved: usize, bad: usize| SandiminWellResult {
+            well_id: id.to_string(),
+            rows_solved: solved,
+            unconverged: bad,
+            mean_recon: 0.5,
+            core_phie: None,
+            core_phit: None,
+            core_gd: None,
+            core_note: None,
+            error: None,
+        };
+        let note = convergence_note(&[well("SANDI-1", 900, 90), well("SANDI-2", 100, 1)])
+            .expect("a run holding unconverged samples must say so");
+        assert!(note.contains("91 of 1000"), "the note carries the real count: {note}");
+        assert!(note.contains("SANDI-1"), "and names the worst well by share, not by size: {note}");
+        assert!(
+            note.contains("drop a component") || note.contains("add an input log"),
+            "and says what to do about it: {note}"
+        );
+        assert!(
+            convergence_note(&[well("SANDI-1", 900, 0), well("SANDI-2", 100, 0)]).is_none(),
+            "a run where every search finished must stay silent"
+        );
+    }
+
     #[test]
     fn dof_note_set_when_exactly_determined() {
         // 3 components, 2 tools + unity = 3 equations → dof 0 → a note, and RECON ~0 regardless.
@@ -3795,7 +3983,7 @@ mod tests {
         let sig = [0.03, 0.03, 5.0, 15.0];
         let (a, b) = weighted(&comps, &keys, &sig, &meas);
         let hi = vec![1.0; 3];
-        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, 3).unwrap();
+        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, 3).unwrap().v;
         for (got, want) in v.iter().zip(truth) {
             assert!((got - want).abs() < 0.02, "got {v:?}, want {truth:?}");
         }
@@ -3811,7 +3999,7 @@ mod tests {
         let sig = [0.03, 0.03, 5.0, 15.0];
         let (a, b) = weighted(&comps, &keys, &sig, &[2.40, 0.20, 80.0, 60.0]);
         let hi = vec![1.0, 1.0, 0.25]; // cap water below its natural solution
-        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, 3).unwrap();
+        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, 3).unwrap().v;
         let sum: f64 = v.iter().sum();
         assert!((sum - 1.0).abs() < 1e-6, "unity violated: {sum}");
         assert!(v[2] <= 0.25 + 1e-9, "upper bound violated: {v:?}");
@@ -3833,7 +4021,7 @@ mod tests {
         let sig = [0.03, 0.03, 5.0, 15.0];
         let (a, b) = weighted(&comps, &keys, &sig, &meas);
         let hi = vec![1.0; 3];
-        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, 3).unwrap();
+        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, 3).unwrap().v;
         assert!(v[1] >= -1e-9 && v[1] < 0.02, "illite should be ~0, got {}", v[1]);
         assert!((v[0] - 0.75).abs() < 0.02 && (v[2] - 0.25).abs() < 0.02, "got {v:?}");
     }
@@ -3911,7 +4099,7 @@ mod tests {
 
         let unity = unity_of(&comps); // X fluids excluded
         let hi = vec![1.0, 1.0, 0.5, 0.5, 0.5, 0.5];
-        let v = solve_bounded_lsq(&a, &b, Some(&unity), &hi, n).unwrap();
+        let v = solve_bounded_lsq(&a, &b, Some(&unity), &hi, n).unwrap().v;
         for (got, want) in v.iter().zip(truth) {
             assert!((got - want).abs() < 0.02, "got {v:?}, want {truth:?}");
         }
@@ -3948,7 +4136,7 @@ mod tests {
         a.push(vec![0.0, k * sw, -sw, 0.0]);
         b.push(0.0);
         let hi = vec![1.0, 1.0, 0.5, 0.5];
-        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, n).unwrap();
+        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, n).unwrap().v;
         assert!((v[2] - k * v[1]).abs() < 0.02, "bound water should track clay: {v:?}");
         for (got, want) in v.iter().zip(truth) {
             assert!((got - want).abs() < 0.03, "got {v:?}, want {truth:?}");
@@ -3990,7 +4178,7 @@ mod tests {
         a.push(vec![0.0, k * sw, -sw, 0.0]);
         b.push(0.0);
         let hi = vec![1.0, 1.0, 0.5, 0.5];
-        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, n).unwrap();
+        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, n).unwrap().v;
         assert!((v[2] - k * v[1]).abs() < 0.02, "WCP bound water should track clay: {v:?}");
     }
 
