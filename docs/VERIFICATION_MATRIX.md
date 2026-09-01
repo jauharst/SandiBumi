@@ -7,9 +7,9 @@ This matrix is generated mechanically from `REVIEW.md` and
 against real well data. **Ledger date** is the date on the newest dated review section
 containing a checked scenario; it is not a more precise test timestamp.
 
-Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
+Capabilities with recorded exercise: **20 / 55**. Fully exercised: **1 / 55**.
 
-Review sections counted toward no capability: **190** of 763,
+Review sections counted toward no capability: **190** of 764,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -69,3 +69,4 @@ this table, so every figure above reads low by whatever those sections cover.
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 294 | 2026-08-13 | 78 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 11 / 247 | 2026-08-13 | 64 |
+| `installation-deployment` | Installation, offline runtime and recovery on a clean machine | Not exercised | 0 / 3 | — | 1 |
