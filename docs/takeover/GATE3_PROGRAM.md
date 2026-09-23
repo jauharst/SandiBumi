@@ -152,9 +152,13 @@ fixture.
    T-INS-09: `resources/install/settings-template.json` carries a hand-maintained
    `template_version`, and `materialize_user_settings` refuses at setup when it differs from
    `tauri.conf.json`'s version — on every FRESH profile's first launch (an existing user copy is
-   left alone). No test ties the two together at build time, so a release bump that forgets the
-   template fails only when a new account launches. Pin them before the first upgrade candidate
-   is cut.
+   left alone). **Checked 2026-09-23: the green gate already ties the two, so nothing is left to
+   pin.** `first_run_materialises_a_user_copy_with_the_immutable_template_version_and_digest`
+   feeds the real template to `materialize_user_settings`. With the template set to 0.1.1
+   against application 0.1.0, it failed naming both versions (*installed settings template
+   version 0.1.1 does not match application version 0.1.0*). What does not check is
+   `npm run tauri build` on its own, which runs no test. T-INS-01 runs the gate before the
+   build, so a candidate built by the plan cannot carry the mismatch.
 6. **G3-06 — recovery and the support report on the installed build.** The crash record and the
    WAL recovery exercised on the installed candidate; the support report completed with build
    and install identity, configuration digests and the redaction schema (SB-INS-021).
