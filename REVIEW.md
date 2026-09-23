@@ -21235,3 +21235,51 @@ existing marks are untouched.
       can have, and you will find it faster than I can.
 - [ ] **Say whether five sittings is the right cut**, or whether you would rather have the steps
       regrouped around the evenings you actually have.
+
+## The first installer exists, built from a clean clone (2026-09-23)
+
+Gate 3's first step. Until today every installer check in the app had only ever been handed made-up
+evidence, because there was no installer to point it at. Now there is one:
+`SandiBumi_0.1.0_x64_en-US.msi`, 285 MB, in `C:\sb-clean\receipt\` on this machine.
+
+**It was built the way a stranger would have to build it.** A fresh clone straight from GitHub, not a
+copy of this folder, with Rust's and npm's download caches started EMPTY, so every one of the 402 Rust
+packages and every npm package had to come from the public registries using only the lockfiles. That
+is the part that had never been proven: every green gate before today ran on a machine whose caches
+could have been quietly supplying something the repository no longer describes. If an escrow agent
+or a second developer ever has to build SandiBumi from the repository alone, this is the run that
+says they can. The gate from that clone read **GATE GREEN in 759s** - 1289 Rust tests passed, none
+failed.
+
+**Everything about the file was read from the file**, not from the settings that made it: its
+fingerprint (SHA-256 `c197ca79...c6b520`, two tools agree), version 0.1.0, installs for all users
+(which is what an IT department needs), and the commit it came from. The full record, with every
+number and the command behind it, is `docs/takeover/evidence/g3-01-release-candidate.md`.
+
+**What it is not yet.** It is **unsigned** - Windows will warn whoever installs it - and it has not
+been installed anywhere. Installing it on a clean machine is the next step, and needs a Windows 11
+machine or VM with no developer tools and no Python on it.
+
+Five things turned up; two want your word eventually:
+
+- **The publisher name Windows shows is `sandibumi`, in lower case**, because nothing tells the
+  installer what the company is called. IT and every user will see it in *Apps*. Which legal name
+  goes there is yours to say.
+- **The Rust compiler is not pinned.** The same commit built on another machine could use a newer
+  compiler. Pinning it is a small decision with a real trade-off (security fixes arrive later).
+- The build downloads Microsoft's WebView2 installer from the internet each time and packs it inside
+  - that is why the file is 285 MB, and why the INSTALL works offline even though the BUILD does not.
+- The build tool rewrites one settings file on the way through, so git reports the folder as changed
+  when the bytes are in fact identical to the commit. Harmless now; the future release gate must not
+  be fooled by it.
+- I did not launch the built program, because on this machine it would open your most recent real
+  project. Its version was read from inside the file instead.
+
+- [ ] **Check the fingerprint yourself.** In a terminal: `certutil -hashfile C:\sb-clean\receipt\SandiBumi_0.1.0_x64_en-US.msi SHA256`
+      should print `c197ca7948eae033de7aefe963785ae59b661236b959266af698613ba7c6b520`. If it does,
+      the file on disk is the one the record describes.
+- [ ] **Mark T-INS-01** in `docs/manual_test_plan.md` when you are satisfied - by reading the record,
+      or by repeating the clean-clone build yourself (about 40 minutes). Write "unsigned" in its
+      Notes; the test says that is not a Fail.
+- [ ] **Say which publisher name the installer should carry**, and whether to pin the Rust compiler.
+      Neither blocks the next step.

@@ -137,6 +137,8 @@ fixture.
 1. **G3-01 — a release candidate that exists.** Build the MSI from a genuinely clean clone on the
    reference machine, record digest, version, identifier and commit, and keep the full-gate
    receipt from that clone (SB-CORE-041 T13; SB-INS-001 first half). *T-INS-01.*
+   **Done 2026-09-23** — [`evidence/g3-01-release-candidate.md`](./evidence/g3-01-release-candidate.md):
+   MSI `c197ca79…c6b520` from `ac85d80f`, unsigned, gate green from empty caches.
 2. **G3-02 — clean-machine install and no-Python core use.** `standard_user`, `locked_down_user`,
    `no_python_core_use`; the prerequisite surfaces inventoried and generated from the manifest,
    with divergence failing release (SB-INS-001, -002, -003, -004, -026). *T-INS-02 to T-INS-04.*

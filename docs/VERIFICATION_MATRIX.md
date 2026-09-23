@@ -9,7 +9,7 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 55**. Fully exercised: **1 / 55**.
 
-Review sections counted toward no capability: **190** of 765,
+Review sections counted toward no capability: **190** of 766,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
@@ -69,4 +69,4 @@ this table, so every figure above reads low by whatever those sections cover.
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 76 | — | 14 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 294 | 2026-08-13 | 78 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 11 / 249 | 2026-08-13 | 65 |
-| `installation-deployment` | Installation, offline runtime and recovery on a clean machine | Not exercised | 0 / 3 | — | 1 |
+| `installation-deployment` | Installation, offline runtime and recovery on a clean machine | Not exercised | 0 / 6 | — | 2 |
