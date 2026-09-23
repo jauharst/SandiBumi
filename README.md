@@ -12,11 +12,16 @@ Stack: **Tauri v2** (Rust) + **DuckDB** (embedded, bundled) + **vanilla TypeScri
 require Python. These optional capabilities use one session-resolved Python 3.10+ subprocess:
 
 - **Python equations** — requires numpy; optional scipy (owner: `SB-MLA`).
-- **DLIS import** — requires dlisio (owner: `SB-DIO`).
+- **DLIS import** — requires dlisio, numpy (owner: `SB-DIO`).
 - **Spreadsheet plate extraction** — requires openpyxl, Pillow (owner: `SB-DIO`).
 - **Workbook export** — requires xlsxwriter (owner: `SB-DIO`).
 - **Document export** — requires python-docx (owner: `SB-DIO`).
 - **Deck export** — requires python-pptx, matplotlib (owner: `SB-DIO`).
+- **ML models** — requires numpy, scikit-learn, joblib; optional xgboost (owner: `SB-MLA`).
+- **Core photo imaging** — requires numpy, Pillow (owner: `SB-RPH`).
+- **Petrography pore area** — requires numpy, Pillow; optional scipy (owner: `UNOWNED`).
+- **Mineral classifier** — requires numpy, Pillow, scipy, scikit-learn (owner: `UNOWNED`).
+- **Picture normalization** — requires Pillow (owner: `SB-DIO`).
 
 Offline deployment has one supported route: IT silently deploys the separately signed, versioned
 SandiBumi-qualified Python pack per machine. The pack configures `SANDIBUMI_PYTHON` to its

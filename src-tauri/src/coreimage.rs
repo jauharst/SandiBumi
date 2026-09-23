@@ -268,14 +268,12 @@ struct RunnerRow {
     error: Option<String>,
 }
 
-/// numpy + Pillow, probed in ONE subprocess so the dialog can say what is missing before a photo is
-/// opened rather than after.
+/// Probed once, before a photo is opened, so the dialog can say what is missing rather than fail
+/// afterwards. The packages are the manifest's `core_photo_imaging` row, never a second list.
 pub fn core_image_support() -> Result<bool, String> {
-    let py = find_python().ok_or("no Python interpreter found (see SANDIBUMI_PYTHON)")?;
-    let mut cmd = Command::new(py);
-    cmd.args(["-c", "import numpy, PIL.Image"]).stdout(Stdio::null()).stderr(Stdio::null());
-    hide_console(&mut cmd);
-    Ok(cmd.status().map(|s| s.success()).unwrap_or(false))
+    crate::installation::session_capability_available(
+        crate::installation::CAPABILITY_CORE_PHOTO_IMAGING,
+    )
 }
 
 fn run_runner(python: &std::path::Path, header: &serde_json::Value, blobs: &[Vec<u8>]) -> Result<RunnerOut, String> {

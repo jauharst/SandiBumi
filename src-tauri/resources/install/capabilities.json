@@ -43,6 +43,13 @@
           "required": true,
           "minimum_supported_version": null,
           "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "numpy",
+          "import_name": "numpy",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
         }
       ]
     },
@@ -118,6 +125,149 @@
         {
           "distribution": "matplotlib",
           "import_name": "matplotlib",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    },
+    {
+      "id": "ml_models",
+      "display_name": "ML models",
+      "owning_domain": "SB-MLA",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "numpy",
+          "import_name": "numpy",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "scikit-learn",
+          "import_name": "sklearn",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "joblib",
+          "import_name": "joblib",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "xgboost",
+          "import_name": "xgboost",
+          "required": false,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    },
+    {
+      "id": "core_photo_imaging",
+      "display_name": "Core photo imaging",
+      "owning_domain": "SB-RPH",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "numpy",
+          "import_name": "numpy",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "Pillow",
+          "import_name": "PIL",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    },
+    {
+      "id": "petrography_pore_area",
+      "display_name": "Petrography pore area",
+      "owning_domain": "UNOWNED",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "numpy",
+          "import_name": "numpy",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "Pillow",
+          "import_name": "PIL",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "scipy",
+          "import_name": "scipy",
+          "required": false,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    },
+    {
+      "id": "mineral_classifier",
+      "display_name": "Mineral classifier",
+      "owning_domain": "UNOWNED",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "numpy",
+          "import_name": "numpy",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "Pillow",
+          "import_name": "PIL",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "scipy",
+          "import_name": "scipy",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "scikit-learn",
+          "import_name": "sklearn",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    },
+    {
+      "id": "picture_normalization",
+      "display_name": "Picture normalization",
+      "owning_domain": "SB-DIO",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "Pillow",
+          "import_name": "PIL",
           "required": true,
           "minimum_supported_version": null,
           "version_source": "qualified_release_lock"

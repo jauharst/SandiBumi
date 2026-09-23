@@ -70,22 +70,23 @@ pub struct OfficeSupport {
 }
 
 pub fn office_support() -> OfficeSupport {
+    const OFFICE_CAPABILITIES: [&str; 4] = [
+        installation::CAPABILITY_WORKBOOK_EXPORT,
+        installation::CAPABILITY_DOCUMENT_EXPORT,
+        installation::CAPABILITY_DECK_EXPORT,
+        installation::CAPABILITY_PLATE_EXTRACTION,
+    ];
     let python = find_python();
     let probe = python
         .as_deref()
-        .map(installation::probe_all_python_packages)
+        .map(|path| installation::probe_python_capabilities(path, &OFFICE_CAPABILITIES))
         .transpose();
     let observed = probe.as_ref().ok().and_then(Option::as_ref);
     let available = |distribution: &str| {
         observed.is_some_and(|result| installation::package_is_available(result, distribution))
     };
     let mut messages = BTreeMap::new();
-    for capability_id in [
-        installation::CAPABILITY_WORKBOOK_EXPORT,
-        installation::CAPABILITY_DOCUMENT_EXPORT,
-        installation::CAPABILITY_DECK_EXPORT,
-        installation::CAPABILITY_PLATE_EXTRACTION,
-    ] {
+    for capability_id in OFFICE_CAPABILITIES {
         messages.insert(
             capability_id.to_string(),
             installation::capability_status_message(

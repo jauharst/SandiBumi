@@ -20,6 +20,9 @@ pub const CAPABILITY_PLATE_EXTRACTION: &str = "spreadsheet_plate_extraction";
 pub const CAPABILITY_WORKBOOK_EXPORT: &str = "workbook_export";
 pub const CAPABILITY_DOCUMENT_EXPORT: &str = "document_export";
 pub const CAPABILITY_DECK_EXPORT: &str = "deck_export";
+pub const CAPABILITY_CORE_PHOTO_IMAGING: &str = "core_photo_imaging";
+pub const CAPABILITY_PORE_AREA: &str = "petrography_pore_area";
+pub const CAPABILITY_MINERAL_CLASSIFIER: &str = "mineral_classifier";
 pub const QUALIFIED_PYTHON_PACK_ROUTE: &str = "qualified_python_pack";
 pub const APPLICATION_LOCAL_RUNTIME_SCOPE: &str = "sandibumi_application_local";
 
@@ -125,6 +128,22 @@ fn validate_capability_manifest(manifest: &CapabilityManifest) -> Result<(), Str
     }
 
     let mut capability_ids = BTreeSet::new();
+    // One distribution, one module. The probe asks about each package once, so two capabilities
+    // naming different modules for one distribution would judge the second by the first's import.
+    let mut import_names: BTreeMap<String, &str> = BTreeMap::new();
+    for capability in &manifest.capabilities {
+        for package in &capability.packages {
+            let seen = import_names
+                .entry(package.distribution.to_ascii_lowercase())
+                .or_insert(package.import_name.as_str());
+            if *seen != package.import_name {
+                errors.push(format!(
+                    "package {} is imported as {} in one capability and {} in {}",
+                    package.distribution, seen, package.import_name, capability.id
+                ));
+            }
+        }
+    }
     for capability in &manifest.capabilities {
         if capability.id.trim().is_empty()
             || capability.display_name.trim().is_empty()
@@ -318,12 +337,51 @@ pub(crate) fn probe_all_python_packages_with<F>(
 where
     F: FnOnce(&Path, &[PackageRequirement]) -> Result<PythonPackageProbe, String>,
 {
-    let requirements = capability_manifest()?
+    execute(python, &unique_packages(capability_manifest()?.capabilities))
+}
+
+/// The packages of just these capabilities. A dialog serving four capabilities must not import
+/// scikit-learn and xgboost to open, and the probe really does import every package it is given.
+pub fn probe_python_capabilities(
+    python: &Path,
+    capability_ids: &[&str],
+) -> Result<PythonPackageProbe, String> {
+    probe_python_capabilities_with(python, capability_ids, probe_requirements)
+}
+
+pub(crate) fn probe_python_capabilities_with<F>(
+    python: &Path,
+    capability_ids: &[&str],
+    execute: F,
+) -> Result<PythonPackageProbe, String>
+where
+    F: FnOnce(&Path, &[PackageRequirement]) -> Result<PythonPackageProbe, String>,
+{
+    let manifest = capability_manifest()?;
+    if let Some(missing) = capability_ids
+        .iter()
+        .find(|id| !manifest.capabilities.iter().any(|c| c.id == **id))
+    {
+        return Err(format!("capability manifest has no {missing}"));
+    }
+    let chosen = manifest
         .capabilities
         .into_iter()
+        .filter(|capability| capability_ids.contains(&capability.id.as_str()));
+    execute(python, &unique_packages(chosen))
+}
+
+/// Each package once, by distribution. numpy serves several capabilities and is one import; the
+/// availability of each capability is still judged against its OWN rows, not these.
+fn unique_packages(
+    capabilities: impl IntoIterator<Item = CapabilityRequirement>,
+) -> Vec<PackageRequirement> {
+    let mut seen = BTreeSet::new();
+    capabilities
+        .into_iter()
         .flat_map(|capability| capability.packages)
-        .collect::<Vec<_>>();
-    execute(python, &requirements)
+        .filter(|package| seen.insert(package.distribution.to_ascii_lowercase()))
+        .collect()
 }
 
 pub fn probe_manifest_package(
@@ -350,6 +408,14 @@ pub fn capability_is_available(
         .iter()
         .filter(|package| package.required)
         .all(|package| package_is_available(probe, &package.distribution)))
+}
+
+/// Can this capability run in the session interpreter? The manifest's own required packages
+/// decide, so a tool's "can I run?" check and the Prerequisites dialog cannot disagree.
+pub fn session_capability_available(capability_id: &str) -> Result<bool, String> {
+    let python = crate::python_engine::find_python()
+        .ok_or("no Python interpreter found (see SANDIBUMI_PYTHON)")?;
+    capability_is_available(&probe_python_capability(&python, capability_id)?, capability_id)
 }
 
 pub fn require_python_capability(
@@ -1580,8 +1646,9 @@ mod tests {
             CAPABILITY_DLIS_IMPORT,
             |selected, requirements| {
                 assert_eq!(selected, python);
-                assert_eq!(requirements.len(), 1);
+                assert_eq!(requirements.len(), 2);
                 assert_eq!(requirements[0].distribution, "dlisio");
+                assert_eq!(requirements[1].distribution, "numpy");
                 Ok(PythonPackageProbe {
                     executable: selected.to_string_lossy().into_owned(),
                     python_version: "3.10.0".to_string(),
@@ -1698,8 +1765,11 @@ mod tests {
     }
 
     /// SB-INS-004 / SB-INS-T04. The interpreter minimum and exact package rows come from
-    /// chapter section 5. The qualified release lock is the deployment-owner decision supplied
-    /// 2026-08-09; package minimums remain absent until that qualification cites exact versions.
+    /// chapter section 5, which since 2026-09-23 lists the five consumers the original audit
+    /// missed; which runner imports what is pinned by
+    /// `every_python_runner_is_in_the_manifest_and_every_manifest_package_is_imported_by_a_runner`.
+    /// The qualified release lock is the deployment-owner decision supplied 2026-08-09; package
+    /// minimums remain absent until that qualification cites exact versions.
     #[test]
     fn each_optional_capability_maps_to_the_cited_packages_and_no_detector_carries_a_second_package_list(
     ) {
@@ -1713,7 +1783,7 @@ mod tests {
                 CAPABILITY_PYTHON_EQUATIONS,
                 vec![("numpy", true), ("scipy", false)],
             ),
-            (CAPABILITY_DLIS_IMPORT, vec![("dlisio", true)]),
+            (CAPABILITY_DLIS_IMPORT, vec![("dlisio", true), ("numpy", true)]),
             (
                 CAPABILITY_PLATE_EXTRACTION,
                 vec![("openpyxl", true), ("Pillow", true)],
@@ -1724,6 +1794,30 @@ mod tests {
                 CAPABILITY_DECK_EXPORT,
                 vec![("python-pptx", true), ("matplotlib", true)],
             ),
+            (
+                "ml_models",
+                vec![
+                    ("numpy", true),
+                    ("scikit-learn", true),
+                    ("joblib", true),
+                    ("xgboost", false),
+                ],
+            ),
+            ("core_photo_imaging", vec![("numpy", true), ("Pillow", true)]),
+            (
+                "petrography_pore_area",
+                vec![("numpy", true), ("Pillow", true), ("scipy", false)],
+            ),
+            (
+                "mineral_classifier",
+                vec![
+                    ("numpy", true),
+                    ("Pillow", true),
+                    ("scipy", true),
+                    ("scikit-learn", true),
+                ],
+            ),
+            ("picture_normalization", vec![("Pillow", true)]),
         ];
         assert_eq!(manifest.capabilities.len(), expected.len());
         for (capability_id, packages) in expected {
@@ -1745,13 +1839,12 @@ mod tests {
             }
         }
 
+        // Shaped like the real probe: each package once, however many capabilities share it.
         let all_present = PythonPackageProbe {
             executable: "qualified-python.exe".to_string(),
             python_version: "3.10.0".to_string(),
-            packages: manifest
-                .capabilities
+            packages: unique_packages(manifest.capabilities.clone())
                 .iter()
-                .flat_map(|capability| &capability.packages)
                 .map(|package| PackageProbe {
                     distribution: package.distribution.clone(),
                     import_name: package.import_name.clone(),
@@ -1773,6 +1866,10 @@ mod tests {
             .expect("SciPy manifest row")
             .available = false;
         assert!(capability_is_available(&missing_optional, CAPABILITY_PYTHON_EQUATIONS).unwrap());
+        // One package, required by one capability and optional in two others: each capability is
+        // judged by its OWN row, never by whichever row the de-duplicated probe happened to keep.
+        assert!(capability_is_available(&missing_optional, CAPABILITY_PORE_AREA).unwrap());
+        assert!(!capability_is_available(&missing_optional, CAPABILITY_MINERAL_CLASSIFIER).unwrap());
 
         let mut missing_required = all_present;
         missing_required
@@ -1785,11 +1882,281 @@ mod tests {
 
         assert!(PYTHON_PACKAGE_PROBE.contains("sys.stdin.buffer"));
         let office = include_str!("office.rs");
-        assert!(office.contains("probe_all_python_packages"));
+        assert!(office.contains("probe_python_capabilities"));
         assert!(!office.contains("const SUPPORT_PROBE"));
         assert!(include_str!("python_engine.rs").contains("probe_python_capability"));
         assert!(include_str!("dlis.rs").contains("require_python_capability"));
         assert!(include_str!("images.rs").contains("probe_manifest_package"));
+    }
+
+    /// The Workbook and Deck dialogs probe their own four capabilities and nothing else, each
+    /// package once. The probe imports whatever it is given, so an extra package costs the
+    /// dialog seconds before it can open.
+    #[test]
+    fn the_office_dialogs_probe_only_their_own_packages_each_once() {
+        let python = Path::new("C:/qualified-runtime/python.exe");
+        let office = [
+            CAPABILITY_WORKBOOK_EXPORT,
+            CAPABILITY_DOCUMENT_EXPORT,
+            CAPABILITY_DECK_EXPORT,
+            CAPABILITY_PLATE_EXTRACTION,
+        ];
+        let mut asked = Vec::new();
+        let probe = probe_python_capabilities_with(python, &office, |selected, requirements| {
+            asked = requirements
+                .iter()
+                .map(|package| package.distribution.clone())
+                .collect::<Vec<_>>();
+            Ok(PythonPackageProbe {
+                executable: selected.to_string_lossy().into_owned(),
+                python_version: "3.10.0".to_string(),
+                packages: requirements
+                    .iter()
+                    .map(|package| PackageProbe {
+                        distribution: package.distribution.clone(),
+                        import_name: package.import_name.clone(),
+                        available: true,
+                        version: None,
+                        error: None,
+                    })
+                    .collect(),
+            })
+        })
+        .expect("the office probe runs");
+        assert_eq!(
+            asked,
+            ["openpyxl", "Pillow", "xlsxwriter", "python-docx", "python-pptx", "matplotlib"]
+        );
+        for id in office {
+            assert!(capability_is_available(&probe, id).unwrap(), "{id}");
+        }
+        let refusal = probe_python_capabilities_with(python, &["no_such_capability"], |_, _| {
+            unreachable!("an unknown capability is refused before any probe runs")
+        })
+        .unwrap_err();
+        assert!(refusal.contains("no_such_capability"), "{refusal}");
+    }
+
+    /// Every production Python runner and the manifest capability it serves. A runner is a raw
+    /// `const` string or a `-c` literal whose text holds a Python `import`; `None` marks the
+    /// manifest's own probe, which imports only the standard library.
+    const PYTHON_RUNNERS: &[(&str, &str, Option<&str>)] = &[
+        ("coreimage.rs", "ADVISE_RUNNER", Some(CAPABILITY_CORE_PHOTO_IMAGING)),
+        ("coreimage.rs", "CORE_RUNNER", Some(CAPABILITY_CORE_PHOTO_IMAGING)),
+        ("coreimage.rs", "DETECT_RUNNER", Some(CAPABILITY_CORE_PHOTO_IMAGING)),
+        ("coreimage.rs", "SCAN_RUNNER", Some(CAPABILITY_CORE_PHOTO_IMAGING)),
+        ("coreimage.rs", "STRIP_RUNNER", Some(CAPABILITY_CORE_PHOTO_IMAGING)),
+        ("dlis.rs", "DLIS_RUNNER", Some(CAPABILITY_DLIS_IMPORT)),
+        ("images.rs", "PILLOW_RUNNER", Some("picture_normalization")),
+        ("images.rs", "WORKBOOK_RUNNER", Some(CAPABILITY_PLATE_EXTRACTION)),
+        ("installation.rs", "PYTHON_PACKAGE_PROBE", None),
+        ("ml.rs", "ML_APPLY_RUNNER", Some("ml_models")),
+        ("ml.rs", "ML_BUILD_MODEL", Some("ml_models")),
+        ("ml.rs", "ML_EVAL_RUNNER_BODY", Some("ml_models")),
+        ("ml.rs", "ML_RUNNER_BODY", Some("ml_models")),
+        ("ml.rs", "ML_RUNTIME_PY", Some("ml_models")),
+        ("office.rs", "DOCX_RUNNER", Some(CAPABILITY_DOCUMENT_EXPORT)),
+        ("office.rs", "PPTX_RUNNER", Some(CAPABILITY_DECK_EXPORT)),
+        ("office.rs", "XLSX_RUNNER", Some(CAPABILITY_WORKBOOK_EXPORT)),
+        ("petrography.rs", "CLASSIFY_RUNNER", Some(CAPABILITY_MINERAL_CLASSIFIER)),
+        ("petrography.rs", "PORE_RUNNER", Some(CAPABILITY_PORE_AREA)),
+        ("python_engine.rs", "RUNNER_LOOP", Some(CAPABILITY_PYTHON_EQUATIONS)),
+    ];
+
+    /// Standard-library modules the runners import. A new module fails the test below by name,
+    /// and belongs here only if Python itself ships it.
+    const PYTHON_STDLIB: &[&str] = &[
+        "base64", "importlib", "io", "json", "os", "posixpath", "re", "sys", "warnings", "xml",
+        "zipfile",
+    ];
+
+    /// The top-level modules a Python source imports with an `import` statement, including
+    /// `import a; import b` and `try: import x` on one line. A `from` statement with no
+    /// ` import ` in it is prose in a docstring, not an import.
+    fn python_imports(body: &str) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        for raw in body.lines() {
+            let code = raw.split('#').next().unwrap_or_default();
+            for statement in code.split(';') {
+                let statement = statement.trim();
+                let statement = statement.strip_prefix("try:").unwrap_or(statement).trim();
+                if let Some(rest) = statement.strip_prefix("import ") {
+                    for part in rest.split(',') {
+                        if let Some(name) = part.split_whitespace().next() {
+                            names.insert(name.split('.').next().unwrap_or(name).to_string());
+                        }
+                    }
+                } else if let Some((module, _)) = statement
+                    .strip_prefix("from ")
+                    .and_then(|rest| rest.split_once(" import "))
+                {
+                    let module = module.trim();
+                    names.insert(module.split('.').next().unwrap_or(module).to_string());
+                }
+            }
+        }
+        names
+    }
+
+    /// Every Python runner in production code, keyed by file and constant name (or the `-c`
+    /// literal), with the modules it imports. Files named `*_test.rs` / `*_tests.rs` are test
+    /// code whatever their attributes say, the same rule the ancestry scan follows.
+    fn production_python_runners() -> BTreeMap<(String, String), BTreeSet<String>> {
+        let head = r#"(?:const|static)\s+([A-Z][A-Z0-9_]*)\s*:\s*&(?:'static\s+)?str\s*=\s*"#;
+        let mut named = (1..=3)
+            .map(|n| {
+                let hashes = "#".repeat(n);
+                regex::Regex::new(&format!(r#"{head}r{hashes}"(?s:(.*?))"{hashes};"#)).unwrap()
+            })
+            .collect::<Vec<_>>();
+        named.push(regex::Regex::new(&format!(r#"{head}"((?:[^"\\]|\\.)*)";"#)).unwrap());
+        let inline = [
+            regex::Regex::new(r#""-c",\s*"((?:[^"\\]|\\.)*)""#).unwrap(),
+            regex::Regex::new(r##""-c",\s*r#"(?s:(.*?))"#"##).unwrap(),
+        ];
+        let mut runners = BTreeMap::new();
+        for path in crate::source_hygiene_tests::sorted_sources() {
+            let file = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if file.ends_with("_test.rs") || file.ends_with("_tests.rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("read a UTF-8 Rust source file");
+            let production = crate::core_ancestry_tests::production_rust(&source);
+            for pattern in &named {
+                for found in pattern.captures_iter(&production) {
+                    let imports = python_imports(&found[2].replace("\\n", "\n"));
+                    if !imports.is_empty() {
+                        runners.insert((file.clone(), found[1].to_string()), imports);
+                    }
+                }
+            }
+            for pattern in &inline {
+                for found in pattern.captures_iter(&production) {
+                    let imports = python_imports(&found[1].replace("\\n", "\n"));
+                    if !imports.is_empty() {
+                        runners.insert((file.clone(), format!("-c {}", &found[1])), imports);
+                    }
+                }
+            }
+        }
+        runners
+    }
+
+    /// SB-INS-004 / SB-INS-T04, the next action in `docs/takeover/evidence/sb-ins.md`: a
+    /// source-derived completeness test that fails on an unregistered Python runner. Pinned from
+    /// both sides. A runner nobody registered fails, and so does a runner importing a package
+    /// its capability does not list, because either would make the Prerequisites dialog wrong
+    /// about what a machine needs. A manifest package no runner of that capability imports also
+    /// fails, because the manifest must not claim a need the code does not have.
+    ///
+    /// What a static scan cannot see: a module imported by name at run time, like the version
+    /// report in `ML_RUNTIME_PY`; a script held in a `let` binding or passed through
+    /// `.arg("-c").arg(..)`; and Python assembled in a `format!` string. The one such line today,
+    /// in `ml.rs`, imports only `json` and `sys`.
+    #[test]
+    fn every_python_runner_is_in_the_manifest_and_every_manifest_package_is_imported_by_a_runner()
+    {
+        let manifest = capability_manifest().expect("valid bundled capability manifest");
+        let runners = production_python_runners();
+
+        let registered: BTreeSet<(String, String)> = PYTHON_RUNNERS
+            .iter()
+            .map(|(file, name, _)| (file.to_string(), name.to_string()))
+            .collect();
+        assert_eq!(
+            registered.len(),
+            PYTHON_RUNNERS.len(),
+            "a runner is registered twice; each belongs to exactly one capability"
+        );
+        let manifest_modules: BTreeSet<&str> = manifest
+            .capabilities
+            .iter()
+            .flat_map(|capability| &capability.packages)
+            .map(|package| package.import_name.as_str())
+            .collect();
+        for module in PYTHON_STDLIB {
+            assert!(
+                !manifest_modules.contains(module),
+                "{module} is a manifest package, so it cannot also be on the standard-library list"
+            );
+        }
+        let mut conflicting = manifest.clone();
+        conflicting
+            .capabilities
+            .iter_mut()
+            .rev()
+            .flat_map(|capability| capability.packages.iter_mut())
+            .find(|package| package.distribution == "Pillow")
+            .expect("the manifest lists Pillow")
+            .import_name = "pil".to_string();
+        let refusal = validate_capability_manifest(&conflicting).unwrap_err();
+        assert!(refusal.contains("is imported as PIL in one capability and pil"), "{refusal}");
+
+        let found: BTreeSet<(String, String)> = runners.keys().cloned().collect();
+        let unregistered: Vec<_> = found.difference(&registered).collect();
+        assert!(
+            unregistered.is_empty(),
+            "Python runners with no manifest capability - register each in PYTHON_RUNNERS and \
+             list its packages in capabilities.json: {unregistered:?}"
+        );
+        let stale: Vec<_> = registered.difference(&found).collect();
+        assert!(
+            stale.is_empty(),
+            "PYTHON_RUNNERS names runners the source no longer has: {stale:?}"
+        );
+
+        let mut imported_by: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+        for (file, name, capability_id) in PYTHON_RUNNERS {
+            let third_party: BTreeSet<String> = runners[&(file.to_string(), name.to_string())]
+                .iter()
+                .filter(|module| !PYTHON_STDLIB.contains(&module.as_str()))
+                .cloned()
+                .collect();
+            let Some(id) = capability_id else {
+                assert!(
+                    third_party.is_empty(),
+                    "{file} {name} is registered as standard-library only but imports {third_party:?}"
+                );
+                continue;
+            };
+            let capability = manifest
+                .capabilities
+                .iter()
+                .find(|capability| capability.id == *id)
+                .unwrap_or_else(|| panic!("{file} {name} names capability {id}, which the manifest lacks"));
+            let declared: BTreeSet<&str> = capability
+                .packages
+                .iter()
+                .map(|package| package.import_name.as_str())
+                .collect();
+            for module in &third_party {
+                assert!(
+                    declared.contains(module.as_str()),
+                    "{file} {name} imports {module}, which capability {id} does not list - add \
+                     the package to capabilities.json, or the module to PYTHON_STDLIB if Python \
+                     itself ships it"
+                );
+            }
+            imported_by.entry(*id).or_default().extend(third_party);
+        }
+        for capability in &manifest.capabilities {
+            let imported = imported_by
+                .get(capability.id.as_str())
+                .unwrap_or_else(|| panic!("capability {} has no runner in the source", capability.id));
+            for package in &capability.packages {
+                assert!(
+                    imported.contains(&package.import_name),
+                    "capability {} lists {} but none of its runners imports {}",
+                    capability.id,
+                    package.distribution,
+                    package.import_name
+                );
+            }
+        }
     }
 
     /// SB-INS-003 / SB-INS-T03. The capability inventory and package names come from
@@ -1964,16 +2331,14 @@ mod tests {
             probe: PythonPackageProbe {
                 executable: "C:/Program Files/SandiBumi Runtime/python.exe".to_string(),
                 python_version: "3.10.0".to_string(),
-                packages: manifest
-                    .capabilities
+                packages: unique_packages(manifest.capabilities.clone())
                     .iter()
-                    .flat_map(|capability| &capability.packages)
                     .map(|package| PackageProbe {
                         distribution: package.distribution.clone(),
                         import_name: package.import_name.clone(),
-                        available: package.distribution != "scipy",
+                        available: package.distribution != "xgboost",
                         version: None,
-                        error: (package.distribution == "scipy")
+                        error: (package.distribution == "xgboost")
                             .then(|| "optional package absent".to_string()),
                     })
                     .collect(),
@@ -2000,7 +2365,7 @@ mod tests {
             .probe
             .packages
             .iter()
-            .any(|package| package.distribution == "scipy" && !package.available));
+            .any(|package| package.distribution == "xgboost" && !package.available));
 
         let mut network_used = valid.clone();
         network_used.network_requests_observed = 1;
