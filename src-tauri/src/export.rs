@@ -834,16 +834,24 @@ fn validate_dlis_output(
 ) -> Result<(), String> {
     let scratch = Connection::open_in_memory().map_err(|e| e.to_string())?;
     crate::db::create_schema(&scratch).map_err(|e| e.to_string())?;
-    let scratch_well = uuid::Uuid::new_v4();
-    crate::db::insert_well(&scratch, scratch_well, "DLIS-SELF-CHECK", None, None, None)
-        .map_err(|e| e.to_string())?;
+    // No well is selected in the scratch project: the file names its own well (the ORIGIN
+    // WELL-NAME the writer stamps) and the reader creates it. A pre-made scratch well under
+    // another name would be a disagreement the reader rightly stops to ask about
+    // (`dlis::single_well_target`). This check counts curves and samples; it does not compare
+    // the name - the ignored round-trip test does, for an ASCII name.
     let depth_unit = crate::units::require_project_depth_unit(conn, "DLIS self-check")?.code();
-    let import = crate::dlis::import_dlis_file(
+    let import = crate::dlis::import_dlis_file_with_unit_designation(
         &scratch,
-        &scratch_well.to_string(),
+        None,
         dest_path,
         Some("RAW"),
         Some(depth_unit),
+        None,
+        None,
+        None,
+        &[],
+        &[],
+        &[],
     );
     if import.status != crate::dlis::DlisImportStatus::Complete {
         return Err(format!(
@@ -1357,14 +1365,19 @@ mod tests {
         let back = Connection::open_in_memory().unwrap();
         db::create_schema(&back).unwrap();
         crate::units::set_project_depth_unit(&back, crate::units::DepthUnit::Feet).unwrap();
-        let back_well = Uuid::new_v4();
-        db::insert_well(&back, back_well, "ROUNDTRIP", None, None, None).unwrap();
-        let import = crate::dlis::import_dlis_file(
+        // Nothing selected: the file names its own well and the reader creates it.
+        let import = crate::dlis::import_dlis_file_with_unit_designation(
             &back,
-            &back_well.to_string(),
+            None,
             dest.to_str().unwrap(),
             Some("RAW"),
             Some("ft"),
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            &[],
         );
         assert_eq!(
             import.status,
@@ -1372,6 +1385,13 @@ mod tests {
             "reader status: {:?}",
             import.error
         );
+        let source_name: String = conn
+            .query_row("SELECT well_name FROM wells WHERE well_id = ?1", params![well_id.to_string()], |row| row.get(0))
+            .unwrap();
+        let target = &import.well_mappings[0];
+        assert!(target.will_create, "the file's own well is created in the fresh project");
+        assert_eq!(target.target_well_name, source_name, "the well name survives the round trip");
+        let back_well = target.target_well_id.clone().expect("a committed import names its well");
         // The importer counts the DEPT index as a curve and `rows` as total samples —
         // the same accounting the in-export self-check verifies.
         assert_eq!(import.curves_imported, result.curves_written + 1);

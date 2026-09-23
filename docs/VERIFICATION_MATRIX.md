@@ -9,14 +9,14 @@ containing a checked scenario; it is not a more precise test timestamp.
 
 Capabilities with recorded exercise: **20 / 55**. Fully exercised: **1 / 55**.
 
-Review sections counted toward no capability: **190** of 765,
+Review sections counted toward no capability: **190** of 766,
 each named in `unmapped_review_sections` in the capability map. They contribute to no count in
 this table, so every figure above reads low by whatever those sections cover.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
 | `las-import` | LAS import | Not exercised | 0 / 160 | — | 48 |
-| `dlis-import` | DLIS import | Not exercised | 0 / 16 | — | 10 |
+| `dlis-import` | DLIS import | Not exercised | 0 / 21 | — | 11 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 35 | 2026-08-05 | 5 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 71 | — | 13 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 49 | — | 8 |

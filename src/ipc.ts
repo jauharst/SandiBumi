@@ -5962,6 +5962,10 @@ export interface DlisImportResult {
   sentinel_exceptions: string[];
   well_mappings: DlisWellMapping[];
   mapping_confirmation_required: boolean;
+  /** A single-well file whose own well and the selection disagree: pick one, echo it back. */
+  target_choices: DlisWellMapping[];
+  /** A single-well file that names no well, with no well selected. */
+  target_well_required: boolean;
   interval_conflicts: Array<{
     scope: "well" | "set";
     name: string;

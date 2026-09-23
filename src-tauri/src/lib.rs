@@ -1958,8 +1958,10 @@ async fn materialize_tvd(
     .map_err(|e| e.to_string())?
 }
 
-/// Phase 6: imports every scalar channel of a DLIS file into one existing well's generic
-/// curve store (via `dlisio` through the Python subprocess). `set_name` (import-sets):
+/// Phase 6: imports every scalar channel of a DLIS file into the generic curve store of the
+/// well the file names (created when the project lacks it; the selected well only where the
+/// file names none - `dlis::single_well_target`), via `dlisio` through the Python
+/// subprocess. `set_name` (import-sets):
 /// omitted/RAW = legacy replace-with-count semantics; anything else auto-suffixes per
 /// well so duplicates are kept.
 #[tauri::command]

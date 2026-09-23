@@ -5,8 +5,10 @@
 //! curve store (`curve_meta`/`curve_samples`) as set RAW, tagging family and canonicalizing
 //! units via `crate::curves`.
 //!
-//! DLIS attaches curves to an EXISTING well (like core/deviation import), rather than
-//! creating one — the user selects the target well, then imports. A missing `dlisio` (or
+//! A single-well DLIS lands on the well its ORIGIN WELL-NAME names, by the rule LAS import uses,
+//! and creates that well when the project lacks it; the selection decides only where the file
+//! names no well, and a disagreement between the two is asked (`single_well_target`). A
+//! multi-well container is mapped and confirmed first (SB-DIO-045). A missing `dlisio` (or
 //! Python) fails the import with a clear message and never affects anything else.
 
 use crate::db;
@@ -75,6 +77,7 @@ with batch:
         logical_files.append({
             "logical_file": logical_ord,
             "source_well": well_name or well_id,
+            "well_name": well_name,
         })
         for frame in lf.frames:
             run = frame_ord
@@ -176,10 +179,15 @@ struct DlisCurveMeta {
     logical_file: usize,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 struct DlisLogicalFile {
     logical_file: usize,
+    /// WELL-NAME, else WELL-ID: identity enough to keep two wells in one container apart.
     source_well: String,
+    /// WELL-NAME alone. Only a name is matched against, or becomes, a project well - a
+    /// WELL-ID (a UWI or an API number) is not a well name, as LAS import agrees.
+    #[serde(default)]
+    well_name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -205,6 +213,17 @@ struct PreparedDlisCurve {
 }
 
 fn write_prepared_dlis(
+    conn: &Connection,
+    mappings: &[DlisWellMapping],
+    curves: &[PreparedDlisCurve],
+    stored_depth_unit: Option<crate::units::DepthUnit>,
+) -> db::DbResult<Vec<DlisSkip>> {
+    // ONE transaction: a well this import creates and every curve written into it land
+    // together or not at all, so a failure part way never leaves a well with half a tape.
+    db::with_txn(conn, |conn| write_prepared_dlis_in_transaction(conn, mappings, curves, stored_depth_unit))
+}
+
+fn write_prepared_dlis_in_transaction(
     conn: &Connection,
     mappings: &[DlisWellMapping],
     curves: &[PreparedDlisCurve],
@@ -241,7 +260,14 @@ fn write_prepared_dlis(
         // SB-DBM-030: the parser's own screen catches |v| > 1e30 before this point, but the
         // store screen's bound is a decade tighter on the negative side (-1e29); anything it
         // still binds is surfaced through the same skip channel, never silently.
-        let screened = db::insert_curve_samples(conn, &curve_id, &curve.depth, &curve.values)?;
+        let screened: usize = db::insert_curve_samples_batch_in_transaction(
+            conn,
+            &curve.depth,
+            &[(curve_id.as_str(), curve.values.as_slice())],
+        )?
+        .into_iter()
+        .map(|(_, count)| count)
+        .sum();
         if screened > 0 {
             screen_skips.push(DlisSkip {
                 kind: "curve".into(),
@@ -360,6 +386,13 @@ pub struct DlisImportResult {
     /// container this is populated before any write and must be echoed back to confirm it.
     pub well_mappings: Vec<DlisWellMapping>,
     pub mapping_confirmation_required: bool,
+    /// A single-well file whose own well and the selection disagree: the targets on offer,
+    /// before any write. The user picks one and echoes it back in `confirmed_well_mappings`.
+    pub target_choices: Vec<DlisWellMapping>,
+    /// A single-well file that cannot pick its own well (it names none, or several project
+    /// wells carry its name) and no usable selection. `error` is the whole message; the
+    /// frontend shows it as the named dialog, not a status line alone.
+    pub target_well_required: bool,
     /// Incoming extents outside an existing well/set extent. Empty means there was no conflict;
     /// populated beside an error means the required decision was absent.
     pub interval_conflicts: Vec<DlisIntervalConflict>,
@@ -393,6 +426,8 @@ fn failed(path: &str, error: String, skipped: Vec<DlisSkip>) -> DlisImportResult
         sentinel_exceptions: Vec::new(),
         well_mappings: Vec::new(),
         mapping_confirmation_required: false,
+        target_choices: Vec::new(),
+        target_well_required: false,
         interval_conflicts: Vec::new(),
         duplicate_conflicts: Vec::new(),
         duplicate_decisions: Vec::new(),
@@ -567,6 +602,130 @@ fn mapping_confirmation_matches(
                 && received.target_well_id.is_none()
                 && expected.will_create == received.will_create
         })
+}
+
+/// The refusal for a single-well file that names no well, imported with no well selected.
+const NO_WELL_NAMED: &str = "This DLIS names no well it can be matched by (no WELL-NAME could be read from its ORIGIN record), so it cannot pick a project well itself - select the well it belongs to in the Wells & Tops pane, then Import DLIS again. No data was written.";
+
+/// Where a single-well DLIS goes (T-IMP-06: "dlis imported but well not showing").
+///
+/// A DLIS states its own well in its ORIGIN record, so the FILE decides, by the rule LAS attach
+/// uses: `upper(trim(name))`, and exactly one match attaches; no match creates the well, as a
+/// LAS import does. The selection is only what happened to be clicked, and logs written into
+/// the wrong well compute and plot with nothing to say so. It decides only where the file names
+/// no well, or where several project wells carry the file's name and the selection is one of
+/// them. Where the file and the selection disagree, nothing is written and both are offered.
+#[derive(Debug, PartialEq)]
+enum SingleWellTarget {
+    Go(DlisWellMapping),
+    Ask(Vec<DlisWellMapping>),
+    /// The file cannot pick its own well and there is no usable selection; the message says
+    /// why and which control fixes it.
+    Refuse(String),
+}
+
+fn single_well_target(
+    conn: &Connection,
+    header: &DlisHeader,
+    selected_id: Option<&str>,
+) -> Result<SingleWellTarget, String> {
+    let logical_files: Vec<usize> =
+        header.logical_files.iter().map(|logical| logical.logical_file).collect();
+    let source = header
+        .logical_files
+        .iter()
+        .map(|logical| logical.well_name.trim())
+        .find(|name| !name.is_empty())
+        .unwrap_or("")
+        .to_string();
+    let existing = |id: &str, name: &str| DlisWellMapping {
+        source_well: source.clone(),
+        logical_files: logical_files.clone(),
+        target_well_name: name.to_string(),
+        target_well_id: Some(id.to_string()),
+        will_create: false,
+    };
+    // A selection that no longer exists (a deleted well) is no selection: it must not block a
+    // file that names its own well.
+    let selected: Option<(String, String)> = match selected_id {
+        None => None,
+        Some(id) => match conn.query_row(
+            "SELECT well_name FROM wells WHERE well_id = ?1",
+            params![id],
+            |row| row.get::<_, String>(0),
+        ) {
+            Ok(name) => Some((id.to_string(), name)),
+            Err(duckdb::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(error.to_string()),
+        },
+    };
+    if source.is_empty() {
+        return Ok(match &selected {
+            Some((id, name)) => SingleWellTarget::Go(existing(id, name)),
+            None => SingleWellTarget::Refuse(NO_WELL_NAMED.to_string()),
+        });
+    }
+    let matches: Vec<(String, String)> = {
+        let mut stmt = conn
+            // Both sides folded by the SAME function, so a name always matches itself.
+            .prepare("SELECT well_id, well_name FROM wells WHERE upper(trim(well_name)) = upper(trim(?1)) ORDER BY well_id")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![source], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
+    let create = DlisWellMapping {
+        source_well: source.clone(),
+        logical_files: logical_files.clone(),
+        target_well_name: source.clone(),
+        target_well_id: None,
+        will_create: true,
+    };
+    Ok(match (matches.as_slice(), &selected) {
+        ([(id, name)], Some((sel_id, sel_name))) if id != sel_id => {
+            SingleWellTarget::Ask(vec![existing(id, name), existing(sel_id, sel_name)])
+        }
+        ([(id, name)], _) => SingleWellTarget::Go(existing(id, name)),
+        ([], None) => SingleWellTarget::Go(create),
+        ([], Some((sel_id, sel_name))) => {
+            SingleWellTarget::Ask(vec![create, existing(sel_id, sel_name)])
+        }
+        (_, Some((sel_id, sel_name))) if matches.iter().any(|(id, _)| id == sel_id) => {
+            SingleWellTarget::Go(existing(sel_id, sel_name))
+        }
+        (many, _) => SingleWellTarget::Refuse(format!("This DLIS names well {source}, and {} project wells carry that name, so the file cannot say which one it belongs to - select the one it belongs to in the Wells & Tops pane (each is listed there), then Import DLIS again. No data was written.", many.len())),
+    })
+}
+
+/// The answer to `SingleWellTarget::Ask`: exactly one offered choice, echoed back unchanged.
+/// Anything else - a stale answer, a third well - is not an answer, and the question is asked
+/// again rather than guessed from.
+fn confirmed_choice(
+    choices: &[DlisWellMapping],
+    confirmed: &[DlisWellMapping],
+) -> Option<DlisWellMapping> {
+    match confirmed {
+        [chosen] if choices.contains(chosen) => Some(chosen.clone()),
+        _ => None,
+    }
+}
+
+fn failed_target_choice(
+    path: &str,
+    choices: Vec<DlisWellMapping>,
+    skipped: Vec<DlisSkip>,
+) -> DlisImportResult {
+    let source = choices.first().map(|choice| choice.source_well.clone()).unwrap_or_default();
+    let mut result = failed(
+        path,
+        format!("this DLIS names well {source}, which is not the selected well; choose where its curves go before anything is written"),
+        skipped,
+    );
+    result.target_choices = choices;
+    result
 }
 
 fn screen_dlis_values(
@@ -885,9 +1044,10 @@ fn duplicate_preflight(
     Ok((target_set, records))
 }
 
-/// Imports scalar DLIS channels. A one-source container targets one existing well; a container
-/// naming multiple source wells returns a source-to-project mapping first, then creates and routes
-/// one project well per source only when the exact map is confirmed.
+/// Imports scalar DLIS channels. A one-source container lands on the well it names, or the
+/// selected well where it names none (`single_well_target`); a container naming multiple
+/// source wells returns a source-to-project mapping first, then creates and routes one project
+/// well per source only when the exact map is confirmed.
 ///
 /// `set_name` (import-sets, T-IMP-02/06): named sets are auto-suffixed per well (`WIRE` taken
 /// -> `WIRE_1`, Geolog-style). A mnemonic already held anywhere on the well stops before commit
@@ -986,24 +1146,40 @@ pub fn import_dlis_file_with_unit_designation(
     {
         return failed_mapping(path, proposed_well_mappings, header.skips);
     }
-    let selected_well_id = if is_multi_well {
-        well_id.unwrap_or("")
+    // A single-well file lands on the well it NAMES (`single_well_target`); the selection
+    // decides only where the file names none. The multi-well path above owns its own mapping.
+    let single_target: Option<DlisWellMapping> = if is_multi_well {
+        None
     } else {
-        let Some(well_id) = well_id else {
-            return failed(
-                path,
-                "single-well DLIS requires a selected project well; no data was written".into(),
-                header.skips,
-            );
-        };
-        let exists: bool = conn
-            .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
-            .unwrap_or(false);
-        if !exists {
-            return failed(path, format!("unknown well '{well_id}'"), header.skips);
+        match single_well_target(conn, &header, well_id) {
+            Ok(SingleWellTarget::Go(mapping)) => Some(mapping),
+            Ok(SingleWellTarget::Ask(choices)) => {
+                match confirmed_choice(&choices, confirmed_well_mappings) {
+                    Some(chosen) => Some(chosen),
+                    None => return failed_target_choice(path, choices, header.skips),
+                }
+            }
+            Ok(SingleWellTarget::Refuse(message)) => {
+                let mut result = failed(path, message, header.skips);
+                result.target_well_required = true;
+                return result;
+            }
+            Err(error) => return failed(path, error, header.skips),
         }
-        well_id
     };
+    // A well this import will create gets its id now, so every preflight below reads it as the
+    // empty well it is; nothing is written until `write_prepared_dlis`.
+    let single_target = single_target.map(|mut mapping| {
+        if mapping.will_create {
+            mapping.target_well_id = Some(uuid::Uuid::new_v4().to_string());
+        }
+        mapping
+    });
+    let target_well_id: String = single_target
+        .as_ref()
+        .and_then(|mapping| mapping.target_well_id.clone())
+        .unwrap_or_default();
+    let selected_well_id = target_well_id.as_str();
     let desired = crate::ingest::canonical_set_name(set_name);
     let initial_target_set = if is_multi_well || desired == "RAW" {
         desired.clone()
@@ -1076,6 +1252,8 @@ pub fn import_dlis_file_with_unit_designation(
         for mapping in &mut committed_well_mappings {
             mapping.target_well_id = Some(uuid::Uuid::new_v4().to_string());
         }
+    } else if let Some(mapping) = single_target {
+        committed_well_mappings = vec![mapping];
     }
     let interval_conflicts = if is_multi_well {
         Vec::new()
@@ -1127,7 +1305,24 @@ pub fn import_dlis_file_with_unit_designation(
             record.existing.join(", ")
         ),
     }));
-    notes.extend(committed_well_mappings.iter().map(|mapping| {
+    if !is_multi_well {
+        if let Some(mapping) = committed_well_mappings.first() {
+            if mapping.source_well.is_empty() {
+                notes.push(format!(
+                    "DLIS names no well; imported into the selected well {}",
+                    mapping.target_well_name
+                ));
+            } else if !mapping.will_create
+                && !mapping.target_well_name.trim().eq_ignore_ascii_case(&mapping.source_well)
+            {
+                notes.push(format!(
+                    "DLIS names well {}; imported into {} by explicit choice",
+                    mapping.source_well, mapping.target_well_name
+                ));
+            }
+        }
+    }
+    notes.extend(committed_well_mappings.iter().filter(|mapping| mapping.will_create).map(|mapping| {
         format!(
             "DLIS source well {} (logical files {:?}) created as project well {}",
             mapping.source_well, mapping.logical_files, mapping.target_well_name
@@ -1388,6 +1583,8 @@ pub fn import_dlis_file_with_unit_designation(
             .collect(),
         well_mappings: committed_well_mappings,
         mapping_confirmation_required: false,
+        target_choices: Vec::new(),
+        target_well_required: false,
         interval_conflicts,
         duplicate_conflicts: Vec::new(),
         duplicate_decisions: duplicate_decision_records,
@@ -1702,13 +1899,20 @@ mod tests {
         }
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
-        let well_id = Uuid::new_v4();
-        db::insert_well(&conn, well_id, "DLIS-1", None, None, None).unwrap();
-        let ids = well_id.to_string();
-
-        let res = import_dlis_file(&conn, &ids, &path, None, None);
+        // The file decides its own well (T-IMP-06): with nothing selected a named file creates
+        // it. A file that names no well needs one selected, exactly as in the app.
+        let mut res = import_dlis_file_with_unit_designation(
+            &conn, None, &path, None, None, None, None, None, &[], &[], &[],
+        );
+        if res.target_well_required {
+            let well_id = Uuid::new_v4();
+            db::insert_well(&conn, well_id, "DLIS-1", None, None, None).unwrap();
+            res = import_dlis_file(&conn, &well_id.to_string(), &path, None, None);
+        }
         assert!(res.error.is_none(), "{:?}", res.error);
         assert!(res.curves_imported > 0, "expected at least one curve");
+        let ids = res.well_mappings[0].target_well_id.clone().expect("a committed import names its well");
+        println!("landed on well {}", res.well_mappings[0].target_well_name);
         let catalog = db::list_generic_curve_catalog(&conn, &ids).unwrap();
         assert!(!catalog.is_empty());
         println!("imported {} curves, {} rows", res.curves_imported, res.rows);
@@ -1992,6 +2196,94 @@ mod tests {
         assert!(DLIS_RUNNER.contains("\"omitted\": bool(omitted)"));
     }
 
+    /// T-IMP-06 ("dlis imported but well not showing"). A single-well DLIS lands on the well its
+    /// ORIGIN record names, by LAS attach's rule, and creates it when the project has none; the
+    /// selection decides only where the file names no well or where same-named records leave the
+    /// file ambiguous, and a disagreement between the two is ASKED, never settled. Pinned from
+    /// both sides: always-the-selection (the old behaviour) fails the first assertions, and
+    /// always-the-file fails the disagreement and the no-name cases.
+    #[test]
+    fn a_single_well_dlis_lands_on_the_well_it_names_and_asks_when_the_selection_disagrees() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let (a, b, c, d) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        db::insert_well(&conn, a, "SANDI-01", None, None, None).unwrap();
+        db::insert_well(&conn, b, "SANDI-02", None, None, None).unwrap();
+        db::insert_well(&conn, c, "SANDI-03", None, None, None).unwrap();
+        db::insert_well(&conn, d, "SANDI-03", None, None, None).unwrap();
+        let (a, b, c) = (a.to_string(), b.to_string(), c.to_string());
+        let header = |name: &str| DlisHeader {
+            curves: Vec::new(),
+            skips: Vec::new(),
+            channels_declared: 0,
+            logical_files: vec![DlisLogicalFile {
+                logical_file: 0,
+                source_well: name.into(),
+                well_name: name.into(),
+            }],
+        };
+        let go = |target: SingleWellTarget| match target {
+            SingleWellTarget::Go(mapping) => mapping,
+            other => panic!("expected a decided target, got {other:?}"),
+        };
+        // The file names an existing well: it goes there, selected or not, case- and space-blind.
+        let named = go(single_well_target(&conn, &header(" sandi-02 "), None).unwrap());
+        assert_eq!((named.target_well_id.as_deref(), named.will_create), (Some(b.as_str()), false));
+        let named = go(single_well_target(&conn, &header("SANDI-02"), Some(&b)).unwrap());
+        assert_eq!(named.target_well_id.as_deref(), Some(b.as_str()));
+        // The file names a well the project lacks: it is created, as a LAS import would.
+        let created = go(single_well_target(&conn, &header("SANDI-09"), None).unwrap());
+        assert_eq!(created.target_well_name, "SANDI-09");
+        assert!(created.will_create && created.target_well_id.is_none());
+        // The file and the selection disagree: nothing is decided, both are offered.
+        let SingleWellTarget::Ask(choices) =
+            single_well_target(&conn, &header("SANDI-02"), Some(&a)).unwrap()
+        else {
+            panic!("a file naming SANDI-02 with SANDI-01 selected must ask");
+        };
+        let ids: Vec<Option<&str>> = choices.iter().map(|choice| choice.target_well_id.as_deref()).collect();
+        assert_eq!(ids, vec![Some(b.as_str()), Some(a.as_str())]);
+        let SingleWellTarget::Ask(choices) =
+            single_well_target(&conn, &header("SANDI-09"), Some(&a)).unwrap()
+        else {
+            panic!("a file naming a new well with SANDI-01 selected must ask");
+        };
+        assert!(choices[0].will_create);
+        assert_eq!(choices[1].target_well_id.as_deref(), Some(a.as_str()));
+        // Only an offered choice, echoed unchanged, is an answer.
+        assert_eq!(confirmed_choice(&choices, &choices[1..2]), Some(choices[1].clone()));
+        let mut third = choices[1].clone();
+        third.target_well_id = Some(b.clone());
+        assert_eq!(confirmed_choice(&choices, &[third]), None);
+        assert_eq!(confirmed_choice(&choices, &choices), None);
+        // The file names no well: the selection decides, and with none the import is refused.
+        let unnamed = go(single_well_target(&conn, &header(""), Some(&a)).unwrap());
+        assert_eq!(unnamed.target_well_id.as_deref(), Some(a.as_str()));
+        let refused = single_well_target(&conn, &header("  "), None).unwrap();
+        assert!(matches!(&refused, SingleWellTarget::Refuse(message) if message.contains("names no well")), "{refused:?}");
+        // A WELL-ID is identity, not a name: it is never matched against, or made into, a well.
+        let id_only = DlisHeader {
+            curves: Vec::new(),
+            skips: Vec::new(),
+            channels_declared: 0,
+            logical_files: vec![DlisLogicalFile {
+                logical_file: 0,
+                source_well: "30-015-00001".into(),
+                well_name: String::new(),
+            }],
+        };
+        assert!(matches!(single_well_target(&conn, &id_only, None).unwrap(), SingleWellTarget::Refuse(_)));
+        assert_eq!(go(single_well_target(&conn, &id_only, Some(&a)).unwrap()).target_well_id.as_deref(), Some(a.as_str()));
+        // A selection that no longer exists is no selection, and does not block a named file.
+        let gone = Uuid::new_v4().to_string();
+        assert_eq!(go(single_well_target(&conn, &header("SANDI-02"), Some(&gone)).unwrap()).target_well_id.as_deref(), Some(b.as_str()));
+        // Several records carry the file's name: the selection may settle it, nothing else may.
+        let settled = go(single_well_target(&conn, &header("SANDI-03"), Some(&c)).unwrap());
+        assert_eq!(settled.target_well_id.as_deref(), Some(c.as_str()));
+        let refusal = single_well_target(&conn, &header("SANDI-03"), None).unwrap();
+        assert!(matches!(&refusal, SingleWellTarget::Refuse(message) if message.contains("carry that name")), "{refusal:?}");
+    }
+
     /// SB-DIO-045 / SB-DIO-T63..T64. Multi-well separation and the pre-commit mapping are
     /// specified in `docs/PRD_v2/21_data-io.md` §§4.9 and 6.9 (D-27).
     #[test]
@@ -2004,6 +2296,7 @@ mod tests {
             .map(|(logical_file, source_well)| DlisLogicalFile {
                 logical_file,
                 source_well: source_well.into(),
+                ..Default::default()
             })
             .collect::<Vec<_>>();
         let curves = (0..3)
@@ -2081,8 +2374,8 @@ mod tests {
             skips: Vec::new(),
             channels_declared: 0,
             logical_files: vec![
-                DlisLogicalFile { logical_file: 0, source_well: "SANDI-A".into() },
-                DlisLogicalFile { logical_file: 1, source_well: "sandi-a".into() },
+                DlisLogicalFile { logical_file: 0, source_well: "SANDI-A".into(), ..Default::default() },
+                DlisLogicalFile { logical_file: 1, source_well: "sandi-a".into(), ..Default::default() },
             ],
         };
         assert!(multi_well_plan(&same_well).unwrap().is_empty());
