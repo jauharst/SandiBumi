@@ -1286,39 +1286,11 @@ for i, iid in enumerate(ids):
 sys.stdout.write(json.dumps(out))
 "#;
 
-const CLASSIFY_SUPPORT_RUNNER: &str = r#"
-import sys
-ok = True
-try:
-    import numpy  # noqa: F401
-    from PIL import Image  # noqa: F401
-    import scipy  # noqa: F401
-    import sklearn  # noqa: F401
-except Exception:
-    ok = False
-sys.stdout.write("1" if ok else "0")
-"#;
-
-const SUPPORT_RUNNER: &str = r#"
-import sys
-ok = True
-try:
-    import numpy  # noqa: F401
-    from PIL import Image  # noqa: F401
-except Exception:
-    ok = False
-sys.stdout.write("1" if ok else "0")
-"#;
-
 /// Can the pore measurement run at all? Probed once so a dialog can say what is missing and name
-/// the interpreter to install into, rather than failing at the end of a long run.
+/// the interpreter to install into, rather than failing at the end of a long run. The packages are
+/// the manifest's `petrography_pore_area` row, never a second list.
 pub fn pore_support() -> Result<bool, String> {
-    let python = find_python().ok_or("no Python interpreter found")?;
-    let mut cmd = Command::new(&python);
-    cmd.args(["-c", SUPPORT_RUNNER]).stdout(Stdio::piped()).stderr(Stdio::piped());
-    hide_console(&mut cmd);
-    let out = cmd.output().map_err(|e| format!("failed to start python: {e}"))?;
-    Ok(String::from_utf8_lossy(&out.stdout).trim() == "1")
+    crate::installation::session_capability_available(crate::installation::CAPABILITY_PORE_AREA)
 }
 
 #[derive(Deserialize)]
@@ -1683,14 +1655,12 @@ fn summarise(g: &RunnerGeom, um_per_px: Option<f64>) -> PoreGeometry {
     }
 }
 
-/// Can the classifier run? Needs scikit-learn as well as scipy, so it is probed separately.
+/// Can the classifier run? Needs scikit-learn as well as scipy, so it is probed separately, from
+/// the manifest's `mineral_classifier` row.
 pub fn classify_support() -> Result<bool, String> {
-    let python = find_python().ok_or("no Python interpreter found")?;
-    let mut cmd = Command::new(&python);
-    cmd.args(["-c", CLASSIFY_SUPPORT_RUNNER]).stdout(Stdio::piped()).stderr(Stdio::piped());
-    hide_console(&mut cmd);
-    let out = cmd.output().map_err(|e| format!("failed to start python: {e}"))?;
-    Ok(String::from_utf8_lossy(&out.stdout).trim() == "1")
+    crate::installation::session_capability_available(
+        crate::installation::CAPABILITY_MINERAL_CLASSIFIER,
+    )
 }
 
 #[derive(Deserialize)]

@@ -140,6 +140,13 @@ fixture.
 2. **G3-02 — clean-machine install and no-Python core use.** `standard_user`, `locked_down_user`,
    `no_python_core_use`; the prerequisite surfaces inventoried and generated from the manifest,
    with divergence failing release (SB-INS-001, -002, -003, -004, -026). *T-INS-02 to T-INS-04.*
+   **Code half done 2026-09-23, no clean machine needed:** the manifest names every production
+   Python runner — eleven capabilities, up from six — and
+   `every_python_runner_is_in_the_manifest_and_every_manifest_package_is_imported_by_a_runner`
+   fails on a runner it does not name, or on a package no runner imports. The generated
+   prerequisite surfaces follow automatically. The support checks behind Core Photos, Pore Area
+   and the Mineral Classifier now read the manifest rows too, instead of a package list of their
+   own. Still open under this item: the three scenarios on a clean machine.
 3. **G3-03 — the Python pack and the offline install.** Signed pack, lock and digests; deploy MSI
    plus pack with the network blocked; keep the trace and the probe results; the external-
    interpreter path exercised beside it (SB-INS-008, -009, -005). *T-INS-05, T-INS-07.*

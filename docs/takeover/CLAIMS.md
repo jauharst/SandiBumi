@@ -65,7 +65,7 @@ State totals: `5 PROVEN`, `6 QUALIFIED`, `3 UNMEASURED`, `11 REMOVE-RECOMMENDED`
 - **The 2,000-well number** is absent from `README.md`; it remains in internal engineering text and
   stays unmeasured under `CLAIM-001` until Jauhar resolves `DEC-004` and `DEC-008`.
 - **A blanket no-Python claim** is absent. Release surfaces correctly distinguish native paths from
-  the six Python-backed capability families.
+  the eleven Python-backed capabilities (six until 2026-09-23).
 - **A blanket field-verified claim** is absent from the public README. The internal blanket in
   `CLAUDE.md` is registered for removal rather than silently treated as release evidence.
 - **Linux parity, service levels, online activation, update cadence and supported-version windows**

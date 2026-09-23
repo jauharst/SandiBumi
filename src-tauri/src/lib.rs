@@ -1609,9 +1609,15 @@ fn python_status() -> python_engine::PythonStatus {
 
 /// One truthful prerequisite surface for the whole application. Its capability and package
 /// rows come from the bundled manifest; absence of Python makes only those rows unavailable.
+/// Async because the probe imports every manifest package in a subprocess, which takes seconds
+/// with the ML packages installed. A sync command would freeze the window for that long.
 #[tauri::command]
-fn installation_support() -> Result<installation::InstallationSupport, String> {
-    installation::installation_support(python_engine::python_resolution()?)
+async fn installation_support() -> Result<installation::InstallationSupport, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        installation::installation_support(python_engine::python_resolution()?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Lists the curve catalog (standard + computed curves), auto-derived from the database.

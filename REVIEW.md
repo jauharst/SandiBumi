@@ -21235,3 +21235,44 @@ existing marks are untouched.
       can have, and you will find it faster than I can.
 - [ ] **Say whether five sittings is the right cut**, or whether you would rather have the steps
       regrouped around the evenings you actually have.
+
+## Gate 3: the Prerequisites list names every tool that needs Python (2026-09-23)
+
+**Project ▸ Help ▸ Prerequisites** is meant to tell IT, and you, exactly what a machine needs
+before each tool will work. It listed six tools. The app has eleven that run Python. The ML suite,
+the core photo tools, pore area, the mineral classifier and picture normalization used Python
+without appearing in the list. So a clean machine could look fully ready there and still fail the
+first time somebody opened ML Models or Core Photos. The DLIS row also left out NumPy, which the
+DLIS reader imports directly.
+
+All eleven are listed now, each with the packages its own code imports. The README, the release
+notes fragment and the text bundled into the installer are generated from the same list, so they
+changed with it. A gated test reads the app's own code for every place it starts Python. It fails
+the build if a new one appears that the list does not name, and it fails if the list claims a
+package no tool actually uses.
+
+Two rows say owner `UNOWNED`: pore area and the mineral classifier. No chapter of the PRD carries
+requirements for the petrography tools yet. The list says so, rather than borrowing another
+chapter's name.
+
+The Workbook and Deck dialogs now check only their own packages when they open. Before, they asked
+the interpreter about every package in the list, and with ML added that would have meant loading
+scikit-learn and xgboost just to open a save dialog.
+
+Core Photos, Pore Area and the Mineral Classifier each had a small check of their own that decided
+whether the tool could run, with its own idea of which packages it needed. Those checks now read
+the same list as the Prerequisites dialog, so the two can no longer disagree about one machine. The
+Prerequisites dialog itself now does its checking in the background, because asking one Python
+about every package on the list can take several seconds, and before, the whole window froze
+while it waited.
+
+- [ ] **Open Project ▸ Help ▸ Prerequisites** on this machine. It shows eleven rows. The five new
+      ones read available or unavailable according to what is installed in your Python. If
+      scikit-learn is installed, **ML models** reads available.
+- [ ] **Open Plot ▸ Deliverables ▸ Workbook… and Deck…** They open as quickly as before, and each
+      still says whether its own packages are there.
+- [ ] **Open Core Photos…, Pore Area… and Mineral Classifier…** Each opens as before. Whatever
+      the Prerequisites dialog says about that tool, the pane agrees: available there means the
+      pane lets you run it.
+- [ ] **Say who owns petrography**: a chapter of its own, one of the existing ones, or leave it
+      `UNOWNED` for now. Nothing breaks either way; the word is in the list either way.

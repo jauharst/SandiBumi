@@ -118,7 +118,7 @@ fn block_delimiter_balance(line: &str) -> i64 {
     code.matches('{').count() as i64 - code.matches('}').count() as i64
 }
 
-fn production_rust(source: &str) -> String {
+pub(crate) fn production_rust(source: &str) -> String {
     let mut kept = String::new();
     let mut pending_test_cfg = false;
     let mut skipping = false;

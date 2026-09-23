@@ -28,7 +28,7 @@ fn rust_sources(path: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn sorted_sources() -> Vec<PathBuf> {
+pub(crate) fn sorted_sources() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut paths = Vec::new();
     rust_sources(&root, &mut paths);

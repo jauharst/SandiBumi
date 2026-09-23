@@ -93,6 +93,13 @@ needs `openpyxl` (`images.rs:855-857`), and Office deliverables need `xlsxwriter
 must publish and probe a per-capability dependency matrix; a blanket “no runtime dependencies” claim
 is false for those capabilities.
 
+*Update 2026-09-23.* The audit above missed five Python-backed capabilities. They are the ML suite,
+core photo imaging, petrography pore area, the mineral classifier and picture normalization. It also
+missed that the DLIS runner imports NumPy directly. §5 now lists all of them, each row citing the
+runner's own import lines. `installation.rs`
+`every_python_runner_is_in_the_manifest_and_every_manifest_package_is_imported_by_a_runner` scans
+production code and fails on a runner the manifest does not name, in either direction.
+
 ### 2.7 Reproducibility requires the exact runtime, not “Python is installed”
 
 **Finding INS-7 (source audit).** Runtime discovery checks an environment override, per-user Python
@@ -370,9 +377,14 @@ claim says a capability is available while its declared runtime path is unavaila
 | Per-user discovery versions | — | `3.13`, `3.12`, `3.11`, `3.10` | Python minor version | `python_engine.rs:193-199` | T1 |
 | Equation-engine required package | — | `numpy` | Python package | `python_engine.rs:17-18,205-209` | T1 |
 | Equation-engine optional package | — | `scipy` | Python package | `python_engine.rs:13-19,226-242` | T1 |
-| DLIS package | — | `dlisio` | Python package | `dlis.rs:24-28,133-134` | T1 |
+| DLIS packages | — | `dlisio`, `numpy` | Python packages | `dlis.rs:24-28,133-134`; NumPy imported directly at `dlis.rs:26` (added 2026-09-23) | T1 |
 | Spreadsheet-plate packages | — | `openpyxl`, `Pillow` | Python packages | `images.rs:490-493,855-857` | T1 |
 | Office packages | — | `xlsxwriter`, `python-docx`, `python-pptx`, `matplotlib` | Python packages | `office.rs:48-68,310-335,881-901,1426-1447` | T1 |
+| ML packages (added 2026-09-23) | — | `numpy`, `scikit-learn`, `joblib`; `xgboost` optional | Python packages | `ml.rs:882,966,1693,1748,1767`; `xgboost` at `ml.rs:125`, substituted by scikit-learn when absent (`ml.rs:144`) | T1 |
+| Core photo imaging packages (added 2026-09-23) | — | `numpy`, `Pillow` | Python packages | `coreimage.rs:2156-2157` (and the four other image runners after it) | T1 |
+| Petrography pore-area packages (added 2026-09-23) | — | `numpy`, `Pillow`; `scipy` optional | Python packages | `petrography.rs:603-604`; `scipy` only for grain geometry, `petrography.rs:820` | T1 |
+| Mineral-classifier packages (added 2026-09-23) | — | `numpy`, `Pillow`, `scipy`, `scikit-learn` | Python packages | `petrography.rs:1124-1132` | T1 |
+| Picture-normalization package (added 2026-09-23) | — | `Pillow` | Python package | `images.rs:352` | T1 |
 | Corporate/user/template precedence | — | `ABSENT — ships with no default` | precedence order | no source-backed product policy | — |
 | Offline runtime distribution mode | — | `ABSENT — ships with no default` | deployment mode | no source-backed product policy | — |
 | Supported installer package type | — | `ABSENT — ships with no default` | installer type | `targets: "all"` does not select a qualified release format | — |
