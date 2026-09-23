@@ -30,7 +30,12 @@ which is what made the drift silent. Add a rule HERE and nowhere else.
     a second well row); >1 match is ambiguous → separate record + warning. **Curve resolution:
     set RAW has ABSOLUTE priority in `equations::fetch_generic_curve_aligned` — do not
     reorder that; other sets are consulted only for mnemonics RAW does not carry.** Browse via
-    the Wells-pane ▸ twisty (`objectTree.ts`, lazy per well).
+    the Wells-pane ▸ twisty (`objectTree.ts`, lazy per well). **A single-well DLIS
+    (2026-09-23) follows the LAS well rule too**: it lands on the well its ORIGIN WELL-NAME
+    names (`upper(trim())`, exactly one match), creates that well when the project lacks it,
+    and uses the selection only where the file names none (a WELL-ID is not a name); a file
+    that disagrees with the selection writes nothing until the user picks
+    (`dlis::single_well_target`). The whole DLIS write is one transaction.
 11. **Module inputs are generic-store aware**: `equations::fetch_curve_frame` resolves any non-standard, non-computed curve name from `curve_meta`/`curve_samples` (set RAW) by mnemonic-then-family, so modules/equations can take PEF/CALI/DRHO/extra runs — not just the fixed six. (Log-view rendering `get_track_data` still reads only `standard_curves`.) Runs can pass `opts["MASK"]="<flag curve>"` (e.g. BADHOLE) to NaN-out flagged samples in every output.
 
 ## Shipped capability, and the conventions it set

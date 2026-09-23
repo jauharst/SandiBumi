@@ -19,7 +19,17 @@ import { openModal } from "./modal";
 export function requireWell(action: string): WellSummary | null {
   const well = appState.selectedWell.get();
   if (well) return well;
+  refuseWithoutWell(
+    action,
+    `${action} works on one well at a time, and no well is selected. Click a well in the ` +
+      `Wells & Tops pane on the left, then try again.`,
+  );
+  return null;
+}
 
+/** The same refusal for a click whose need for a well is only known after it has looked -
+ *  a DLIS that names no well of its own. `reason` says why this one needs a selection. */
+export function refuseWithoutWell(action: string, reason: string): void {
   // The status line still gets it: the message belongs in the history of what was attempted, it
   // just cannot be the only place it appears.
   setStatus(`${action} needs a well — select one in the Wells & Tops pane`);
@@ -27,9 +37,7 @@ export function requireWell(action: string): WellSummary | null {
   const wrap = document.createElement("div");
   const msg = document.createElement("div");
   msg.className = "eq-note";
-  msg.textContent =
-    `${action} works on one well at a time, and no well is selected. Click a well in the ` +
-    `Wells & Tops pane on the left, then try again.`;
+  msg.textContent = reason;
   wrap.appendChild(msg);
 
   const actions = document.createElement("div");
@@ -43,5 +51,4 @@ export function requireWell(action: string): WellSummary | null {
 
   const close = openModal(action, wrap, 420);
   ok.addEventListener("click", close);
-  return null;
 }

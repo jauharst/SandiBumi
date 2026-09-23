@@ -875,6 +875,18 @@ louder than a status-bar line (e.g. a dialog), say so and it becomes a small UX 
 **Superseded 2026-07-31 — that increment shipped** (`needWell.ts`); read the STALE block above
 this Result, not this paragraph.
 
+**Update 2026-09-23 - re-run this one; the last quiet case is fixed.** Every tool in step 2
+now answers a click made with no well selected. **Import Core** opens its wizard, because it routes
+rows by the file's WELL/WN column; a file with no such column and no well selected is stopped by the
+wizard's own routing line. **Import SCAL, Import Aux, Import Deviation, Export LAS and Shift Core**
+open the named dialog: *"<tool> works on one well at a time, and no well is selected."* **Import
+DLIS** was the last quiet one, and it no longer needs a selection at all: it goes to the well the
+file names (see T-IMP-06), and only a file that names no well opens the same dialog. **Import
+Tops** still opens with no well selected, by design. Mark Pass if every tool in step 2 either opens
+that dialog or does the job on the well the file names. **How to get "no well selected":** open
+the project (Project ▸ Open, or pick it from Recent) and click nothing. Clicking empty space in
+the Wells pane does not clear a selection; opening a project is the only thing that does.
+
 ### T-IMP-06 — DLIS import: sentinels screened, re-import replaced-count, LAS-mnemonic collision  [YOURS]
 
 **Tool/panel:** Import DLIS… (ribbon.ts `handleImportDlis`, src-tauri/src/dlis.rs)
@@ -905,6 +917,34 @@ the old replace-by-(mnemonic, run) behaviour. Both sets are then visible under t
 import rather than guessed before it. **Still open:** "well not showing" — retest with the
 set tree in place and tell me exactly what you see; if the well row itself is missing that is
 a separate bug from the curves, and I'll need the well name to chase it.
+
+**Update 2026-09-23 - FIXED: a DLIS now lands on the well it names (your "well not showing").**
+Until today a DLIS holding one well went into whichever well was selected, whatever well the file
+itself names, and it could never create a well. That is why your import showed in History while no
+new well appeared. It now follows the same rule as a LAS import:
+
+- **The file names a well already in the project** (same name, ignoring case and spaces): its curves
+  go there, whether or not it is selected.
+- **The file names a well the project does not have:** that well is created and appears in the Wells
+  pane.
+- **The file names one well and you selected another:** nothing is written, and a dialog asks which
+  well the curves belong to. The well the file names is the first button.
+- **The file names no well at all:** it goes to the selected well; with none selected, the named
+  "needs a well" dialog says so.
+
+**How to re-test, with no file of your own.** Import the example set, select SANDI-01, and use
+**Data ▸ Export DLIS…** to write a file. (1) With SANDI-01 still selected, Import DLIS that file:
+its curves land on SANDI-01 as a new set and no second SANDI-01 appears. (2) Select SANDI-02 and
+import it again: the dialog asks SANDI-01 or SANDI-02. (3) In a new empty project, import it:
+SANDI-01 is created and shows in the Wells pane. (4) Reopen the first project so no well is
+selected, and import it once more: it goes straight to SANDI-01 with no question. The status line now ends *"into
+SANDI-01 as set …"* or *"into new well SANDI-01 as set …"*. **One thing that can still hide a
+well:** while a well group is active the Wells pane shows only that group's members, and a new well
+from any import joins no group, so switch the group off before deciding a well is missing.
+
+**The Known issue above is superseded too.** A DLIS curve whose name the well already holds now
+stops the import and asks, per curve, to keep it separate or skip it; nothing merges into an
+existing curve and nothing is silently shadowed.
 
 ### T-IMP-07 — Core CSV import: plugs off the log grid overlay at native depths  [YOURS]
 
@@ -952,6 +992,18 @@ Values are stored VERBATIM (no percent or unit conversion is applied to extras; 
 they hang on IS converted). A column claimed by a core role can never also be an extra.
 Re-import replaces per (well, dataset), same discipline as the plugs. Check the result in
 DB Inspector → `aux_data`.
+
+**Update 2026-09-23 - re-run; checked against today's code, with one part of your note still
+open.** The wizard finds the well-name column, reads a units row and a percent column, accepts many
+files at once and tab, semicolon or `.txt` files, and carries every extra column as point data at
+the plug depths (`core_table_probe_and_multiwell_import` and the example-set end-to-end test cover
+it). Re-run it on `core_rcal_multiwell.csv` with NO well selected (open the project and click
+nothing), then on your own delivery.
+**Still open:** you asked to confirm each extra property's unit, data type and name before import.
+The wizard shows each column's detected type and lets you untick it, but it does not ask for a unit
+or a new name. An extra column keeps its header name and is stored exactly as delivered, with no
+unit conversion. If you need to state a unit or rename a column at import, say so in Notes and it
+becomes its own increment.
 
 ### T-IMP-08 — Core CSV with a duplicated plug depth imports (first kept), never aborts  [GATE-PINNED]
 
@@ -1002,6 +1054,12 @@ delivery, and only the live one feeds Pc QC, the Leverett-J fit and Thomeer. Bro
 switch everything from the **Wells pane ▸ twisty** (Core / SCAL / Surveys / Point data,
 ● = live, double-click to switch) or **Data → Tools ▾ → Data Sets…** (four sections).
 
+**Update 2026-09-23 - re-run; checked against today's code.** A second delivery of the same
+core lands as its own set (`CORE` → `CORE_1`) and becomes the live one, so nothing is overwritten
+and no count doubles (`core_import_roundtrip_and_replace`). Your note pointed at T-IMP-06 for how
+duplicates are handled: a DLIS curve the well already holds now stops the import and asks, per
+curve, to keep it separate or skip it. Re-test both parts listed in the update above.
+
 ### T-IMP-09 — Shift Core: constant core-to-log shift, undo, invalid input rejected  [YOURS]
 
 **Tool/panel:** Tools ▾ → Shift Core… (ribbon.ts `handleShiftCore`)
@@ -1049,6 +1107,11 @@ Shift Core still applies to the selected well's plugs only.
 **Update 2026-07-30 — DONE for core.** Core import now auto-detects the well-name column
 and routes rows exactly the way tops always did (this test's own routing rules), including
 multi-select of many files and .txt/tab delimiters. See the T-IMP-07 update.
+
+**Update 2026-09-23 - re-run.** Your note asked core to find its own wells the way tops does.
+It does, from one file or many (see the T-IMP-07 updates). Re-run steps 1 to 4 as written for tops,
+then import `core_rcal_multiwell.csv` with no well selected (open the project and click nothing)
+and check each SANDI well received its own plugs.
 
 ### T-IMP-11 — Aux data import: PERFORATION and XRD land per-well, replace on re-import  [GATE-PINNED]
 

@@ -21235,3 +21235,31 @@ existing marks are untouched.
       can have, and you will find it faster than I can.
 - [ ] **Say whether five sittings is the right cut**, or whether you would rather have the steps
       regrouped around the evenings you actually have.
+
+## DLIS import lands on the well the file names, and four import Fails are ready to re-run (2026-09-23)
+
+Your five import Fails from July, re-checked against today's code. Four were already rebuilt after
+you marked them and only need a re-run; each now carries a dated update under its test. The fifth,
+T-IMP-06's *"dlis imported but well not showing"*, was real: a DLIS holding one well went into
+whichever well was selected, whatever well the file names, and could never create one. It now
+follows the LAS rule. The file's own well name decides; a well the project lacks is created; when
+the file and your selection disagree, nothing is written and a dialog asks which well you mean,
+and your answer is written into the import's History line; a file that names no well still goes
+to the selected well. A new well and all its curves are now saved together, so a failed import
+can no longer leave an empty well behind. Export DLIS reads its own file back to
+verify it, and that check was changed in the same PR, because under the new rule it would have
+stopped to ask and every DLIS export would have failed.
+
+- [ ] **A DLIS finds its own well.** Import the example set, select SANDI-01, **Data ▸ Export DLIS…**.
+      Reopen the project so no well is selected (clicking empty space does not clear a
+      selection), then **Import DLIS** that file: the curves land on SANDI-01 as a new set, with
+      no question, and no second SANDI-01 appears.
+- [ ] **A disagreement is asked, not settled.** Select SANDI-02 and import the same file: a dialog
+      offers SANDI-01 (first) or SANDI-02, and Cancel writes nothing.
+- [ ] **A new well appears.** In a new empty project, import the same file: SANDI-01 is created and
+      shows in the Wells pane. If it seems missing, check that no well group is active.
+- [ ] **Export DLIS still works.** Export any well to DLIS: it succeeds, and the status line says
+      *SandiBumi DLIS reader self-check passed*.
+- [ ] **Re-run T-IMP-05, T-IMP-07, T-IMP-08 and T-IMP-10** from the manual plan, following the dated
+      update under each. T-IMP-07 keeps one open question for you: extra core columns are not given
+      a unit or a new name at import.

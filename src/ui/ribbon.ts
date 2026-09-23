@@ -31,7 +31,7 @@ import {
   type ModuleSpec,
   type RecentProject,
 } from "../ipc";
-import type { ImportResult } from "../ipc";
+import type { DlisWellMapping, ImportResult } from "../ipc";
 import { appState, bumpThemeVersion, setStatus } from "../state";
 import { anyDirty, clearDirty, subscribeDirty } from "../dirty";
 import { syncWellGroups } from "./wellGroups";
@@ -49,7 +49,7 @@ import { openImageImportDialog } from "./imageImportDialog";
 import { openDataSetsDialog } from "./dataSetsDialog";
 import { openWorkbookDialog } from "./workbookDialog";
 import { openDeckDialog } from "./deckDialog";
-import { requireWell } from "./needWell";
+import { refuseWithoutWell, requireWell } from "./needWell";
 import { openInstallationSupportDialog } from "./installationSupportDialog";
 import { registerDepthReframeRoute } from "./plotCommon";
 
@@ -1586,7 +1586,8 @@ export class Ribbon {
   }
 
   /** "Import DLIS…" — loads scalar channels from a DLIS file through the dlisio subprocess.
-   *  A single-well file targets the selected project well; a multi-well container proposes
+   *  A single-well file lands on the well it names (asked when that disagrees with the
+   *  selection; the selection only where it names none); a multi-well container proposes
    *  separate project wells and requires its mapping to be confirmed before any write. The set-name
    *  prompt (T-IMP-06) means a second DLIS never silently replaces the first: you rarely
    *  know what a vendor tape holds until it is in, so duplicates are KEPT under their own
@@ -1614,11 +1615,7 @@ export class Ribbon {
     const setName = choice.setName;
     const setLabel = setName ? setName.toUpperCase().replace(/\s+/g, "_") : "RAW";
 
-    setStatus(
-      well
-        ? `Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`
-        : `Inspecting DLIS well identities before import… (dlisio may take a moment)`,
-    );
+    setStatus(`Reading the DLIS and the well it names, set ${setLabel}… (dlisio may take a moment)`);
     try {
       let intervalDecision: "accept_outside_declared_interval" | null = null;
       let duplicateDecisions: Array<{
@@ -1628,6 +1625,8 @@ export class Ribbon {
       }> | null = null;
       let confirmedWellMappings: Awaited<ReturnType<typeof importDlisFile>>["well_mappings"] | null = null;
       let result: Awaited<ReturnType<typeof importDlisFile>>;
+      // The well the curves are going to, once known; later questions name it.
+      let targetName: string | null = well?.well_name ?? null;
       for (;;) {
         result = await importDlisFile(
           well?.well_id ?? null,
@@ -1661,6 +1660,22 @@ export class Ribbon {
           setStatus(`Well mapping confirmed; importing ${confirmedWellMappings.length} separate DLIS wells…`);
           continue;
         }
+        if (result.error && result.target_well_required) {
+          // The backend's message is the one wording of this refusal.
+          refuseWithoutWell("Import DLIS", result.error);
+          return;
+        }
+        if (result.error && result.target_choices.length > 0 && confirmedWellMappings === null) {
+          const chosen = await this.askDlisTarget(result.target_choices, well?.well_name ?? null);
+          if (!chosen) {
+            setStatus("DLIS import cancelled before any well or curve was written.");
+            return;
+          }
+          confirmedWellMappings = [chosen];
+          targetName = chosen.target_well_name;
+          setStatus(`Importing DLIS into ${chosen.target_well_name}…`);
+          continue;
+        }
         if (result.error && result.duplicate_conflicts.length > 0 && duplicateDecisions === null) {
           const detail = result.duplicate_conflicts
             .map(
@@ -1669,7 +1684,7 @@ export class Ribbon {
             )
             .join("\n");
           const keep = window.confirm(
-            `This well already holds the following DLIS mnemonic(s):\n\n${detail}\n\n` +
+            `${targetName ?? "The target well"} already holds the following DLIS mnemonic(s):\n\n${detail}\n\n` +
               "Keep every incoming curve separate in this delivery? Cancel writes nothing. " +
               "No merge-into-existing action is available.",
           );
@@ -1682,7 +1697,7 @@ export class Ribbon {
             run: conflict.run,
             action: "keep_separate",
           }));
-          setStatus(`Duplicate choices recorded; checking DLIS intervals for ${well?.well_name ?? "the selected well"}…`);
+          setStatus(`Duplicate choices recorded; checking DLIS intervals for ${targetName ?? "the target well"}…`);
           continue;
         }
         if (result.error && result.interval_conflicts.length > 0 && intervalDecision === null) {
@@ -1702,7 +1717,7 @@ export class Ribbon {
             return;
           }
           intervalDecision = "accept_outside_declared_interval";
-          setStatus(`Interval conflict accepted; importing DLIS into ${well?.well_name ?? "the selected well"}…`);
+          setStatus(`Interval conflict accepted; importing DLIS into ${targetName ?? "the target well"}…`);
           continue;
         }
         break;
@@ -1724,16 +1739,20 @@ export class Ribbon {
         const channelCount = result.channels_declared > 0
           ? ` of ${result.channels_declared} declared channel(s)`
           : "";
-        const destination = result.well_mappings.length > 0
+        // One mapping is a single-well file on the well it named (or the one chosen for it).
+        const single = result.well_mappings.length === 1 ? result.well_mappings[0] : null;
+        const destination = result.well_mappings.length > 1
           ? `${result.well_mappings.length} separately mapped project wells`
-          : well?.well_name ?? "the selected project well";
+          : single
+            ? `${single.will_create ? "new well " : ""}${single.target_well_name}`
+            : well?.well_name ?? "the selected project well";
         setStatus(
           `${outcome} ${result.curves_imported}${channelCount}, ${result.rows} samples into ${destination} as set ${setLabel}.${unitNote}${skippedNote}`,
         );
         recordProcess(
           "Import",
           `${outcome} DLIS as set ${setLabel} (${result.curves_imported}${channelCount}, ${result.rows} samples)${unitNote}${skippedNote} ← ${path}`,
-          result.well_mappings.length > 0 ? null : well?.well_name ?? null,
+          result.well_mappings.length > 1 ? null : single?.target_well_name ?? well?.well_name ?? null,
         );
         this.workspace.notifyDataChanged();
       }
@@ -1742,8 +1761,65 @@ export class Ribbon {
     }
   }
 
-  /** Set-name and file-level choices collected before the DLIS scan. A single-well file still
-   *  requires a selected target; a multi-well file obtains its targets from the confirmed map. */
+  /** Where a single-well DLIS goes when the file's own well and the selection disagree. One
+   *  button per offered target, each naming its well; nothing is written until one is pressed,
+   *  and closing the dialog is a cancel. */
+  private askDlisTarget(
+    choices: DlisWellMapping[],
+    selectedName: string | null,
+  ): Promise<DlisWellMapping | null> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (value: DlisWellMapping | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const wrap = document.createElement("div");
+      const msg = document.createElement("div");
+      msg.className = "eq-note";
+      const source = choices[0]?.source_well ?? "";
+      const exists = choices.some((choice) => !choice.will_create && choice.target_well_name.trim().toUpperCase() === source.toUpperCase());
+      msg.textContent =
+        `This DLIS names its well ${source}` +
+        (exists ? "" : ", which is not in this project") +
+        (selectedName ? `, and ${selectedName} is selected` : "") +
+        ". Nothing has been written yet. Which well should its curves go into?";
+      wrap.appendChild(msg);
+      const actions = document.createElement("div");
+      actions.className = "modal-actions";
+      let close: () => void = () => {};
+      choices.forEach((choice, index) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        // The first choice is always the well the file names; the selection comes second.
+        btn.className = index === 0 ? "btn btn-accent" : "btn";
+        btn.textContent = choice.will_create
+          ? `Create new well ${choice.target_well_name}`
+          : `Into ${choice.target_well_name}`;
+        btn.addEventListener("click", () => {
+          settle(choice);
+          close();
+        });
+        actions.appendChild(btn);
+      });
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "btn";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", () => {
+        settle(null);
+        close();
+      });
+      actions.appendChild(cancel);
+      wrap.appendChild(actions);
+      close = openModal("Import DLIS — which well?", wrap, 460, () => settle(null));
+    });
+  }
+
+  /** Set-name and file-level choices collected before the DLIS scan. A single-well file lands on
+   *  the well it names (asked when that disagrees with the selection); a multi-well file obtains
+   *  its targets from the confirmed map. */
   private askDlisSetName(path: string): Promise<{
     setName: string;
     fileDepthUnit: "M" | "FT" | null;
