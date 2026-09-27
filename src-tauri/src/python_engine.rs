@@ -431,11 +431,24 @@ pub struct PythonStatus {
     pub scipy_message: String,
 }
 
-/// Interpreter + optional-package status, cached for the session.
+/// The equation engine's package answer, kept until [`forget_package_state`] clears it.
+static STATUS: Mutex<Option<PythonStatus>> = Mutex::new(None);
+
+/// Forget the cached package answer and retire the idle worker, whose namespace bound SciPy (or
+/// its stub) when it was spawned. The next request re-probes and respawns. A request in flight
+/// holds the worker lock, so it finishes first; dropping the worker closes its stdin and its
+/// loop exits on EOF. Returns whether a status answer was cached.
+pub fn forget_package_state() -> bool {
+    *worker_cell().lock().unwrap_or_else(|e| e.into_inner()) = None;
+    STATUS.lock().unwrap_or_else(|e| e.into_inner()).take().is_some()
+}
+
+/// Interpreter + optional-package status, cached until the Prerequisites dialog checks again.
 pub fn python_status() -> PythonStatus {
-    static STATUS: OnceLock<PythonStatus> = OnceLock::new();
     STATUS
-        .get_or_init(|| match find_python() {
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(|| match find_python() {
             None => PythonStatus {
                 path: None,
                 scipy: None,
@@ -996,6 +1009,9 @@ mod tests {
     /// command. Both are green, and the green gate never depends on an optional package.
     #[test]
     fn scipy_is_available_when_installed_and_names_the_fix_when_not() {
+        let _caches = crate::installation::tests::PACKAGE_CACHE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let Some(python) = find_python() else {
             eprintln!("SKIP scipy test: no python with numpy on this machine");
             return;

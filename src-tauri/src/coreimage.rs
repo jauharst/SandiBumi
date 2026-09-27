@@ -268,12 +268,11 @@ struct RunnerRow {
     error: Option<String>,
 }
 
-/// Probed once, before a photo is opened, so the dialog can say what is missing rather than fail
-/// afterwards. The packages are the manifest's `core_photo_imaging` row, never a second list.
-pub fn core_image_support() -> Result<bool, String> {
-    crate::installation::session_capability_available(
-        crate::installation::CAPABILITY_CORE_PHOTO_IMAGING,
-    )
+/// Asked each time the pane opens, before a photo is, so the pane can show the manifest refusal - the
+/// missing packages and the command that installs them there - rather than fail afterwards.
+pub fn core_image_support() -> Result<(), String> {
+    crate::installation::require_session_capability(crate::installation::CAPABILITY_CORE_PHOTO_IMAGING)
+        .map(|_| ())
 }
 
 fn run_runner(python: &std::path::Path, header: &serde_json::Value, blobs: &[Vec<u8>]) -> Result<RunnerOut, String> {

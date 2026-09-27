@@ -21276,3 +21276,49 @@ while it waited.
       pane lets you run it.
 - [ ] **Say who owns petrography**: a chapter of its own, one of the existing ones, or leave it
       `UNOWNED` for now. Nothing breaks either way; the word is in the list either way.
+
+## Gate 3: a missing package is refused before the work, with the command that fixes it (2026-09-27)
+
+When a tool needs a Python package this machine does not have, it now says so **before** it
+starts, names the package, and gives the exact command that installs it into the Python SandiBumi
+actually uses: *In a Command Prompt, run: `"C:\...\python.exe" -m pip install scikit-learn`*. The
+command names only what is missing. It never says a bare `pip install`, which puts the package into
+whichever Python is first on the PATH, and that is often not the one SandiBumi runs. It says
+Command Prompt on purpose: PowerShell refuses a quoted program followed by arguments unless you
+type `&` in front.
+
+What changed, tool by tool:
+
+- **ML Models** had no check at all. A run, an apply, a distribution to wells and a blind-well
+  comparison each started, then failed inside Python. Each is now refused before the run-custody
+  form opens, with the missing package named once, not once per algorithm.
+- **Save Word…** in the report pane, the batch export **as Word**, and **Data ▸ Import / Export
+  ▸ Export DLIS…** opened their save or folder dialog first and refused only after you had chosen
+  where the file goes. They now check first, the way Workbook… and Deck… already did.
+- **Core Photos, Photo Log, Pore Area and the Mineral Classifier** check when the pane opens. Three
+  of them printed their own hand-written package list and a bare `pip install`, and Photo Log did
+  not check at all. All four now show the same message as the Prerequisites dialog. A pane that
+  has already opened does not rebuild itself, so after installing, close the pane and open it
+  again, as the message says.
+- **Project ▸ Help ▸ Prerequisites has a Check again button.** After running an install command,
+  press it and the dialog asks the Python again. It also clears what the app remembered for the
+  session: the equation editor's SciPy answer (shown fresh the next time you open or switch an
+  equation), the running equation worker, and the ML note about xgboost. So a package installed a
+  minute ago counts everywhere, without a restart. It does not change WHICH Python the app uses;
+  that is chosen once at start-up, so a Python installed on a machine that had none is found at
+  the next start, and the dialog says so.
+
+On this machine every package is installed, so you will not see a refusal here. The refusals
+themselves are test **T-INS-06**, which needs a Python with packages removed. What to check here is
+that nothing got worse:
+
+- [ ] **Project ▸ Help ▸ Prerequisites → Check again.** "Checking the session runtime…" shows,
+      then the list comes back the same. Close is there the whole time, even while it checks.
+- [ ] **Report pane → Save Word…**, and the batch export **as Word**. A short "Checking
+      python-docx…" appears, then the save or folder dialog opens as before and the document is
+      written.
+- [ ] **Data ▸ Import / Export ▸ Export DLIS…** opens its save dialog after a moment and exports
+      as before.
+- [ ] **Advance ▸ ML Models…**: run a model you have run before, and apply a saved one. Both run as
+      before; the custody form appears a few seconds later than it used to, which is the check.
+- [ ] **Core Photos…, Photo Log…, Pore Area…, Mineral Classifier…** open exactly as before.

@@ -1,5 +1,6 @@
 import {
   applyMlModel,
+  capabilityRefusal,
   deleteMlModel,
   listCurveCatalog,
   listMlModels,
@@ -1972,7 +1973,9 @@ export async function buildMlContent(
 
   const hint = document.createElement("div");
   hint.className = "mc-chain-note";
-  hint.textContent = "Needs Python with numpy + scikit-learn (pip install scikit-learn); xgboost optional.";
+  hint.textContent =
+    "Runs in Python. Project ▸ Help ▸ Prerequisites shows whether this machine has what ML needs, " +
+    "and the command that installs what is missing.";
   sRes.appendChild(hint);
 
   // --- Model Distribution ---------------------------------------------------
@@ -2107,6 +2110,11 @@ export async function buildMlContent(
     }
     if (!distOut.value.trim()) {
       distStatus.textContent = "Give the distributed curve a name.";
+      return;
+    }
+    const distRefusal = await capabilityRefusal("ml_models");
+    if (distRefusal) {
+      distStatus.textContent = distRefusal;
       return;
     }
     const custody = await requestRunCustody("Distribute saved model");
@@ -2274,6 +2282,11 @@ export async function buildMlContent(
           setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
           return;
         }
+        const applyRefusal = await capabilityRefusal("ml_models");
+        if (applyRefusal) {
+          setStatus(applyRefusal);
+          return;
+        }
         const custody = await requestRunCustody("Apply saved model");
         if (!custody) return;
         applyBtn.disabled = true;
@@ -2407,6 +2420,14 @@ export async function buildMlContent(
         statusLine.textContent = `Set the limits for ${bad.join(", ")}, or switch the basis back to the data.`;
         return;
       }
+    }
+    // Once, before the custody form and before the per-algorithm loop: a missing package is named
+    // here, not N times over inside a "0/N models" summary.
+    const runRefusal = await capabilityRefusal("ml_models");
+    if (runRefusal) {
+      setStatus(runRefusal);
+      statusLine.textContent = runRefusal;
+      return;
     }
     const custody = await requestRunCustody("Run machine-learning model");
     if (!custody) return;

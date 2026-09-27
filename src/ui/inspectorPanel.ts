@@ -320,12 +320,12 @@ export class InspectorPanel {
   }
 
   private async showPythonStatus(): Promise<void> {
-    if (this.pythonInfo === undefined) {
-      try {
-        this.pythonInfo = await pythonStatus();
-      } catch {
-        return; // no backend (browser preview) — say nothing
-      }
+    // Asked every time rather than kept here: the backend caches the answer and Prerequisites'
+    // Check again clears it, so a package installed since shows without reopening the Inspector.
+    try {
+      this.pythonInfo = await pythonStatus();
+    } catch {
+      return; // no backend (browser preview) — say nothing
     }
     const note = this.equationTab.querySelector<HTMLElement>("#eq-lang-note");
     if (!note) return;

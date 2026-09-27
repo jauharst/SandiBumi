@@ -1,4 +1,4 @@
-import type { WellSummary } from "../ipc";
+import { capabilityRefusal, type WellSummary } from "../ipc";
 import { appState, setStatus } from "../state";
 import { openModal } from "./modal";
 
@@ -23,13 +23,30 @@ export function requireWell(action: string): WellSummary | null {
   // The status line still gets it: the message belongs in the history of what was attempted, it
   // just cannot be the only place it appears.
   setStatus(`${action} needs a well — select one in the Wells & Tops pane`);
+  refuse(
+    action,
+    `${action} works on one well at a time, and no well is selected. Click a well in the ` +
+      `Wells & Tops pane on the left, then try again.`,
+  );
+  return null;
+}
 
+/** The same refusal for an action whose Python package is missing: asked BEFORE the click opens
+ *  its file dialog (SB-INS-006), and worded by the capability manifest, which names the package,
+ *  the session interpreter and the command that installs it there. True when the action can run. */
+export async function requireCapability(action: string, capabilityId: string): Promise<boolean> {
+  const refusal = await capabilityRefusal(capabilityId);
+  if (!refusal) return true;
+  setStatus(`${action}: ${refusal}`);
+  refuse(action, refusal);
+  return false;
+}
+
+function refuse(action: string, message: string): void {
   const wrap = document.createElement("div");
   const msg = document.createElement("div");
   msg.className = "eq-note";
-  msg.textContent =
-    `${action} works on one well at a time, and no well is selected. Click a well in the ` +
-    `Wells & Tops pane on the left, then try again.`;
+  msg.textContent = message;
   wrap.appendChild(msg);
 
   const actions = document.createElement("div");
@@ -43,5 +60,4 @@ export function requireWell(action: string): WellSummary | null {
 
   const close = openModal(action, wrap, 420);
   ok.addEventListener("click", close);
-  return null;
 }

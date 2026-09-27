@@ -94,13 +94,12 @@ export async function buildCoreConditionContent(
       "imported is kept, and Reset puts it back exactly.";
   wrap.appendChild(intro);
 
-  if (!(await coreImageSupport().catch(() => false))) {
+  const refusal = await coreImageSupport().then(() => "", (e) => String(e));
+  if (refusal) {
     const warn = document.createElement("div");
     warn.className = "eq-note";
     warn.style.color = "var(--warn)";
-    warn.textContent =
-      "This needs numpy and Pillow in the Python the app uses (pip install numpy pillow). " +
-      "Nothing else in the app is affected.";
+    warn.textContent = `${refusal} Nothing else in the app is affected. Once it is installed, close this pane and open it again.`;
     wrap.appendChild(warn);
     return { el: wrap };
   }

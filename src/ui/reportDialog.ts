@@ -3,6 +3,7 @@ import {
   exportReportBatch,
   exportReportDocx,
   exportReportDocxBatch,
+  capabilityRefusal,
   exportReportPdf,
   listDocuments,
   listLayouts,
@@ -397,10 +398,27 @@ export async function buildReportContent(
     }
   });
 
+  /** The Word twin is written by python-docx. Asked before any file or folder dialog opens, so a
+   *  missing package is refused by name with the command that installs it (SB-INS-006), never
+   *  after the user has already chosen where the document goes. Empty when it can run. */
+  const wordRefusal = async (): Promise<string> => {
+    status.textContent = "Checking python-docx…";
+    docxBtn.disabled = batchBtn.disabled = true;
+    const refusal = await capabilityRefusal("document_export");
+    docxBtn.disabled = batchBtn.disabled = false;
+    status.textContent = "";
+    return refusal;
+  };
+
   docxBtn.addEventListener("click", async () => {
     const spec = buildSpec();
     if (typeof spec === "string") {
       status.textContent = spec;
+      return;
+    }
+    const refusal = await wordRefusal();
+    if (refusal) {
+      status.textContent = refusal;
       return;
     }
     let dest: string | null;
@@ -486,6 +504,13 @@ export async function buildReportContent(
     if (wellIds.length === 0) {
       status.textContent = "No wells in scope — pick a group, pin/select wells, or choose All.";
       return;
+    }
+    if (batchFmt.value === "docx") {
+      const refusal = await wordRefusal();
+      if (refusal) {
+        status.textContent = refusal;
+        return;
+      }
     }
     let dir: string | null;
     try {

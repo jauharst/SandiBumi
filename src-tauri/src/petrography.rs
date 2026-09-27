@@ -971,7 +971,7 @@ for i, blob in enumerate(blobs):
         try:
             row["geom"] = geometry_of(m)
         except ImportError:
-            row["error"] = "pore geometry needs scipy (pip install scipy)"
+            row["error"] = 'pore geometry needs scipy ("%s" -m pip install scipy)' % sys.executable
         except Exception as e:
             row["error"] = "geometry failed: %s" % e
     if header.get("stain"):
@@ -987,7 +987,7 @@ for i, blob in enumerate(blobs):
         try:
             row["grain"] = grains_of(m, header.get("min_grain_px", 50), header.get("grain_sep_px", 20))
         except ImportError:
-            row["error"] = "grain sizing needs scipy (pip install scipy)"
+            row["error"] = 'grain sizing needs scipy ("%s" -m pip install scipy)' % sys.executable
         except Exception as e:
             row["error"] = "grain sizing failed: %s" % e
     out["results"].append(row)
@@ -1289,8 +1289,8 @@ sys.stdout.write(json.dumps(out))
 /// Can the pore measurement run at all? Probed once so a dialog can say what is missing and name
 /// the interpreter to install into, rather than failing at the end of a long run. The packages are
 /// the manifest's `petrography_pore_area` row, never a second list.
-pub fn pore_support() -> Result<bool, String> {
-    crate::installation::session_capability_available(crate::installation::CAPABILITY_PORE_AREA)
+pub fn pore_support() -> Result<(), String> {
+    crate::installation::require_session_capability(crate::installation::CAPABILITY_PORE_AREA).map(|_| ())
 }
 
 #[derive(Deserialize)]
@@ -1657,10 +1657,9 @@ fn summarise(g: &RunnerGeom, um_per_px: Option<f64>) -> PoreGeometry {
 
 /// Can the classifier run? Needs scikit-learn as well as scipy, so it is probed separately, from
 /// the manifest's `mineral_classifier` row.
-pub fn classify_support() -> Result<bool, String> {
-    crate::installation::session_capability_available(
-        crate::installation::CAPABILITY_MINERAL_CLASSIFIER,
-    )
+pub fn classify_support() -> Result<(), String> {
+    crate::installation::require_session_capability(crate::installation::CAPABILITY_MINERAL_CLASSIFIER)
+        .map(|_| ())
 }
 
 #[derive(Deserialize)]
