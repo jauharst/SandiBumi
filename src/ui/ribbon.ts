@@ -49,7 +49,7 @@ import { openImageImportDialog } from "./imageImportDialog";
 import { openDataSetsDialog } from "./dataSetsDialog";
 import { openWorkbookDialog } from "./workbookDialog";
 import { openDeckDialog } from "./deckDialog";
-import { requireWell } from "./needWell";
+import { requireCapability, requireWell } from "./needWell";
 import { openInstallationSupportDialog } from "./installationSupportDialog";
 import { registerDepthReframeRoute } from "./plotCommon";
 
@@ -1276,6 +1276,7 @@ export class Ribbon {
   private async handleExportDlis(): Promise<void> {
     const well = requireWell("Export DLIS");
     if (!well) return;
+    if (!(await requireCapability("Export DLIS", "dlis_import"))) return;
     let dest: string | null;
     try {
       dest = await save({

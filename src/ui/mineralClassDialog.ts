@@ -58,13 +58,12 @@ export async function buildMineralClassContent(): Promise<{ el: HTMLElement; dis
     "pre-trained — the lamp, the white balance and the scanner are part of what it learns.";
   wrap.appendChild(intro);
 
-  if (!(await classifySupport().catch(() => false))) {
+  const refusal = await classifySupport().then(() => "", (e) => String(e));
+  if (refusal) {
     const warn = document.createElement("div");
     warn.className = "eq-note";
     warn.style.color = "var(--warn)";
-    warn.textContent =
-      "This needs numpy, Pillow, scipy and scikit-learn in the Python the app uses " +
-      "(pip install numpy pillow scipy scikit-learn). Nothing else in the app is affected.";
+    warn.textContent = `${refusal} Nothing else in the app is affected. Once it is installed, close this pane and open it again.`;
     wrap.appendChild(warn);
     return { el: wrap };
   }

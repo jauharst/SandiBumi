@@ -1,5 +1,6 @@
 import {
   buildCoreStrips,
+  coreImageSupport,
   CORE_STRIP_DATASET,
   detectCoreLanes,
   extractCoreLog,
@@ -77,6 +78,16 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
     "which is why nothing here is called VSH. Condition the pictures first — a darkness compared " +
     "across boxes shot under two lamps is a comparison of the lamps.";
   wrap.appendChild(intro);
+
+  const refusal = await coreImageSupport().then(() => "", (e) => String(e));
+  if (refusal) {
+    const warn = document.createElement("div");
+    warn.className = "eq-note";
+    warn.style.color = "var(--warn)";
+    warn.textContent = `${refusal} Nothing else in the app is affected. Once it is installed, close this pane and open it again.`;
+    wrap.appendChild(warn);
+    return { el: wrap };
+  }
 
   // ---- the delivery -------------------------------------------------------
   const dsSel = document.createElement("select");

@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const CAPABILITY_MANIFEST_JSON: &str = include_str!("../resources/install/capabilities.json");
@@ -23,6 +23,7 @@ pub const CAPABILITY_DECK_EXPORT: &str = "deck_export";
 pub const CAPABILITY_CORE_PHOTO_IMAGING: &str = "core_photo_imaging";
 pub const CAPABILITY_PORE_AREA: &str = "petrography_pore_area";
 pub const CAPABILITY_MINERAL_CLASSIFIER: &str = "mineral_classifier";
+pub const CAPABILITY_ML_MODELS: &str = "ml_models";
 pub const QUALIFIED_PYTHON_PACK_ROUTE: &str = "qualified_python_pack";
 pub const APPLICATION_LOCAL_RUNTIME_SCOPE: &str = "sandibumi_application_local";
 
@@ -410,12 +411,23 @@ pub fn capability_is_available(
         .all(|package| package_is_available(probe, &package.distribution)))
 }
 
-/// Can this capability run in the session interpreter? The manifest's own required packages
-/// decide, so a tool's "can I run?" check and the Prerequisites dialog cannot disagree.
-pub fn session_capability_available(capability_id: &str) -> Result<bool, String> {
+/// The session interpreter, or the manifest's own refusal naming what is missing and the command
+/// that installs it there. Every Python-backed action asks this BEFORE it starts work, so a missing
+/// package is refused by name rather than discovered by a failing subprocess halfway through.
+pub fn require_session_capability(capability_id: &str) -> Result<PathBuf, String> {
     let python = crate::python_engine::find_python()
-        .ok_or("no Python interpreter found (see SANDIBUMI_PYTHON)")?;
-    capability_is_available(&probe_python_capability(&python, capability_id)?, capability_id)
+        .ok_or_else(|| capability_message(capability_id, None, None))?;
+    require_python_capability(&python, capability_id)?;
+    Ok(python)
+}
+
+/// Clear every package answer the session has remembered, so the Prerequisites dialog's Check
+/// again reflects a package installed since: the equation editor's SciPy status, the idle
+/// equation worker (its namespace bound SciPy or a stub at spawn) and the ML runtime record behind
+/// the xgboost-substitution note. The INTERPRETER is not re-chosen - every tool must keep using the
+/// one Python the session started with. Returns, per cache, whether an answer was there to forget.
+pub fn forget_session_package_answers() -> [bool; 2] {
+    [crate::python_engine::forget_package_state(), crate::ml::forget_runtime()]
 }
 
 pub fn require_python_capability(
@@ -438,18 +450,33 @@ pub fn package_remediation(distribution: &str, python: Option<&Path>) -> String 
     let package = package_requirement(distribution);
     match (package, python) {
         (Ok(package), Some(path)) => format!(
-            "{} is unavailable in {}. Run: \"{}\" -m pip install {} then re-probe, or repair the qualified offline Python pack.",
+            "{} is unavailable in {}. {IN_CMD} {} then {CHECK_AGAIN}, or repair the qualified offline Python pack.",
             package.distribution,
             path.display(),
-            path.display(),
-            package.distribution
+            pip_install_command(path, &[package.distribution.as_str()])
         ),
         (Ok(package), None) => format!(
-            "{} is unavailable because no session Python is selected; install or repair the qualified offline Python pack, then re-probe.",
+            "{} is unavailable because no session Python is selected; install or repair the qualified offline Python pack, then {RESTART_FOR_PYTHON}.",
             package.distribution
         ),
         (Err(error), _) => error,
     }
+}
+
+/// The control a missing-package message sends the user to, by the label printed on it.
+const CHECK_AGAIN: &str = "press Check again in Prerequisites (Project tab)";
+/// The shell is named because the command's form depends on it: a quoted executable followed by
+/// arguments runs as written in Command Prompt, while PowerShell rejects it without a leading `&`.
+const IN_CMD: &str = "In a Command Prompt, run:";
+/// Check again re-asks the session interpreter; it never chooses a new one, so a Python installed
+/// after launch is only found by the next start.
+const RESTART_FOR_PYTHON: &str =
+    "restart SandiBumi - the Python it uses is chosen once, when it starts";
+
+/// `"<that python.exe>" -m pip install <packages>` - never a bare `pip`, which installs into
+/// whichever Python is first on PATH rather than the one SandiBumi runs.
+fn pip_install_command(python: &Path, distributions: &[&str]) -> String {
+    format!("\"{}\" -m pip install {}", python.display(), distributions.join(" "))
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -530,13 +557,14 @@ pub fn capability_message(
     };
     match python {
         Some(path) => format!(
-            "{} is unavailable in {}: missing {}. Repair the qualified offline Python pack, then re-probe.",
+            "{} is unavailable in {}: missing {}. {IN_CMD} {} then {CHECK_AGAIN}, or repair the qualified offline Python pack.",
             capability.display_name,
             path.display(),
-            package_names.join(", ")
+            package_names.join(", "),
+            pip_install_command(path, &package_names)
         ),
         None => format!(
-            "{} is unavailable: no session-resolved Python {}+ interpreter with {}. Install or repair the qualified offline Python pack, or set {} to an approved interpreter, then re-probe.",
+            "{} is unavailable: no session-resolved Python {}+ interpreter with {}. Install or repair the qualified offline Python pack, or set {} to an approved interpreter, then {RESTART_FOR_PYTHON}.",
             capability.display_name,
             capability_manifest()
                 .map(|manifest| manifest.interpreter.minimum_version)
@@ -580,10 +608,11 @@ pub fn capability_status_message(
         )
     } else {
         format!(
-            "{} is available in {}; optional package unavailable: {}",
+            "{} is available in {}; optional package unavailable: {}. To add it: {IN_CMD} {} then {CHECK_AGAIN}.",
             capability.display_name,
             path.display(),
-            optional_missing.join(", ")
+            optional_missing.join(", "),
+            pip_install_command(path, &optional_missing)
         )
     }
 }
@@ -1571,7 +1600,12 @@ pub fn validate_clean_machine_qualification_file(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    /// Held by every test that fills or forgets the session package caches (the equation status
+    /// and the ML runtime record), so a forget in one can never land between another's fill and
+    /// its read, and the forget pin below can demand that a second forget finds nothing.
+    pub(crate) static PACKAGE_CACHE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     use super::*;
     use std::path::PathBuf;
 
@@ -1682,6 +1716,12 @@ mod tests {
     /// CORRECTNESS — SB-INS-007 / SB-INS-T07–T09 requires every missing-package
     /// remediation to target the selected executable, name the exact distribution and
     /// provide a re-probe action. The package population comes from the cited manifest.
+    ///
+    /// Pinned from both sides: every message the manifest builds carries `"<python>" -m pip install`
+    /// with exactly the missing packages, and no message anywhere in the app - Rust, the Python it
+    /// runs, or the TypeScript - tells the user to run a bare `pip install`, which lands in
+    /// whichever Python is first on PATH. The re-probe is a real control: the dialog's Check
+    /// again, whose command forgets the session's cached package answers before it asks.
     #[test]
     fn every_missing_package_remediation_targets_the_selected_interpreter_and_offers_reprobe() {
         let python = Path::new("C:/Program Files/Qualified Runtime/python.exe");
@@ -1703,7 +1743,187 @@ mod tests {
             assert!(message.contains(distribution), "{message}");
             assert!(message.contains(&python.display().to_string()), "{message}");
             assert!(message.contains(&command), "{message}");
-            assert!(message.contains("then re-probe"), "{message}");
+            assert!(message.contains("Check again"), "{message}");
+        }
+
+        // Each required package missing in turn: the command installs that one and nothing the
+        // interpreter already has.
+        let everything = unique_packages(manifest.capabilities.clone());
+        for capability in &manifest.capabilities {
+            for missing in capability.packages.iter().filter(|package| package.required) {
+                let probe = PythonPackageProbe {
+                    executable: python.display().to_string(),
+                    python_version: "3.10.0".to_string(),
+                    packages: everything
+                        .iter()
+                        .map(|package| PackageProbe {
+                            distribution: package.distribution.clone(),
+                            import_name: package.import_name.clone(),
+                            available: package.distribution != missing.distribution,
+                            version: None,
+                            error: None,
+                        })
+                        .collect(),
+                };
+                let message = capability_message(&capability.id, Some(python), Some(&probe));
+                let command =
+                    format!("\"{}\" -m pip install {} then", python.display(), missing.distribution);
+                assert!(message.contains(&command), "{}: {message}", capability.id);
+                assert!(message.contains("Check again"), "{}: {message}", capability.id);
+            }
+            // With no interpreter there is nothing to target, so no command is offered, and the
+            // fix is a restart because the session chooses its Python once.
+            let orphan = capability_message(&capability.id, None, None);
+            assert!(!orphan.contains("pip install"), "{orphan}");
+            assert!(orphan.contains("restart SandiBumi"), "{orphan}");
+        }
+        // An optional package the capability runs without still comes with its command.
+        let optional_missing = PythonPackageProbe {
+            executable: python.display().to_string(),
+            python_version: "3.10.0".to_string(),
+            packages: everything
+                .iter()
+                .map(|package| PackageProbe {
+                    distribution: package.distribution.clone(),
+                    import_name: package.import_name.clone(),
+                    available: package.distribution != "xgboost",
+                    version: None,
+                    error: None,
+                })
+                .collect(),
+        };
+        let note = capability_status_message(CAPABILITY_ML_MODELS, Some(python), Some(&optional_missing));
+        assert!(note.contains(&format!("\"{}\" -m pip install xgboost then", python.display())), "{note}");
+
+        let mut bare = Vec::new();
+        for path in crate::source_hygiene_tests::sorted_sources() {
+            let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+            if file.ends_with("_test.rs") || file.ends_with("_tests.rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("read a UTF-8 Rust source file");
+            let production = crate::core_ancestry_tests::production_rust(&source);
+            bare.extend(bare_pip_lines(&production).into_iter().map(|line| format!("{file}: {line}")));
+        }
+        let mut frontend = Vec::new();
+        typescript_sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../src"), &mut frontend);
+        assert!(frontend.len() > 10, "the frontend sources were not found");
+        for path in frontend {
+            let source = std::fs::read_to_string(&path).expect("read a UTF-8 TypeScript file");
+            let file = path.display().to_string();
+            bare.extend(bare_pip_lines(&source).into_iter().map(|line| format!("{file}: {line}")));
+        }
+        assert!(
+            bare.is_empty(),
+            "a bare `pip install` installs into whichever Python is first on PATH - build the command with pip_install_command, or in Python with sys.executable: {bare:#?}"
+        );
+
+        let lib = include_str!("lib.rs");
+        let command = &lib[lib.find("async fn installation_support()").expect("the prerequisites command")..];
+        let forget = command.find("forget_session_package_answers()").expect("the command forgets first");
+        assert!(forget < command.find("installation::installation_support(").unwrap());
+        let dialog = include_str!("../../src/ui/installationSupportDialog.ts");
+        assert!(dialog.contains("\"Check again\""));
+        assert!(dialog.contains("again.addEventListener(\"click\""));
+        // And what the command runs really does forget: with both answers cached, both are
+        // reported cleared, and a second forget finds nothing left. A forget that only REPORTED
+        // clearing, or cleared one cache, fails here.
+        let _caches = PACKAGE_CACHE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = crate::python_engine::python_status();
+        let _ = crate::ml::ml_runtime();
+        assert_eq!(forget_session_package_answers(), [true, true]);
+        assert_eq!(forget_session_package_answers(), [false, false]);
+    }
+
+    /// Lines of `text` that run pip without naming the interpreter as a QUOTED path before `-m`.
+    /// `python -m pip` and `py -m pip` fail it on purpose: they resolve through PATH too.
+    fn bare_pip_lines(text: &str) -> Vec<String> {
+        text.lines()
+            .filter(|line| {
+                line.contains("pip3 install")
+                    || line.match_indices("pip install").any(|(at, _)| !line[..at].ends_with("\" -m "))
+            })
+            .map(|line| line.trim().to_string())
+            .collect()
+    }
+
+    fn typescript_sources(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("read a frontend source directory") {
+            let path = entry.expect("a directory entry").path();
+            if path.is_dir() {
+                typescript_sources(&path, out);
+            } else if path.extension().and_then(|value| value.to_str()) == Some("ts") {
+                out.push(path);
+            }
+        }
+    }
+
+    /// CORRECTNESS — SB-INS-006 / SB-INS-T07–T09: a Python-backed action asks the manifest before
+    /// it starts work, so a missing package is refused by name rather than by a subprocess failing
+    /// halfway through a run. Each entry point gets its interpreter ONLY from
+    /// `require_session_capability`, so the compiler puts the check before any use of Python; the
+    /// other side is that none of them still reaches for `find_python` and a hand-written refusal.
+    /// DLIS, plate extraction and the office exports are pinned in
+    /// `each_optional_capability_maps_to_the_cited_packages_and_no_detector_carries_a_second_package_list`.
+    #[test]
+    fn every_python_backed_action_asks_the_manifest_before_it_starts_python() {
+        let entries: [(&str, &str, &str); 7] = [
+            ("ml.rs", "fn run_ml_coverage(", "CAPABILITY_ML_MODELS"),
+            ("ml.rs", "pub fn run_ml(", "CAPABILITY_ML_MODELS"),
+            ("ml.rs", "pub fn apply_ml_model(", "CAPABILITY_ML_MODELS"),
+            ("ml.rs", "pub fn run_ml_eval(", "CAPABILITY_ML_MODELS"),
+            ("coreimage.rs", "pub fn core_image_support(", "CAPABILITY_CORE_PHOTO_IMAGING"),
+            ("petrography.rs", "pub fn pore_support(", "CAPABILITY_PORE_AREA"),
+            ("petrography.rs", "pub fn classify_support(", "CAPABILITY_MINERAL_CLASSIFIER"),
+        ];
+        for (file, signature, capability) in entries {
+            let source = match file {
+                "ml.rs" => include_str!("ml.rs"),
+                "coreimage.rs" => include_str!("coreimage.rs"),
+                _ => include_str!("petrography.rs"),
+            }
+            .replace("\r\n", "\n");
+            let start = source.find(signature).unwrap_or_else(|| panic!("{file} has no {signature}"));
+            // The closing brace is written as an escape: a bare one in a test string would end
+            // `production_rust`'s skip of this module early.
+            let end = source[start..].find("\n\u{7d}\n").map(|at| start + at).expect("a top-level fn ends");
+            let body = &source[start..end];
+            let preflight = format!("require_session_capability(crate::installation::{capability})");
+            assert!(body.contains(&preflight), "{file} {signature} does not ask {capability} first");
+            assert!(!body.contains("find_python()"), "{file} {signature} still finds Python on its own");
+        }
+
+        // Frontend clicks are refused before their file dialog or custody form, not after a path
+        // is picked or a run is queued.
+        let report = include_str!("../../src/ui/reportDialog.ts").replace("\r\n", "\n");
+        let ribbon = include_str!("../../src/ui/ribbon.ts").replace("\r\n", "\n");
+        for (source, handler, check, dialog) in [
+            (&report, "docxBtn.addEventListener(\"click\"", "await wordRefusal()", "await save("),
+            (&report, "batchBtn.addEventListener(\"click\"", "await wordRefusal()", "await open("),
+            (&ribbon, "private async handleExportDlis()", "requireCapability(\"Export DLIS\", \"dlis_import\")", "await save("),
+        ] {
+            let body = &source[source.find(handler).expect("the handler")..];
+            let asked = body.find(check).unwrap_or_else(|| panic!("{handler} never asks {check}"));
+            assert!(asked < body.find(dialog).unwrap(), "{handler} opens {dialog} before asking");
+        }
+        assert!(report.contains("capabilityRefusal(\"document_export\")"));
+        // Every ML run that asks for custody asks the manifest first, inside the same click.
+        let ml = include_str!("../../src/ui/mlDialog.ts").replace("\r\n", "\n");
+        let custody: Vec<_> = ml.match_indices("requestRunCustody(").map(|(at, _)| at).collect();
+        assert_eq!(custody.len(), 3, "the ML custody sites moved; re-check each is guarded");
+        for at in custody {
+            let click = ml[..at].rfind("addEventListener(\"click\"").expect("a click handler");
+            let asked = ml[..at].rfind("capabilityRefusal(\"ml_models\")").unwrap_or(0);
+            assert!(asked > click, "an ML run at byte {at} reaches custody without asking ml_models");
+        }
+        // The panes ask on open and show the manifest refusal, never a list of their own.
+        for (pane, check) in [
+            (include_str!("../../src/ui/coreConditionDialog.ts"), "coreImageSupport()"),
+            (include_str!("../../src/ui/coreTraceDialog.ts"), "coreImageSupport()"),
+            (include_str!("../../src/ui/poreAreaDialog.ts"), "poreSupport()"),
+            (include_str!("../../src/ui/mineralClassDialog.ts"), "classifySupport()"),
+        ] {
+            assert!(pane.contains(&format!("{check}.then(() => \"\", (e) => String(e))")), "{check}");
         }
     }
 
@@ -1950,11 +2170,11 @@ mod tests {
         ("images.rs", "PILLOW_RUNNER", Some("picture_normalization")),
         ("images.rs", "WORKBOOK_RUNNER", Some(CAPABILITY_PLATE_EXTRACTION)),
         ("installation.rs", "PYTHON_PACKAGE_PROBE", None),
-        ("ml.rs", "ML_APPLY_RUNNER", Some("ml_models")),
-        ("ml.rs", "ML_BUILD_MODEL", Some("ml_models")),
-        ("ml.rs", "ML_EVAL_RUNNER_BODY", Some("ml_models")),
-        ("ml.rs", "ML_RUNNER_BODY", Some("ml_models")),
-        ("ml.rs", "ML_RUNTIME_PY", Some("ml_models")),
+        ("ml.rs", "ML_APPLY_RUNNER", Some(CAPABILITY_ML_MODELS)),
+        ("ml.rs", "ML_BUILD_MODEL", Some(CAPABILITY_ML_MODELS)),
+        ("ml.rs", "ML_EVAL_RUNNER_BODY", Some(CAPABILITY_ML_MODELS)),
+        ("ml.rs", "ML_RUNNER_BODY", Some(CAPABILITY_ML_MODELS)),
+        ("ml.rs", "ML_RUNTIME_PY", Some(CAPABILITY_ML_MODELS)),
         ("office.rs", "DOCX_RUNNER", Some(CAPABILITY_DOCUMENT_EXPORT)),
         ("office.rs", "PPTX_RUNNER", Some(CAPABILITY_DECK_EXPORT)),
         ("office.rs", "XLSX_RUNNER", Some(CAPABILITY_WORKBOOK_EXPORT)),

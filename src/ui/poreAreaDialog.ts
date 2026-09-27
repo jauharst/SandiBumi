@@ -64,13 +64,12 @@ export async function buildPoreAreaContent(): Promise<{ el: HTMLElement; dispose
     "relation. Only plates you have declared as impregnated are measured — set that in Plate Details…";
   wrap.appendChild(intro);
 
-  if (!(await poreSupport().catch(() => false))) {
+  const refusal = await poreSupport().then(() => "", (e) => String(e));
+  if (refusal) {
     const warn = document.createElement("div");
     warn.className = "eq-note";
     warn.style.color = "var(--warn)";
-    warn.textContent =
-      "This needs numpy and Pillow in the Python the app uses. Install them (pip install numpy pillow) " +
-      "and reopen — nothing else in the app is affected.";
+    warn.textContent = `${refusal} Nothing else in the app is affected. Once it is installed, close this pane and open it again.`;
     wrap.appendChild(warn);
     return { el: wrap };
   }

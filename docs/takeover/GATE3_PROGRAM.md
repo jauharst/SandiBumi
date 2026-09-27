@@ -152,6 +152,18 @@ fixture.
    interpreter path exercised beside it (SB-INS-008, -009, -005). *T-INS-05, T-INS-07.*
 4. **G3-04 — preflight and remediation on every Python-backed action,** plus one real re-probe
    control in the prerequisites dialog (SB-INS-006, -007; `missing_package`). *T-INS-06.*
+   **Code done 2026-09-27:** every missing-package message the manifest builds, required or
+   optional, carries `"<python>" -m pip install` with exactly the missing packages and names
+   Command Prompt as the shell. The four ML entry points check in the backend and the ML dialog
+   asks before its run-custody form; the four image panes ask when they open; Save Word, the batch
+   Word export and Export DLIS ask before their file dialogs. The DLIS and plate-workbook IMPORTS
+   still ask after the file is chosen and before it is parsed, which is SB-INS-T08's own bar.
+   Prerequisites gained **Check again**, which clears the session's cached package answers before
+   it re-probes. Pinned by `every_python_backed_action_asks_the_manifest_before_it_starts_python`
+   and `every_missing_package_remediation_targets_the_selected_interpreter_and_offers_reprobe`,
+   which also fails on any pip command not led by a quoted interpreter path, in the Rust, the
+   Python it runs or the TypeScript. Still open: T-INS-06 on a Python with the packages removed,
+   and a timeout on the package probe itself (a hanging import hangs the check).
 5. **G3-05 — settings, migration and the install lifecycle.** Preservation by default, separate
    recoverable removal consent, a reversible versioned settings migration with its report — the
    report's precedence half waits on O-INS-3 (SB-INS-010, -011, -022; `upgrade`, `rollback`,

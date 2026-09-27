@@ -634,7 +634,13 @@ mod tests {
         record_op("Export", "Field summary - Sandi North", 800, 2, "cancelled");
         record_boot_step("open the database", 900);
 
-        let report = build_report(&conn, "test", &ReportSpec { provenance_well_id: None });
+        let report = {
+            // build_report reads the equation status, which the forget pin clears and re-checks.
+            let _caches = crate::installation::tests::PACKAGE_CACHE_TEST_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            build_report(&conn, "test", &ReportSpec { provenance_well_id: None })
+        };
 
         // Side A: nothing that belongs to the client survives.
         for leaked in ["SANDI-1", "SANDI-10", "Sandi North"] {

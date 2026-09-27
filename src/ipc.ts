@@ -4561,10 +4561,11 @@ export interface BakeResult {
   notes: string[];
 }
 
-/** Are numpy and Pillow reachable? Probed once so the workspace can say what is missing before a
- *  photograph is opened rather than after a slider is moved. */
-export async function coreImageSupport(): Promise<boolean> {
-  return invoke<boolean>("core_image_support");
+/** Resolves when core photo imaging can run; rejects with the manifest refusal (the missing
+ *  packages and the command that installs them in the session Python) before a photograph is
+ *  opened rather than after a slider is moved. */
+export async function coreImageSupport(): Promise<void> {
+  await invoke<void>("core_image_support");
 }
 
 /** One photograph at preview size under a recipe, with the un-conditioned proxy and a histogram.
@@ -6201,9 +6202,9 @@ export interface ClassifyResult {
   notes: string[];
 }
 
-/** Is scikit-learn reachable? Probed so the dialog can say what is missing before a run. */
-export function classifySupport(): Promise<boolean> {
-  return invoke<boolean>("classify_support");
+/** Resolves when the mineral classifier can run; rejects with the manifest refusal before a run. */
+export async function classifySupport(): Promise<void> {
+  await invoke<void>("classify_support");
 }
 
 /** Trains a per-pixel mineral classifier on the user's own clicks and applies it to the delivery.
@@ -6332,9 +6333,24 @@ export interface Agreement {
   notes: string[];
 }
 
-/** Is numpy + Pillow reachable? Probed once so the dialog can say what is missing before a run. */
-export function poreSupport(): Promise<boolean> {
-  return invoke<boolean>("pore_support");
+/** Resolves when a manifest capability (`capabilities.json` id) can run in the session Python;
+ *  rejects with the manifest refusal — the missing packages and the command that installs them. */
+export async function capabilitySupport(capabilityId: string): Promise<void> {
+  await invoke<void>("capability_support", { capabilityId });
+}
+
+/** The manifest refusal for a capability, or "" when it can run. Asked before a click opens a
+ *  dialog or starts a run (SB-INS-006), never after. */
+export function capabilityRefusal(capabilityId: string): Promise<string> {
+  return capabilitySupport(capabilityId).then(
+    () => "",
+    (e) => String(e),
+  );
+}
+
+/** Resolves when pore area can run; rejects with the manifest refusal before a run. */
+export async function poreSupport(): Promise<void> {
+  await invoke<void>("pore_support");
 }
 
 /** Measures pore area on a well's live image delivery. Refuses any plate not declared as

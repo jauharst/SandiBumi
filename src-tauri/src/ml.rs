@@ -141,7 +141,7 @@ def build_model(task, algo, p, seed):
                                                      learning_rate=float(P(p, "learning_rate", 0.1)),
                                                      max_depth=int(P(p, "max_depth", 4)) or None,
                                                      random_state=seed), \
-                    "xgboost not installed - used sklearn HistGradientBoosting (pip install xgboost)"
+                    "xgboost not installed - used sklearn HistGradientBoosting (install xgboost to fit it; Prerequisites shows how)"
         if algo == "svr":
             from sklearn.svm import SVR
             # `max_iter` is the ONLY bound on this fit, and it is DELIBERATELY LOW - see
@@ -962,7 +962,7 @@ if TRANSFORMS:
 try:
     import sklearn  # noqa: F401
 except ImportError:
-    fail("scikit-learn is not installed for this Python - run: pip install scikit-learn")
+    fail('scikit-learn is not installed for this Python - run: "%s" -m pip install scikit-learn' % sys.executable)
 from sklearn.preprocessing import StandardScaler
 
 # A model whose optimiser GAVE UP is not a model that merely scored badly, and the two are
@@ -1492,7 +1492,7 @@ elif task == "clustering":
         except ImportError:
             import sklearn as _sk
             fail("HDBSCAN needs scikit-learn 1.3 or newer; this Python has " + _sk.__version__
-                 + ". Run: pip install -U scikit-learn")
+                 + '. Run: "%s" -m pip install -U scikit-learn' % sys.executable)
         # The one clustering method here that CHOOSES its own cluster count rather than being told
         # one, and that tolerates clusters of very different size and density. That combination is
         # what a thin coal bed against a thick sand needs: k-means splits the sand to balance the
@@ -1767,7 +1767,7 @@ try:
     import io as _io, joblib
     import sklearn  # noqa: F401
 except ImportError:
-    fail("scikit-learn and joblib are needed to apply a saved model - run: pip install scikit-learn joblib")
+    fail('scikit-learn and joblib are needed to apply a saved model - run: "%s" -m pip install scikit-learn joblib' % sys.executable)
 try:
     bundle = joblib.load(_io.BytesIO(blob))
 except Exception as e:
@@ -2779,12 +2779,14 @@ fn runtime_drift(recorded: Option<&str>, current: &serde_json::Value) -> Vec<Str
 /// its own runtime only once it has already predicted. So the interpreter is asked separately, at the
 /// moment the user is looking at a list of models deciding which one to push across fifty wells.
 ///
-/// Cached like `python_status`: the answer cannot change while the app is running, and probing per
-/// row would spawn a subprocess per model in the list.
+/// Cached like `python_status`, because probing per row would spawn a subprocess per model in the
+/// list. A package installed while the app runs DOES change the answer, so the Prerequisites
+/// dialog's Check again clears it through [`forget_runtime`].
 pub fn ml_runtime() -> serde_json::Value {
-    static RUNTIME: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
     RUNTIME
-        .get_or_init(|| {
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(|| {
             let Some(python) = find_python() else { return serde_json::Value::Null;
             };
             // The SAME `_runtime()` the runners use — a second probe naming its components
@@ -2801,6 +2803,14 @@ pub fn ml_runtime() -> serde_json::Value {
                 .unwrap_or(serde_json::Value::Null)
         })
         .clone()
+}
+
+static RUNTIME: std::sync::Mutex<Option<serde_json::Value>> = std::sync::Mutex::new(None);
+
+/// Forget the runtime record so the next reader re-asks the interpreter. Returns whether one was
+/// cached.
+pub fn forget_runtime() -> bool {
+    RUNTIME.lock().unwrap_or_else(|e| e.into_inner()).take().is_some()
 }
 
 /// The curve name one runner output lands under, and the back-transform companion where a transform
@@ -3142,8 +3152,9 @@ fn run_ml_coverage(
     if req.apply_well_ids.is_empty() {
         return fail("select at least one well to apply to");
     }
-    let Some(python) = find_python() else {
-        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set SANDIBUMI_PYTHON to its python.exe");
+    let python = match crate::installation::require_session_capability(crate::installation::CAPABILITY_ML_MODELS) {
+        Ok(python) => python,
+        Err(refusal) => return fail(&refusal),
     };
     let mask_curve =
         req.mask_curve.as_deref().map(|m| m.trim().to_uppercase()).filter(|m| !m.is_empty());
@@ -3749,15 +3760,18 @@ pub struct ModelWarnings {
 ///
 /// Only models with something to say appear. A list that returned a row per model, most of them
 /// empty, would put the burden of finding the two that matter back on the caller.
-pub fn model_warnings(conn: &Connection) -> Vec<ModelWarnings> {
-    let now = ml_runtime();
+///
+/// `now` is [`ml_runtime`], asked by the caller BEFORE it takes the connection lock: after a
+/// Prerequisites check it re-probes the interpreter, which takes seconds, and every other database
+/// command would wait on the lock for that long.
+pub fn model_warnings(conn: &Connection, now: &serde_json::Value) -> Vec<ModelWarnings> {
     crate::db::list_ml_models(conn)
         .unwrap_or_default()
         .into_iter()
         .filter_map(|m| {
             let mut notes = Vec::new();
             if !now.is_null() {
-                notes.extend(runtime_drift(m.runtime_json.as_deref(), &now));
+                notes.extend(runtime_drift(m.runtime_json.as_deref(), now));
             }
             notes.extend(training_set_drift(conn, m.training_json.as_deref()));
             (!notes.is_empty()).then(|| ModelWarnings { model_id: m.model_id, notes })
@@ -4162,8 +4176,9 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             return fail("supervised learning needs at least one training well");
         }
     }
-    let Some(python) = find_python() else {
-        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set SANDIBUMI_PYTHON to its python.exe");
+    let python = match crate::installation::require_session_capability(crate::installation::CAPABILITY_ML_MODELS) {
+        Ok(python) => python,
+        Err(refusal) => return fail(&refusal),
     };
 
     let d = features.len();
@@ -5099,8 +5114,9 @@ pub fn apply_ml_model(
     if base.is_empty() {
         return fail("output curve name is empty");
     }
-    let Some(python) = find_python() else {
-        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set SANDIBUMI_PYTHON to its python.exe");
+    let python = match crate::installation::require_session_capability(crate::installation::CAPABILITY_ML_MODELS) {
+        Ok(python) => python,
+        Err(refusal) => return fail(&refusal),
     };
     let mask_curve = req.mask_curve.as_deref().map(|m| m.trim().to_uppercase()).filter(|m| !m.is_empty());
     let window = req.interval;
@@ -5900,7 +5916,7 @@ groups = np.frombuffer(raw, dtype=np.float32, count=n, offset=4 * (n * d + n)).a
 try:
     import sklearn  # noqa: F401
 except ImportError:
-    fail("scikit-learn is not installed for this Python - run: pip install scikit-learn")
+    fail('scikit-learn is not installed for this Python - run: "%s" -m pip install scikit-learn' % sys.executable)
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GroupKFold, KFold
 from sklearn.inspection import permutation_importance
@@ -6402,8 +6418,9 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
     if req.train_well_ids.len() < 2 {
         return eval_fail("blind-well comparison needs at least 2 training wells (whole wells are held out)");
     }
-    let Some(python) = find_python() else {
-        return eval_fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn");
+    let python = match crate::installation::require_session_capability(crate::installation::CAPABILITY_ML_MODELS) {
+        Ok(python) => python,
+        Err(refusal) => return eval_fail(&refusal),
     };
 
     // Pool complete labelled samples across the training wells, tracking each sample's well index
@@ -6745,6 +6762,13 @@ pub(crate) fn exec_ml_eval(
 mod tests {
     use super::*;
 
+    /// Past their request-shape checks, the entry points refuse before any Python work unless the
+    /// session Python carries every package the ML capability requires, so a test driving one past
+    /// those checks needs exactly that.
+    fn ml_can_run() -> bool {
+        crate::installation::require_session_capability(crate::installation::CAPABILITY_ML_MODELS).is_ok()
+    }
+
     fn python_with_sklearn() -> Option<PathBuf> {
         let p = find_python()?;
         let mut cmd = Command::new(&p);
@@ -7079,8 +7103,8 @@ mod tests {
         assert!(run_ml(&db, &mk_req("regression", &["GR"], None, &[tr.clone()], &[ap.clone()]), None).error.is_some(), "supervised without target");
         assert!(run_ml(&db, &mk_req("regression", &["GR"], Some("RHOB"), &[], &[ap.clone()]), None).error.is_some(), "supervised without train wells");
 
-        if find_python().is_none() {
-            eprintln!("skipping python-dependent run_ml guards: no python+numpy");
+        if !ml_can_run() {
+            eprintln!("skipping python-dependent run_ml guards: no Python with the ML packages");
             return;
         }
         // Only 5 labelled samples → the <10 refusal (fires before sklearn).
@@ -7124,8 +7148,8 @@ mod tests {
 
         let ids = well.to_string();
         let db = Mutex::new(conn);
-        if find_python().is_none() {
-            eprintln!("skipping: no python+numpy");
+        if !ml_can_run() {
+            eprintln!("skipping: no Python with the ML packages");
             return;
         }
         let mut masked = mk_req("clustering", &["GR"], None, &[], &[ids.clone()]);
@@ -8250,8 +8274,8 @@ mod tests {
             ids.push(id.to_string());
         }
         let dbm = Mutex::new(conn);
-        if find_python().is_none() {
-            eprintln!("skipping: no python+numpy");
+        if !ml_can_run() {
+            eprintln!("skipping: no Python with the ML packages");
             return;
         }
 
@@ -8324,8 +8348,8 @@ mod tests {
             ids.push(id.to_string());
         }
         let dbm = Mutex::new(conn);
-        if find_python().is_none() {
-            eprintln!("skipping: no python+numpy");
+        if !ml_can_run() {
+            eprintln!("skipping: no Python with the ML packages");
             return;
         }
 
@@ -8403,8 +8427,8 @@ mod tests {
 
         let (gid, eid) = (good.to_string(), empty.to_string());
         let dbm = Mutex::new(conn);
-        if find_python().is_none() {
-            eprintln!("skipping: no python+numpy");
+        if !ml_can_run() {
+            eprintln!("skipping: no Python with the ML packages");
             return;
         }
         let r = run_ml(&dbm, &mk_req("clustering", &["GR"], None, &[], &[gid.clone(), eid.clone()]), None);
@@ -9374,8 +9398,8 @@ mod tests {
     #[ignore]
     fn a_saved_model_applies_to_an_unseen_well_without_refitting() {
         let (dbm, cored, blind) = two_well_db();
-        if find_python().is_none() {
-            eprintln!("skipping: no python+numpy");
+        if !ml_can_run() {
+            eprintln!("skipping: no Python with the ML packages");
             return;
         }
         let mut req = mk_req("regression", &["GR", "RHOB"], Some("PHIT_CORE"), &[cored.clone()], &[cored.clone()]);
@@ -9435,8 +9459,8 @@ mod tests {
         use crate::db;
         use duckdb::Connection;
         use uuid::Uuid;
-        if find_python().is_none() {
-            eprintln!("skipping: no python+numpy");
+        if !ml_can_run() {
+            eprintln!("skipping: no Python with the ML packages");
             return;
         }
 
@@ -9627,8 +9651,8 @@ mod tests {
     fn a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order() {
         use std::io::Write as _;
         let (dbm, cored, _blind) = two_well_db();
-        if find_python().is_none() {
-            eprintln!("skipping: no python+numpy");
+        if !ml_can_run() {
+            eprintln!("skipping: no Python with the ML packages");
             return;
         }
         let mut req = mk_req("regression", &["GR", "RHOB"], Some("PHIT_CORE"), &[cored.clone()], &[cored.clone()]);

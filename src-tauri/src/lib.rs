@@ -1602,18 +1602,37 @@ async fn run_equation(
 /// Reports which Python interpreter (with numpy) the equation engine will use, and whether
 /// the optional scipy is importable in it — shown in the Equation Editor so a missing install
 /// is obvious while writing the script, not after it is queued across ninety wells.
+/// Async because the answer is re-probed after every Prerequisites check, and a probe run on the
+/// event-loop thread freezes the window for as long as numpy and scipy take to import.
 #[tauri::command]
-fn python_status() -> python_engine::PythonStatus {
-    python_engine::python_status()
+async fn python_status() -> Result<python_engine::PythonStatus, String> {
+    tauri::async_runtime::spawn_blocking(python_engine::python_status)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Resolves when a manifest capability can run in the session Python; otherwise rejects with the
+/// manifest refusal - the missing packages and the command that installs them there. Asked before
+/// a click opens a dialog or starts a run, so a missing package is refused before the work.
+#[tauri::command]
+async fn capability_support(capability_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        installation::require_session_capability(&capability_id).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// One truthful prerequisite surface for the whole application. Its capability and package
 /// rows come from the bundled manifest; absence of Python makes only those rows unavailable.
 /// Async because the probe imports every manifest package in a subprocess, which takes seconds
-/// with the ML packages installed. A sync command would freeze the window for that long.
+/// with the ML packages installed. A sync command would freeze the window for that long. Each call
+/// first forgets the session's cached package answers: opening the dialog and pressing its Check
+/// again both mean "ask this machine now", and a package installed since must show everywhere.
 #[tauri::command]
 async fn installation_support() -> Result<installation::InstallationSupport, String> {
     tauri::async_runtime::spawn_blocking(|| {
+        installation::forget_session_package_answers();
         installation::installation_support(python_engine::python_resolution()?)
     })
     .await
@@ -2939,8 +2958,9 @@ async fn ml_determinism_note(task: String, algorithm: String) -> Result<Option<S
 async fn ml_model_warnings(db: tauri::State<'_, DbState>) -> Result<Vec<ml::ModelWarnings>, String> {
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let now = ml::ml_runtime();
         let c = conn.lock().unwrap();
-        Ok(ml::model_warnings(&c))
+        Ok(ml::model_warnings(&c, &now))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -3730,7 +3750,7 @@ fn shift_well_images(
 /// Can the pore measurement run? Probed once so a dialog can say what is missing before a run,
 /// rather than failing at the end of one.
 #[tauri::command]
-async fn pore_support() -> Result<bool, String> {
+async fn pore_support() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(petrography::pore_support)
         .await
         .map_err(|e| e.to_string())?
@@ -3750,7 +3770,7 @@ async fn run_pore_area(
 
 /// Is scikit-learn reachable? Probed so the dialog can say what is missing before a run.
 #[tauri::command]
-async fn classify_support() -> Result<bool, String> {
+async fn classify_support() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(petrography::classify_support)
         .await
         .map_err(|e| e.to_string())?
@@ -3852,7 +3872,7 @@ fn delete_curve_selection(db: tauri::State<DbState>, name: String) -> Result<(),
 /// Are numpy and Pillow reachable? Probed once so the conditioning workspace can say what is
 /// missing before a photograph is opened rather than after a slider is moved.
 #[tauri::command]
-async fn core_image_support() -> Result<bool, String> {
+async fn core_image_support() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(coreimage::core_image_support)
         .await
         .map_err(|e| e.to_string())?
@@ -4828,6 +4848,7 @@ pub fn run() {
             list_core_registrations,
             set_image_details,
             core_image_support,
+            capability_support,
             preview_core_image,
             bake_core_images,
             apply_core_look,
